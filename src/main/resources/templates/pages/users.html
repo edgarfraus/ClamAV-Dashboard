@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Users · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Users</div>
+        <div class="app-title__subtitle">Manage accounts that can sign in to this console</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div class="panel mb-3">
+        <div class="panel-body">
+          <div class="card-title mb-3"><i class="fa-solid fa-user-plus"></i> Add user</div>
+          <form th:action="@{/admin/users/create}" method="post" class="row g-2 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label">Username</label>
+              <input type="text" class="form-control" name="username" required="required"/>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Password</label>
+              <input type="password" class="form-control" name="password" required="required"/>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Role</label>
+              <select class="form-select" name="role">
+                <option value="VIEWER">VIEWER (read only)</option>
+                <option value="OPERATOR">OPERATOR (can scan)</option>
+                <option value="ADMIN">ADMIN (full access)</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="enabled" value="true" id="newUserEnabled" checked="checked"/>
+                <label class="form-check-label" for="newUserEnabled" style="font-size:12px;">Enabled</label>
+              </div>
+            </div>
+            <div class="col-md-1">
+              <button type="submit" class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i></button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-body">
+          <div class="card-title mb-3">Accounts</div>
+          <div th:if="${users == null or #lists.isEmpty(users)}" class="muted">No users yet.</div>
+          <div class="table-responsive" th:unless="${users == null or #lists.isEmpty(users)}">
+            <table class="table table-striped table-hover align-middle">
+              <thead>
+                <tr><th>Username</th><th>Roles</th><th>Enabled</th><th>Last login</th><th style="width:320px;">Actions</th></tr>
+              </thead>
+              <tbody>
+                <tr th:each="u : ${users}">
+                  <td th:text="${u.username}">user</td>
+                  <td th:text="${u.roles}">roles</td>
+                  <td th:text="${u.enabled} ? 'yes' : 'no'">enabled</td>
+                  <td th:text="${u.lastLoginAt ?: '—'}">time</td>
+                  <td>
+                    <form th:action="@{'/admin/users/' + ${u.id} + '/reset'}" method="post" style="display:inline-flex; gap:6px; align-items:center;">
+                      <input type="password" name="newPassword" class="form-control form-control-sm" placeholder="new password" style="width:150px;" required="required"/>
+                      <button type="submit" class="btn btn-outline-light btn-sm"><i class="fa-solid fa-key"></i></button>
+                    </form>
+                    <form th:action="@{'/admin/users/' + ${u.id} + '/delete'}" method="post" style="display:inline;"
+                          onsubmit="return confirm('Delete this user?');">
+                      <button type="submit" class="btn btn-outline-light btn-sm text-danger"><i class="fa-solid fa-trash"></i></button>
+                    </form>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

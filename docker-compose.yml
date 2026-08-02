@@ -1,0 +1,37 @@
+services:
+  clamav-web-client:
+    build: .
+    container_name: clamav-web-client
+    networks:
+      lan:
+        # Se vuoi un IP fisso invece che scelto dal pool, decommenta e imposta:
+        # ipv4_address: 192.168.1.221
+      default: {}
+    environment:
+      - CLAMAV_HOST=clamav-server
+      - CLAMAV_PORT=3310
+    volumes:
+      - ./conf:/app/conf
+      - ./data:/app/data
+      - ./scandir:/scandir:ro
+    depends_on:
+      - clamav-server
+
+  clamav-server:
+    image: clamav/clamav-debian:stable
+    container_name: clamav
+    networks:
+      - default
+    volumes:
+      - clamav-db:/var/lib/clamav
+
+volumes:
+  clamav-db: {}
+
+networks:
+  default:
+    driver: bridge
+
+  lan:
+    external: true
+    name: lan   # <-- SOSTITUISCI con il nome reale (vedi: docker network ls)

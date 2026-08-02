@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Settings · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Settings</div>
+        <div class="app-title__subtitle">Application-wide scan &amp; storage configuration</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div class="alert alert-warning" style="font-size:13px;">
+        Note: unchecked checkboxes are not submitted by browsers, so unticking a box and saving
+        will not persist that change unless you also re-save with it deliberately unticked and the
+        form re-submitted. Toggle carefully and reload the page to confirm.
+      </div>
+
+      <form th:action="@{/admin/settings}" method="post">
+        <div class="panel mb-3">
+          <div class="panel-body">
+            <div class="card-title mb-3">Scan roots &amp; uploads</div>
+
+            <div class="mb-3">
+              <label class="form-label">Allowed scan roots (comma-separated absolute paths)</label>
+              <input type="text" class="form-control" name="app.allowedScanRoots"
+                     th:value="${settings['app.allowedScanRoots']}"/>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Upload max bytes</label>
+                <input type="text" class="form-control" name="app.upload.maxBytes"
+                       th:value="${settings['app.upload.maxBytes']}"/>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Concurrent scans</label>
+                <input type="text" class="form-control" name="app.concurrentScans"
+                       th:value="${settings['app.concurrentScans']}"/>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Upload directory</label>
+                <input type="text" class="form-control" name="app.storage.uploadDir"
+                       th:value="${settings['app.storage.uploadDir']}"/>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel mb-3">
+          <div class="panel-body">
+            <div class="card-title mb-3">Quarantine</div>
+            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+              <label class="switch">
+                <input type="checkbox" name="app.quarantine.enabled" value="true"
+                       th:checked="${settings['app.quarantine.enabled'] == 'true'}"/>
+                <span class="slider"></span>
+              </label>
+              <span>Enable quarantine</span>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Quarantine directory</label>
+              <input type="text" class="form-control" name="app.storage.quarantineDir"
+                     th:value="${settings['app.storage.quarantineDir']}"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel mb-3">
+          <div class="panel-body">
+            <div class="card-title mb-3">Webhook notifications</div>
+            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+              <label class="switch">
+                <input type="checkbox" name="app.webhook.enabled" value="true"
+                       th:checked="${settings['app.webhook.enabled'] == 'true'}"/>
+                <span class="slider"></span>
+              </label>
+              <span>Enable webhook</span>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Webhook URL</label>
+              <input type="text" class="form-control" name="app.webhook.url"
+                     th:value="${settings['app.webhook.url']}"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel mb-3">
+          <div class="panel-body">
+            <div class="card-title mb-3">Watch directories</div>
+            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+              <label class="switch">
+                <input type="checkbox" name="app.watch.enabled" value="true"
+                       th:checked="${settings['app.watch.enabled'] == 'true'}"/>
+                <span class="slider"></span>
+              </label>
+              <span>Enable watching</span>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Poll interval (seconds)</label>
+              <input type="text" class="form-control" name="app.watch.pollSeconds"
+                     th:value="${settings['app.watch.pollSeconds']}"/>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save settings</button>
+      </form>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

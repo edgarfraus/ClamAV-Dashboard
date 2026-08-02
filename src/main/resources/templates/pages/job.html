@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Job detail · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Job detail</div>
+        <div class="app-title__subtitle"><a href="/jobs">&larr; back to jobs</a></div>
+      </div>
+    </div>
+
+    <div class="app-content" th:if="${job != null}">
+      <div class="row g-3 mb-3">
+        <div class="col-sm-3">
+          <div class="panel"><div class="panel-body">
+            <div class="section-title muted">Status</div>
+            <div class="mt-2"><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(job.status)}" th:text="${job.status}">STATUS</span></div>
+          </div></div>
+        </div>
+        <div class="col-sm-3">
+          <div class="panel"><div class="panel-body">
+            <div class="section-title muted">Verdict</div>
+            <div class="mt-2">
+              <span th:if="${job.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(job.verdict)}" th:text="${job.verdict}">VERDICT</span>
+              <span th:unless="${job.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+            </div>
+          </div></div>
+        </div>
+        <div class="col-sm-3">
+          <div class="panel"><div class="panel-body">
+            <div class="section-title muted">Type</div>
+            <div class="kpi-sm" th:text="${job.type}">TYPE</div>
+          </div></div>
+        </div>
+        <div class="col-sm-3">
+          <div class="panel"><div class="panel-body">
+            <div class="section-title muted">Endpoint</div>
+            <div class="kpi-sm" th:text="${job.endpoint != null ? job.endpoint.name : '—'}">endpoint</div>
+          </div></div>
+        </div>
+      </div>
+
+      <div class="panel mb-3">
+        <div class="panel-body">
+          <div class="card-title mb-2">Details</div>
+          <table class="table">
+            <tbody>
+              <tr><th style="width:220px;">Job ID</th><td th:text="${job.id}">id</td></tr>
+              <tr><th>Target</th><td th:text="${job.target}">target</td></tr>
+              <tr th:if="${job.storedPath}"><th>Stored path</th><td th:text="${job.storedPath}">path</td></tr>
+              <tr th:if="${job.sha256}"><th>SHA-256</th><td><code th:text="${job.sha256}">sha</code></td></tr>
+              <tr th:if="${job.sizeBytes}"><th>Size (bytes)</th><td th:text="${job.sizeBytes}">size</td></tr>
+              <tr><th>Submitted by</th><td th:text="${job.submittedBy}">user</td></tr>
+              <tr><th>Submitted at</th><td th:text="${job.submittedAt}">time</td></tr>
+              <tr th:if="${job.startedAt}"><th>Started at</th><td th:text="${job.startedAt}">time</td></tr>
+              <tr th:if="${job.finishedAt}"><th>Finished at</th><td th:text="${job.finishedAt}">time</td></tr>
+              <tr th:if="${job.quarantinePath}"><th>Quarantine path</th><td th:text="${job.quarantinePath}">path</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel mb-3" th:if="${job.foundVirusesJson}">
+        <div class="panel-body">
+          <div class="card-title mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Threats found</div>
+          <pre th:text="${job.foundVirusesJson}">viruses</pre>
+        </div>
+      </div>
+
+      <div class="panel" th:if="${job.errorMessage}">
+        <div class="panel-body">
+          <div class="card-title mb-2 text-danger">Error</div>
+          <pre th:text="${job.errorMessage}">error</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-content" th:unless="${job != null}">
+      <div class="alert alert-warning">Job not found.</div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

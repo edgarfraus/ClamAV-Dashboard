@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Watch directories · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Watch directories</div>
+        <div class="app-title__subtitle">Directories automatically polled and scanned</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div class="alert" th:classappend="${watchEnabled} ? 'alert-success' : 'alert-warning'">
+        Watching is currently
+        <strong th:text="${watchEnabled} ? 'ENABLED' : 'DISABLED'">state</strong>
+        — toggle it from <a href="/admin/settings">Admin &gt; Settings</a>.
+      </div>
+
+      <div class="panel mb-3">
+        <div class="panel-body">
+          <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> Add watch directory</div>
+          <div th:if="${endpoints == null or #lists.isEmpty(endpoints)}" class="muted">
+            No endpoints configured yet. Go to <a href="/admin/endpoints">Admin &gt; Endpoints</a> first.
+          </div>
+          <form th:unless="${endpoints == null or #lists.isEmpty(endpoints)}"
+                th:action="@{/admin/watch/create}" method="post" class="row g-2 align-items-end">
+            <div class="col-md-6">
+              <label class="form-label">Absolute path</label>
+              <input type="text" class="form-control" name="path" placeholder="/scandir/incoming" required="required"/>
+              <div class="muted mt-1" style="font-size:12px;" th:if="${allowedRoots != null and !#lists.isEmpty(allowedRoots)}">
+                Allowed roots:
+                <span th:each="r,iter : ${allowedRoots}">
+                  <code th:text="${r}">root</code><span th:unless="${iter.last}">, </span>
+                </span>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Endpoint</label>
+              <select name="endpointId" class="form-select" required="required">
+                <option th:each="e : ${endpoints}" th:value="${e.id}" th:text="${e.name}">endpoint</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i> Add</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-body">
+          <div class="card-title mb-3">Configured watch directories</div>
+          <div th:if="${watchDirs == null or #lists.isEmpty(watchDirs)}" class="muted">No watch directories configured.</div>
+          <div class="table-responsive" th:unless="${watchDirs == null or #lists.isEmpty(watchDirs)}">
+            <table class="table table-striped table-hover align-middle">
+              <thead>
+                <tr><th>Path</th><th>Endpoint</th><th>Enabled</th><th style="width:220px;">Actions</th></tr>
+              </thead>
+              <tbody>
+                <tr th:each="w : ${watchDirs}">
+                  <td th:text="${w.path}">path</td>
+                  <td th:text="${w.endpoint != null ? w.endpoint.name : '—'}">endpoint</td>
+                  <td th:text="${w.enabled} ? 'yes' : 'no'">enabled</td>
+                  <td>
+                    <form th:action="@{'/admin/watch/' + ${w.id} + '/toggle'}" method="post" style="display:inline;">
+                      <button type="submit" class="btn btn-outline-light btn-sm">
+                        <i class="fa-solid fa-power-off"></i> Toggle
+                      </button>
+                    </form>
+                    <form th:action="@{'/admin/watch/' + ${w.id} + '/delete'}" method="post" style="display:inline;"
+                          onsubmit="return confirm('Delete this watch directory?');">
+                      <button type="submit" class="btn btn-outline-light btn-sm text-danger"><i class="fa-solid fa-trash"></i></button>
+                    </form>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Server status · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Server status</div>
+        <div class="app-title__subtitle">Live ping / version / stats for the selected endpoint</div>
+      </div>
+      <div class="app-topbar__right">
+        <form th:action="@{/main}" method="get" class="d-flex" style="gap:8px;">
+          <select name="endpointId" class="form-select" onchange="this.form.submit()">
+            <option th:each="e : ${endpoints}" th:value="${e.id}" th:text="${e.name}"
+                    th:selected="${endpoint != null and endpoint.id == e.id}">endpoint</option>
+          </select>
+        </form>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div th:if="${error}" class="alert alert-danger" th:text="${error}">error</div>
+
+      <div th:if="${endpoint == null}" class="alert alert-warning">
+        No endpoints configured yet. Go to <a href="/admin/endpoints">Admin &gt; Endpoints</a> to create one.
+      </div>
+
+      <div th:if="${endpoint != null}">
+        <div class="panel mb-3">
+          <div class="panel-body">
+            <div class="card-title">Endpoint</div>
+            <div><strong th:text="${endpoint.name}">name</strong> —
+              <span class="muted" th:text="${endpoint.host} + ':' + ${endpoint.port} + ' (' + ${endpoint.platform} + ')'">host:port</span>
+            </div>
+            <div class="mt-2">
+              <span th:if="${pingOk}" class="badge-status badge-ok">Online</span>
+              <span th:unless="${pingOk}" class="badge-status badge-danger">Unreachable</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-3" th:if="${pingOk}">
+          <div class="col-md-6">
+            <div class="panel"><div class="panel-body">
+              <div class="card-title">Version</div>
+              <pre th:text="${version}">version</pre>
+            </div></div>
+          </div>
+          <div class="col-md-6">
+            <div class="panel"><div class="panel-body">
+              <div class="card-title">Stats</div>
+              <pre th:text="${stats}">stats</pre>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

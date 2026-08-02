@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Audit log · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Audit log</div>
+        <div class="app-title__subtitle">Last 200 recorded actions</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div th:if="${auditEvents == null or #lists.isEmpty(auditEvents)}" class="muted">No audit events yet.</div>
+      <div class="table-responsive" th:unless="${auditEvents == null or #lists.isEmpty(auditEvents)}">
+        <table class="table table-striped table-hover align-middle">
+          <thead>
+            <tr><th>Time</th><th>User</th><th>Action</th><th>Details</th><th>Outcome</th><th>Job</th><th>IP</th></tr>
+          </thead>
+          <tbody>
+            <tr th:each="a : ${auditEvents}">
+              <td th:text="${a.at}" class="mono">time</td>
+              <td th:text="${a.username ?: '—'}">user</td>
+              <td th:text="${a.action}" class="mono">action</td>
+              <td th:text="${a.details}" style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">details</td>
+              <td>
+                <span class="badge-status" th:classappend="${a.outcome == 'SUCCESS'} ? 'badge-ok' : 'badge-danger'" th:text="${a.outcome}">outcome</span>
+              </td>
+              <td>
+                <a th:if="${a.jobId}" th:href="@{'/jobs/' + ${a.jobId}}" th:text="${#strings.substring(a.jobId,0,8)}">job</a>
+                <span th:unless="${a.jobId}">—</span>
+              </td>
+              <td th:text="${a.ip ?: '—'}">ip</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

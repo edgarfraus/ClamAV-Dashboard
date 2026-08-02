@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Scan · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Scan</div>
+        <div class="app-title__subtitle">Upload files or scan a path on the selected endpoint</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div th:if="${errorMsg}" class="alert alert-danger" th:text="${errorMsg}">error</div>
+      <div th:if="${endpoints == null or #lists.isEmpty(endpoints)}" class="alert alert-warning">
+        No endpoints configured yet. Go to <a href="/admin/endpoints">Admin &gt; Endpoints</a> to create one first.
+      </div>
+
+      <div class="row g-3" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
+        <div class="col-lg-6">
+          <div class="panel">
+            <div class="panel-body">
+              <div class="card-title mb-3"><i class="fa-solid fa-upload"></i> Upload scan</div>
+              <form th:action="@{/scan/upload}" method="post" enctype="multipart/form-data">
+                <div class="mb-3">
+                  <label class="form-label">Endpoint</label>
+                  <select name="endpointId" class="form-select" required="required">
+                    <option th:each="e : ${endpoints}" th:value="${e.id}" th:text="${e.name}"
+                            th:selected="${endpointId != null and endpointId == e.id}">endpoint</option>
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Files</label>
+                  <input type="file" name="files" class="form-control" multiple="multiple" required="required"/>
+                  <div class="muted mt-1" style="font-size:12px;" th:if="${uploadMaxBytes}">
+                    Max size: <span th:text="${uploadMaxBytes}">bytes</span> bytes total
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass"></i> Scan files</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-6">
+          <div class="panel">
+            <div class="panel-body">
+              <div class="card-title mb-3"><i class="fa-solid fa-folder-open"></i> Path scan</div>
+              <form th:action="@{/scan/path}" method="post">
+                <div class="mb-3">
+                  <label class="form-label">Endpoint</label>
+                  <select name="endpointId" class="form-select" required="required">
+                    <option th:each="e : ${endpoints}" th:value="${e.id}" th:text="${e.name}"
+                            th:selected="${endpointId != null and endpointId == e.id}">endpoint</option>
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Absolute path</label>
+                  <input type="text" name="path" class="form-control" placeholder="/scandir/somefile" required="required"/>
+                  <div class="muted mt-1" style="font-size:12px;" th:if="${allowedRoots != null and !#lists.isEmpty(allowedRoots)}">
+                    Allowed roots:
+                    <span th:each="r,iter : ${allowedRoots}">
+                      <code th:text="${r}">root</code><span th:unless="${iter.last}">, </span>
+                    </span>
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass"></i> Scan path</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel mt-3">
+        <div class="panel-body">
+          <div class="card-title mb-3">Recent jobs</div>
+          <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">No scans yet.</div>
+          <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
+            <table class="table table-striped table-hover">
+              <thead>
+                <tr><th>ID</th><th>Type</th><th>Status</th><th>Verdict</th><th>Target</th><th>Endpoint</th></tr>
+              </thead>
+              <tbody>
+                <tr th:each="j : ${jobs}">
+                  <td><a th:href="@{'/jobs/' + ${j.id}}" th:text="${#strings.substring(j.id,0,8)}" class="mono">id</a></td>
+                  <td th:text="${j.type}" class="mono">TYPE</td>
+                  <td><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.status)}" th:text="${j.status}">STATUS</span></td>
+                  <td>
+                    <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
+                    <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+                  </td>
+                  <td th:text="${j.target}" class="mono" style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">target</td>
+                  <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}">endpoint</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

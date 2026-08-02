@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Jobs · ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Jobs</div>
+        <div class="app-title__subtitle">All scan jobs tracked by this web client</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div th:if="${errorMsg}" class="alert alert-danger" th:text="${errorMsg}">error</div>
+      <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">No scans yet. Go to <a href="/scan">Scan</a> to run one.</div>
+      <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
+        <table class="table table-striped table-hover">
+          <thead>
+            <tr><th>ID</th><th>Type</th><th>Status</th><th>Verdict</th><th>Target</th><th>Endpoint</th><th>Submitted by</th><th>Submitted at</th></tr>
+          </thead>
+          <tbody>
+            <tr th:each="j : ${jobs}">
+              <td><a th:href="@{'/jobs/' + ${j.id}}" th:text="${#strings.substring(j.id,0,8)}" class="mono">id</a></td>
+              <td th:text="${j.type}" class="mono">TYPE</td>
+              <td><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.status)}" th:text="${j.status}">STATUS</span></td>
+              <td>
+                <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
+                <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+              </td>
+              <td th:text="${j.target}" class="mono" style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">target</td>
+              <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}">endpoint</td>
+              <td th:text="${j.submittedBy}">user</td>
+              <td th:text="${j.submittedAt}" class="mono">time</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,512 @@
+/*
+  ClamAV Web Client - "Instrument Panel" theme
+  Diagnostic/lab console aesthetic: warm paper surfaces, clinical teal accent,
+  status colors that carry real meaning (verdict/status), IBM Plex type system.
+  Dark/light theme toggle via <html data-theme="dark|light">.
+*/
+
+:root {
+  /* Light (paper/lab) surfaces */
+  --paper: #f6f5f1;
+  --paper2: #ffffff;
+  --ink: #14181c;
+  --muted: #5c6470;
+  --line: #dcd9d0;
+  --shadow: 0 1px 2px rgba(20, 24, 28, 0.04), 0 8px 24px rgba(20, 24, 28, 0.06);
+
+  /* Signal colors - meaningful, not decorative */
+  --signal: #0f6e5c;      /* clean / ok / primary accent */
+  --signal-ink: #ffffff;
+  --alert: #b3261e;       /* virus found / error */
+  --amber: #9a6b14;       /* queued / pending / running */
+
+  --radius: 14px;
+  --radius-sm: 9px;
+
+  --font-display: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html[data-theme="dark"] {
+  --paper: #14181c;
+  --paper2: #1b2126;
+  --ink: #ecebe4;
+  --muted: #9aa2ab;
+  --line: rgba(255, 255, 255, 0.10);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  --signal: #2fbfa0;
+  --signal-ink: #06201b;
+  --alert: #ff6b61;
+  --amber: #e0ab4c;
+}
+
+/* Global */
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--signal); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, pre, .mono { font-family: var(--font-mono); }
+
+.muted, .text-muted { color: var(--muted) !important; }
+
+pre {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  overflow: auto;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+h1, h2, h3, h4, h5, h6, .card-title, .panel-title, .section-title {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- Shell layout ---------- */
+.app-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  padding: 20px;
+  min-height: 100vh;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1100px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .app-sidebar { position: sticky; top: 12px; z-index: 5; }
+}
+
+/* ---------- Sidebar: instrument nameplate ---------- */
+.app-sidebar {
+  background: var(--paper2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sidebar-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.sidebar-appname {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-caption {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.sidebar-section__title {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 0 10px;
+  margin-bottom: 4px;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 16px 0;
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  border-left: 2px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.nav-btn i { width: 16px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.nav-btn:hover {
+  background: color-mix(in srgb, var(--signal) 8%, transparent);
+  text-decoration: none;
+}
+
+.nav-btn.active {
+  background: color-mix(in srgb, var(--signal) 12%, transparent);
+  border-left-color: var(--signal);
+  font-weight: 600;
+}
+.nav-btn.active i { color: var(--signal); }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Main / topbar ---------- */
+.app-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.app-topbar {
+  position: relative;
+  background: var(--paper2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* Signature element: scan line sweep under the topbar */
+.app-topbar::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--signal), transparent);
+  background-size: 200% 100%;
+  animation: scan-sweep 5s linear infinite;
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-topbar::after { animation: none; background-position: 40% 0; }
+}
+
+@keyframes scan-sweep {
+  0%   { background-position: 120% 0; }
+  100% { background-position: -20% 0; }
+}
+
+.app-title__name {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.app-title__subtitle {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.app-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.app-footer {
+  margin-top: 4px;
+  padding: 4px 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ---------- Cards / panels ---------- */
+.card, .panel {
+  background: var(--paper2) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow);
+}
+
+.card .card-body, .panel-body { padding: 18px 20px; }
+
+.card-title, .panel .card-title { font-weight: 600; font-size: 14.5px; }
+
+.section-title {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.kpi {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 600;
+  margin-top: 6px;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.kpi-sm {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 600;
+  margin-top: 6px;
+  color: var(--ink);
+}
+
+/* ---------- Forms ---------- */
+.form-control, .form-select {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--paper2);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 13.5px;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 18%, transparent);
+}
+
+label.form-label {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 5px;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.btn-primary {
+  background: var(--signal);
+  border: 1px solid var(--signal);
+  color: var(--signal-ink);
+}
+.btn-primary:hover, .btn-primary:focus {
+  background: color-mix(in srgb, var(--signal) 85%, black);
+  border-color: color-mix(in srgb, var(--signal) 85%, black);
+  color: var(--signal-ink);
+}
+
+.btn-outline-light {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: transparent;
+}
+.btn-outline-light:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+
+/* ---------- Alerts ---------- */
+.alert {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.alert-danger {
+  border-color: color-mix(in srgb, var(--alert) 35%, var(--line));
+  background: color-mix(in srgb, var(--alert) 10%, transparent);
+  color: var(--alert);
+}
+.alert-success {
+  border-color: color-mix(in srgb, var(--signal) 35%, var(--line));
+  background: color-mix(in srgb, var(--signal) 10%, transparent);
+  color: var(--signal);
+}
+.alert-warning {
+  border-color: color-mix(in srgb, var(--amber) 35%, var(--line));
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  color: var(--amber);
+}
+
+/* ---------- Status badges (verdict / job status) ---------- */
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge-status::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.badge-ok, .badge-finished {
+  color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 12%, transparent);
+  border-color: color-mix(in srgb, var(--signal) 30%, transparent);
+}
+.badge-danger, .badge-virus_found, .badge-error {
+  color: var(--alert);
+  background: color-mix(in srgb, var(--alert) 12%, transparent);
+  border-color: color-mix(in srgb, var(--alert) 30%, transparent);
+}
+.badge-pending, .badge-queued, .badge-running {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+}
+.badge-neutral {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border-color: var(--line);
+}
+
+/* ---------- Tables ---------- */
+.table {
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.table thead th {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+.table td, .table th {
+  border-top-color: var(--line);
+  padding: 10px 8px;
+  vertical-align: middle;
+}
+.table-striped > tbody > tr:nth-of-type(odd) > * {
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
+}
+.table-hover > tbody > tr:hover > * {
+  background: color-mix(in srgb, var(--signal) 6%, transparent);
+}
+.table code { font-size: 12.5px; }
+
+/* ---------- Toggle switch ---------- */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 21px;
+  flex-shrink: 0;
+}
+.switch input { display: none; }
+.switch .slider {
+  position: absolute;
+  inset: 0;
+  background: var(--line);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+.switch .slider:before {
+  content: "";
+  position: absolute;
+  height: 15px; width: 15px;
+  left: 3px; top: 3px;
+  background: var(--paper2);
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.switch input:checked + .slider { background: var(--signal); }
+.switch input:checked + .slider:before { transform: translateX(17px); }
+
+/* ---------- Dropdowns ---------- */
+.dropdown-menu {
+  background-color: var(--paper2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  border-radius: var(--radius-sm);
+}
+.dropdown-item { color: var(--ink); }
+.dropdown-item:hover, .dropdown-item:focus {
+  background-color: color-mix(in srgb, var(--signal) 10%, transparent);
+  color: var(--ink);
+}
+
+/* ---------- Login page ---------- */
+body[data-theme] .card { max-width: 100%; }
+
+/* Focus visibility (accessibility floor) */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, .nav-btn:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}

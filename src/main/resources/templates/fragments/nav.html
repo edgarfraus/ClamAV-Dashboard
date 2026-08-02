@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+<aside class="app-sidebar" th:fragment="sidebar">
+  <div class="sidebar-header">
+    <img class="sidebar-logo" src="/images/logo.jpg" alt="logo"/>
+    <div>
+      <div class="sidebar-appname">ClamAV Web Client</div>
+      <div class="sidebar-caption" sec:authentication="name">user</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-section">
+    <div class="sidebar-section__title">Scan</div>
+    <a class="nav-btn" th:classappend="${currentUri == '/dashboard'} ? ' active'" href="/dashboard"><i class="fa-solid fa-gauge"></i> Dashboard</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/main'} ? ' active'" href="/main"><i class="fa-solid fa-server"></i> Server status</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/scan'} ? ' active'" href="/scan"><i class="fa-solid fa-magnifying-glass"></i> Scan</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/jobs'} ? ' active'" href="/jobs"><i class="fa-solid fa-list-check"></i> Jobs</a>
+  </nav>
+
+  <div class="sidebar-divider" sec:authorize="hasRole('ADMIN')"></div>
+
+  <nav class="sidebar-section" sec:authorize="hasRole('ADMIN')">
+    <div class="sidebar-section__title">Admin</div>
+    <a class="nav-btn" th:classappend="${currentUri == '/admin/endpoints'} ? ' active'" href="/admin/endpoints"><i class="fa-solid fa-network-wired"></i> Endpoints</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/admin/watch'} ? ' active'" href="/admin/watch"><i class="fa-solid fa-eye"></i> Watch dirs</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/admin/users'} ? ' active'" href="/admin/users"><i class="fa-solid fa-users"></i> Users</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/admin/audit'} ? ' active'" href="/admin/audit"><i class="fa-solid fa-clipboard-list"></i> Audit log</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/admin/settings'} ? ' active'" href="/admin/settings"><i class="fa-solid fa-gear"></i> Settings</a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <label class="switch" title="Toggle theme">
+      <input type="checkbox" id="themeToggle"/>
+      <span class="slider"></span>
+    </label>
+    <span class="muted">Dark mode</span>
+    <form th:action="@{/logout}" method="post" style="margin-top:10px;">
+      <button type="submit" class="btn btn-outline-light btn-sm w-100">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
+    </form>
+  </div>
+</aside>
+</body>
+</html>
