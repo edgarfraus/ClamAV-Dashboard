@@ -9,6 +9,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -21,7 +26,6 @@ public class SignatureReloadService {
 
     private final SettingsService settings;
     private final ClamdEndpointRepository endpointRepo;
-    private final ClamavClientProvider clientProvider;
     private final ThreadPoolTaskScheduler taskScheduler;
 
     private volatile ScheduledFuture<?> currentFuture;
@@ -30,11 +34,9 @@ public class SignatureReloadService {
 
     public SignatureReloadService(SettingsService settings,
                                   ClamdEndpointRepository endpointRepo,
-                                  ClamavClientProvider clientProvider,
                                   ThreadPoolTaskScheduler taskScheduler) {
         this.settings = settings;
         this.endpointRepo = endpointRepo;
-        this.clientProvider = clientProvider;
         this.taskScheduler = taskScheduler;
     }
 
@@ -57,16 +59,7 @@ public class SignatureReloadService {
 
     public Map<String, String> reloadAll() {
         Map<String, String> results = new LinkedHashMap<>();
-        endpointRepo.findByEnabledTrue().forEach(ep -> {
-            try {
-                clientProvider.clientFor(ep).reload();
-                results.put(ep.getName(), "OK");
-                log.info("Signature reload OK on endpoint '{}'", ep.getName());
-            } catch (Exception e) {
-                results.put(ep.getName(), "ERROR: " + e.getMessage());
-                log.warn("Signature reload failed on endpoint '{}': {}", ep.getName(), e.getMessage());
-            }
-        });
+        endpointRepo.findByEnabledTrue().forEach(ep -> results.put(ep.getName(), sendReload(ep)));
         lastReloadAt = Instant.now();
         lastReloadResults = results;
         return results;
@@ -74,13 +67,41 @@ public class SignatureReloadService {
 
     public Map<String, String> reloadEndpoint(ClamdEndpoint ep) {
         Map<String, String> results = new LinkedHashMap<>();
-        try {
-            clientProvider.clientFor(ep).reload();
-            results.put(ep.getName(), "OK");
-        } catch (Exception e) {
-            results.put(ep.getName(), "ERROR: " + e.getMessage());
-        }
+        results.put(ep.getName(), sendReload(ep));
         return results;
+    }
+
+    /**
+     * Sends the clamd RELOAD command via raw TCP socket.
+     * clamav-client 2.1.2 does not expose a reload() method, so we send it directly.
+     * Unix domain socket endpoints are skipped (freshclam handles reload automatically there).
+     */
+    private String sendReload(ClamdEndpoint ep) {
+        String host = ep.getHost();
+        int port = ep.getPort();
+
+        // Unix socket endpoints: host is a file path — skip raw TCP reload
+        if (host.startsWith("/") || host.startsWith(".")) {
+            log.info("Skipping RELOAD for Unix socket endpoint '{}' ({})", ep.getName(), host);
+            return "SKIPPED (Unix socket — freshclam reloads automatically)";
+        }
+
+        try (Socket sock = new Socket()) {
+            sock.connect(new InetSocketAddress(host, port), 4000);
+            sock.setSoTimeout(4000);
+            OutputStream out = sock.getOutputStream();
+            InputStream in = sock.getInputStream();
+            out.write("nRELOAD\n".getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            byte[] buf = new byte[64];
+            int read = in.read(buf);
+            String response = read > 0 ? new String(buf, 0, read, StandardCharsets.UTF_8).trim() : "";
+            log.info("RELOAD on endpoint '{}': {}", ep.getName(), response);
+            return response.isEmpty() ? "OK" : response;
+        } catch (Exception e) {
+            log.warn("RELOAD failed on endpoint '{}': {}", ep.getName(), e.getMessage());
+            return "ERROR: " + e.getMessage();
+        }
     }
 
     public Instant getLastReloadAt() { return lastReloadAt; }

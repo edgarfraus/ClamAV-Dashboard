@@ -494,7 +494,8 @@ public class WebUiController {
                                        @RequestParam(required = false) Long endpointId,
                                        @RequestParam(required = false) Long groupId,
                                        @RequestParam(defaultValue = "true") boolean enabled,
-                                       Authentication auth, HttpServletRequest req) {
+                                       Authentication auth, HttpServletRequest req,
+                                       Model model) {
         try {
             scheduledScanService.create(name, cronExpression, scanPath,
                     ScheduledScanTargetType.valueOf(targetType),
