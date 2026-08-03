@@ -144,7 +144,31 @@ log "Aggiorno il database firme (freshclam)..."
 if [[ "$INIT_SYS" == "systemd" ]]; then
   systemctl stop clamav-freshclam 2>/dev/null || true
 fi
-freshclam --quiet || warn "freshclam ha dato un avviso (spesso normale al primo run). Continuo."
+freshclam --stdout || warn "freshclam ha dato un avviso (spesso normale al primo run, es. database gia' aggiornato). Continuo."
+
+# Il servizio clamd (via systemd socket activation) su alcune distro parte solo
+# se il database firme e' gia' presente su disco (ConditionPathExistsGlob).
+# Se freshclam non ha ancora finito di scaricarlo, aspettiamo qui, altrimenti
+# la socket unit viene "skippata" e clamd puo' finire per legarsi alla porta
+# per conto suo, causando poi un conflitto quando la socket riprova piu' tardi.
+log "Verifico che il database firme sia presente su disco..."
+db_present() {
+  [[ -f /var/lib/clamav/daily.cvd || -f /var/lib/clamav/daily.cld ]] || \
+  [[ -f /var/lib/clamav/main.cvd  || -f /var/lib/clamav/main.cld  ]]
+}
+DB_WAIT=0
+while ! db_present; do
+  if [[ $DB_WAIT -ge 120 ]]; then
+    warn "Il database firme non risulta ancora presente dopo 2 minuti di attesa."
+    warn "Provo un altro giro di freshclam per capire l'errore:"
+    freshclam --stdout || true
+    break
+  fi
+  sleep 5
+  DB_WAIT=$((DB_WAIT + 5))
+  log "  ...ancora in attesa del database firme (${DB_WAIT}s)"
+done
+ok "Database firme pronto (o ho proceduto comunque dopo l'attesa massima)."
 
 # ---------------------------------------------------------------------------
 # 5) Individua il/i nomi dell'unita' systemd per clamd (variano per distro)
@@ -153,21 +177,29 @@ CLAMD_SERVICE=""
 CLAMD_SOCKET=""
 FRESHCLAM_SERVICE=""
 
+# Controllo robusto dell'esistenza di una unit, indipendente dal formato
+# tabellare di "systemctl list-unit-files" (che varia tra versioni/distro).
+unit_exists() {
+  local state
+  state=$(systemctl show -p LoadState --value "$1" 2>/dev/null || echo "not-found")
+  [[ "$state" == "loaded" || "$state" == "masked" ]]
+}
+
 if [[ "$INIT_SYS" == "systemd" ]]; then
   systemctl stop clamav-daemon.service clamav-daemon.socket 2>/dev/null || true
   systemctl stop 'clamd@scan.service' 2>/dev/null || true
   systemctl stop clamd.service 2>/dev/null || true
 
-  if systemctl list-unit-files 2>/dev/null | grep -q '^clamav-daemon\.service'; then
+  if unit_exists clamav-daemon.service; then
     CLAMD_SERVICE="clamav-daemon.service"
-    systemctl list-unit-files 2>/dev/null | grep -q '^clamav-daemon\.socket' && CLAMD_SOCKET="clamav-daemon.socket"
-  elif [[ -f /etc/clamd.d/scan.conf ]] && systemctl list-unit-files 2>/dev/null | grep -q '^clamd@\.service'; then
+    unit_exists clamav-daemon.socket && CLAMD_SOCKET="clamav-daemon.socket"
+  elif [[ -f /etc/clamd.d/scan.conf ]] && unit_exists 'clamd@.service'; then
     CLAMD_SERVICE="clamd@scan.service"
-  elif systemctl list-unit-files 2>/dev/null | grep -q '^clamd\.service'; then
+  elif unit_exists clamd.service; then
     CLAMD_SERVICE="clamd.service"
   fi
 
-  systemctl list-unit-files 2>/dev/null | grep -q '^clamav-freshclam\.service' && FRESHCLAM_SERVICE="clamav-freshclam.service"
+  unit_exists clamav-freshclam.service && FRESHCLAM_SERVICE="clamav-freshclam.service"
 
   if [[ -z "$CLAMD_SERVICE" ]]; then
     err "Non riesco a determinare automaticamente il nome dell'unita' systemd per clamd su questa distro."
@@ -180,25 +212,7 @@ if [[ "$INIT_SYS" == "systemd" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 6) Se c'e' una socket unit, disattivala e rimuovi la dipendenza Requires=
-# ---------------------------------------------------------------------------
-if [[ -n "$CLAMD_SOCKET" ]]; then
-  log "Trovata $CLAMD_SOCKET: la maschero per evitare che ignori la config TCP..."
-  systemctl disable --now "$CLAMD_SOCKET" 2>/dev/null || true
-  systemctl mask "$CLAMD_SOCKET"
-
-  log "Rimuovo la dipendenza Requires= di $CLAMD_SERVICE dalla socket unit..."
-  OVERRIDE_DIR="/etc/systemd/system/${CLAMD_SERVICE}.d"
-  mkdir -p "$OVERRIDE_DIR"
-  cat > "${OVERRIDE_DIR}/override.conf" << EOF
-[Unit]
-Requires=
-EOF
-  ok "Socket unit mascherata e dipendenza rimossa."
-fi
-
-# ---------------------------------------------------------------------------
-# 7) Configura clamd.conf: TCPSocket + TCPAddr (idempotente)
+# 6) Configura clamd.conf: TCPSocket + TCPAddr (idempotente)
 # ---------------------------------------------------------------------------
 log "Configuro $CLAMD_CONF per l'ascolto TCP..."
 cp "$CLAMD_CONF" "${CLAMD_CONF}.bak.$(date +%Y%m%d%H%M%S)"
@@ -217,11 +231,71 @@ set_conf_value "TCPAddr" "$BIND_ADDR" "$CLAMD_CONF"
 ok "TCPSocket = $PORT, TCPAddr = $BIND_ADDR impostati (backup salvato accanto all'originale)."
 
 # ---------------------------------------------------------------------------
+# 7) Socket unit: alcune distro (es. Ubuntu recenti, tramite
+#    clamav-daemon-socket-generator) rigenerano AUTOMATICAMENTE il
+#    ListenStream della .socket leggendo TCPSocket/TCPAddr da clamd.conf,
+#    ogni volta che si fa "daemon-reload". In quel caso NON dobbiamo
+#    aggiungere un nostro drop-in, altrimenti si duplica il bind sulla
+#    stessa porta e la socket unit fallisce con "Address already in use"
+#    (conflitto con se stessa). Su distro piu' vecchie (es. Debian
+#    bookworm senza generator) serve invece il drop-in manuale, che
+#    aggiungiamo solo come fallback se il generator non ha gia' fatto
+#    il lavoro.
+# ---------------------------------------------------------------------------
+if [[ -n "$CLAMD_SOCKET" ]]; then
+  # Rimuovo qualunque drop-in manuale lasciato da un run precedente di
+  # QUESTO script, cosi' ripartiamo puliti prima di ridecidere se serve.
+  rm -rf "/etc/systemd/system/${CLAMD_SOCKET}.d" 2>/dev/null || true
+  rm -f "/etc/systemd/system/${CLAMD_SERVICE}.d/override.conf" 2>/dev/null || true
+
+  # Se un run precedente aveva mascherato la socket, la sblocco.
+  systemctl unmask "$CLAMD_SOCKET" 2>/dev/null || true
+
+  systemctl daemon-reload
+
+  if [[ "$BIND_ADDR" == "0.0.0.0" || -z "$BIND_ADDR" ]]; then
+    LISTEN_VALUE="$PORT"
+  else
+    LISTEN_VALUE="${BIND_ADDR}:${PORT}"
+  fi
+
+  ALREADY_CONFIGURED=0
+  if systemctl cat "$CLAMD_SOCKET" 2>/dev/null | grep -qE "ListenStream=($BIND_ADDR:)?$PORT$|ListenStream=0\.0\.0\.0:$PORT$"; then
+    ALREADY_CONFIGURED=1
+  fi
+
+  if [[ $ALREADY_CONFIGURED -eq 1 ]]; then
+    ok "$CLAMD_SOCKET ascolta gia' sulla porta $PORT (generata automaticamente da questa distro, da clamd.conf). Nessun drop-in manuale necessario."
+  else
+    log "$CLAMD_SOCKET non ha ancora un listener TCP: aggiungo un drop-in manuale (fallback)..."
+    SOCKET_OVERRIDE_DIR="/etc/systemd/system/${CLAMD_SOCKET}.d"
+    mkdir -p "$SOCKET_OVERRIDE_DIR"
+    cat > "${SOCKET_OVERRIDE_DIR}/tcp-socket.conf" << EOF
+[Socket]
+ListenStream=${LISTEN_VALUE}
+EOF
+    systemctl daemon-reload
+    ok "Listener TCP aggiunto manualmente a $CLAMD_SOCKET (ListenStream=${LISTEN_VALUE})."
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # 8) Avvia/abilita i servizi
 # ---------------------------------------------------------------------------
 log "Avvio clamd..."
 if [[ "$INIT_SYS" == "systemd" ]]; then
   systemctl daemon-reload
+
+  # Libero eventuali processi residui gia' legati alla porta (es. da un run
+  # precedente dove clamd si era legato direttamente saltando systemd).
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k "${PORT}/tcp" 2>/dev/null || true
+    sleep 1
+  fi
+
+  if [[ -n "$CLAMD_SOCKET" ]]; then
+    systemctl enable --now "$CLAMD_SOCKET"
+  fi
   systemctl enable --now "$CLAMD_SERVICE"
   [[ -n "$FRESHCLAM_SERVICE" ]] && (systemctl enable --now "$FRESHCLAM_SERVICE" >/dev/null 2>&1 || true)
 
