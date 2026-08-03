@@ -123,14 +123,20 @@ public class WebUiController {
     @GetMapping("/dashboard")
     public String dashboard(Model model) {
         model.addAttribute("endpointsCount", endpoints.all().size());
-        var latest = jobs.latest();
-        model.addAttribute("jobs", latest);
-        model.addAttribute("jobsCount", latest != null ? latest.size() : 0);
+        // Dashboard shows only last 10 jobs for readability
+        var dashJobs = scanJobRepo.findTop10ByOrderBySubmittedAtDesc();
+        model.addAttribute("jobs", dashJobs);
+        model.addAttribute("jobsCount", scanJobRepo.count());
         var def = endpoints.defaultEndpointOrEnsure();
         model.addAttribute("defaultEndpointName", def != null ? def.getName() : "—");
         long openAlerts = scanJobRepo.countByVerdictAndAcknowledged(ScanVerdict.VIRUS_FOUND, false);
         model.addAttribute("openAlertsCount", openAlerts);
         model.addAttribute("scheduledScansCount", scheduledScanService.all().size());
+        // Verdict summary counts
+        model.addAttribute("countOk",      scanJobRepo.countByVerdict(ScanVerdict.OK));
+        model.addAttribute("countError",   scanJobRepo.countByVerdict(ScanVerdict.ERROR));
+        model.addAttribute("countSkipped", scanJobRepo.countByVerdict(ScanVerdict.SKIPPED));
+        model.addAttribute("countVirus",   scanJobRepo.countByVerdict(ScanVerdict.VIRUS_FOUND));
         return PAGE_DASHBOARD;
     }
 
@@ -211,8 +217,22 @@ public class WebUiController {
     // ---- Jobs ----
 
     @GetMapping("/jobs")
-    public String jobs(Model model) {
-        model.addAttribute("jobs", jobs.latest());
+    public String jobs(@RequestParam(name="filter", defaultValue = "all") String filter, Model model) {
+        List<ScanJob> jobList;
+        switch (filter) {
+            case "ok"      -> jobList = scanJobRepo.findTop200ByVerdictOrderBySubmittedAtDesc(ScanVerdict.OK);
+            case "error"   -> jobList = scanJobRepo.findTop200ByVerdictOrderBySubmittedAtDesc(ScanVerdict.ERROR);
+            case "virus"   -> jobList = scanJobRepo.findTop200ByVerdictOrderBySubmittedAtDesc(ScanVerdict.VIRUS_FOUND);
+            case "skipped" -> jobList = scanJobRepo.findTop200ByVerdictOrderBySubmittedAtDesc(ScanVerdict.SKIPPED);
+            default        -> jobList = jobs.latest();
+        }
+        model.addAttribute("jobs", jobList);
+        model.addAttribute("filter", filter);
+        model.addAttribute("countAll",     scanJobRepo.count());
+        model.addAttribute("countOk",      scanJobRepo.countByVerdict(ScanVerdict.OK));
+        model.addAttribute("countError",   scanJobRepo.countByVerdict(ScanVerdict.ERROR));
+        model.addAttribute("countVirus",   scanJobRepo.countByVerdict(ScanVerdict.VIRUS_FOUND));
+        model.addAttribute("countSkipped", scanJobRepo.countByVerdict(ScanVerdict.SKIPPED));
         return PAGE_JOBS;
     }
 

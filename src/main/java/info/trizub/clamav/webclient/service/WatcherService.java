@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.*;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
@@ -19,6 +20,20 @@ import java.util.stream.Stream;
 public class WatcherService {
 
     private static final Logger log = LoggerFactory.getLogger(WatcherService.class);
+
+    // System/virtual paths that must never be scanned regardless of watch root.
+    private static final Set<String> EXCLUDED_PREFIXES = Set.of(
+            "/proc", "/sys", "/dev", "/run/lock",
+            "/tmp/hsperfdata", "/var/tmp/hsperfdata"
+    );
+
+    private static boolean isExcluded(Path p) {
+        String s = p.toAbsolutePath().normalize().toString();
+        for (String prefix : EXCLUDED_PREFIXES) {
+            if (s.startsWith(prefix)) return true;
+        }
+        return false;
+    }
 
     private final SettingsService settings;
     private final WatchedDirectoryRepository watchRepo;
@@ -62,6 +77,7 @@ public class WatcherService {
                 try (Stream<Path> stream = Files.walk(root, 5)) {
                     stream
                         .filter(Files::isRegularFile)
+                        .filter(p -> !isExcluded(p))
                         .limit(1000)
                         .forEach(p -> {
                             try {

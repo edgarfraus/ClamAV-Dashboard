@@ -429,6 +429,12 @@ label.form-label {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   border-color: var(--line);
 }
+.badge-skipped {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border-color: var(--line);
+  opacity: 0.7;
+}
 
 /* ---------- Tables ---------- */
 .table {
@@ -450,12 +456,7 @@ label.form-label {
   padding: 10px 8px;
   vertical-align: middle;
 }
-.table-striped > tbody > tr:nth-of-type(odd) > * {
-  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
-}
-.table-hover > tbody > tr:hover > * {
-  background: color-mix(in srgb, var(--signal) 6%, transparent);
-}
+/* (table-striped and table-hover overrides moved to Bootstrap Bridge section below) */
 .table code { font-size: 12.5px; }
 
 /* ---------- Toggle switch ---------- */
@@ -509,4 +510,160 @@ a:focus-visible, button:focus-visible, input:focus-visible,
 select:focus-visible, .nav-btn:focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
+}
+
+/* =============================================================
+   BOOTSTRAP THEME BRIDGE
+   Override Bootstrap's own CSS variables so every component
+   (tables, inputs, buttons, alerts) uses our theme colours.
+   Without these, Bootstrap reads its own defaults and produces
+   black/white flickers in dark mode and wrong colours in light.
+   ============================================================= */
+
+/* -- Body & typography -- */
+html[data-theme="dark"] {
+  --bs-body-color: #ecebe4;
+  --bs-body-bg: #14181c;
+  --bs-secondary-color: #9aa2ab;
+  --bs-heading-color: #ecebe4;
+  --bs-link-color: #2fbfa0;
+  --bs-link-hover-color: #3fd4b5;
+  --bs-border-color: rgba(255,255,255,0.10);
+  --bs-secondary-bg: #1b2126;
+  --bs-tertiary-bg: #22282f;
+  --bs-emphasis-color: #ecebe4;
+}
+
+/* -- Tables -- */
+.table {
+  --bs-table-color: var(--ink);
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--line);
+  --bs-table-striped-color: var(--ink);
+  --bs-table-striped-bg: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  --bs-table-hover-color: var(--ink);
+  --bs-table-hover-bg: color-mix(in srgb, var(--signal) 7%, transparent);
+  --bs-table-active-color: var(--ink);
+  --bs-table-active-bg: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.table > :not(caption) > * > * {
+  color: var(--ink);
+}
+.table-striped > tbody > tr:nth-of-type(odd) > td,
+.table-striped > tbody > tr:nth-of-type(odd) > th {
+  background-color: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  color: var(--ink);
+}
+.table-hover > tbody > tr:hover > td,
+.table-hover > tbody > tr:hover > th {
+  background-color: color-mix(in srgb, var(--signal) 7%, transparent);
+  color: var(--ink);
+}
+/* Form controls inside tables: consistent background regardless of row stripe */
+.table .form-control,
+.table .form-select {
+  background-color: color-mix(in srgb, var(--ink) 5%, var(--paper2));
+  border-color: color-mix(in srgb, var(--ink) 16%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+}
+.table .form-control:focus,
+.table .form-select:focus {
+  background-color: var(--paper2);
+  border-color: var(--signal);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--signal) 20%, transparent);
+  color: var(--ink);
+}
+
+/* -- Form controls -- */
+.form-control,
+.form-select {
+  background-color: var(--paper2);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.form-control:focus,
+.form-select:focus {
+  background-color: var(--paper2);
+  color: var(--ink);
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 18%, transparent);
+}
+.form-control::placeholder { color: var(--muted); }
+.form-control:disabled,
+.form-select:disabled {
+  background-color: color-mix(in srgb, var(--ink) 5%, var(--paper2));
+  color: var(--muted);
+}
+.form-label { color: var(--ink); }
+.form-check-label { color: var(--ink); }
+
+/* Input groups & number spinners */
+html[data-theme="dark"] input[type=number] { color-scheme: dark; }
+
+/* -- Buttons -- */
+.btn-outline-light {
+  --bs-btn-color: var(--ink);
+  --bs-btn-border-color: var(--line);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--ink) 8%, transparent);
+  --bs-btn-hover-color: var(--ink);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--ink) 40%, transparent);
+  --bs-btn-active-bg: color-mix(in srgb, var(--ink) 12%, transparent);
+  --bs-btn-active-color: var(--ink);
+  --bs-btn-active-border-color: var(--line);
+  --bs-btn-focus-shadow-rgb: 108, 117, 125;
+}
+.btn-primary {
+  --bs-btn-bg: var(--signal);
+  --bs-btn-border-color: var(--signal);
+  --bs-btn-color: var(--signal-ink);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--signal) 85%, black);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--signal) 85%, black);
+  --bs-btn-hover-color: var(--signal-ink);
+  --bs-btn-active-bg: color-mix(in srgb, var(--signal) 75%, black);
+  --bs-btn-active-color: var(--signal-ink);
+}
+
+/* -- Alert component -- */
+.alert {
+  background-color: var(--paper2);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.alert-warning {
+  background-color: color-mix(in srgb, var(--amber) 12%, var(--paper));
+  border-color: color-mix(in srgb, var(--amber) 35%, transparent);
+  color: var(--amber);
+}
+.alert-danger {
+  background-color: color-mix(in srgb, var(--alert) 12%, var(--paper));
+  border-color: color-mix(in srgb, var(--alert) 35%, transparent);
+  color: var(--alert);
+}
+.alert-info {
+  background-color: color-mix(in srgb, var(--signal) 10%, var(--paper));
+  border-color: color-mix(in srgb, var(--signal) 30%, transparent);
+  color: var(--signal);
+}
+
+/* -- Badges -- */
+.badge.bg-secondary { background-color: var(--muted) !important; color: var(--paper); }
+
+/* -- Modals (future-proof) -- */
+.modal-content {
+  background-color: var(--paper2);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+/* -- Checkboxes & radios -- */
+html[data-theme="dark"] .form-check-input {
+  background-color: var(--paper2);
+  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+html[data-theme="dark"] .form-check-input:checked {
+  background-color: var(--signal);
+  border-color: var(--signal);
 }

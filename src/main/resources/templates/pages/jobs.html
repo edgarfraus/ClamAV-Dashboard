@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/css/fontawesome.min.css"/>
   <link rel="stylesheet" href="/css/all.css"/>
   <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/icons/favicon.ico"/>
+  <link rel="icon" href="/favicon.ico"/>
 </head>
 <body data-theme="dark">
 <div class="app-shell">
@@ -21,34 +21,72 @@
     <div class="app-topbar">
       <div>
         <div class="app-title__name">Jobs</div>
-        <div class="app-title__subtitle">All scan jobs tracked by this web client</div>
+        <div class="app-title__subtitle">All scan jobs tracked by this web client (top 200 per filter)</div>
       </div>
     </div>
 
     <div class="app-content">
-      <div th:if="${errorMsg}" class="alert alert-danger" th:text="${errorMsg}">error</div>
-      <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">No scans yet. Go to <a href="/scan">Scan</a> to run one.</div>
-      <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
-        <table class="table table-striped table-hover">
-          <thead>
-            <tr><th>ID</th><th>Type</th><th>Status</th><th>Verdict</th><th>Target</th><th>Endpoint</th><th>Submitted by</th><th>Submitted at</th></tr>
-          </thead>
-          <tbody>
-            <tr th:each="j : ${jobs}">
-              <td><a th:href="@{'/jobs/' + ${j.id}}" th:text="${#strings.substring(j.id,0,8)}" class="mono">id</a></td>
-              <td th:text="${j.type}" class="mono">TYPE</td>
-              <td><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.status)}" th:text="${j.status}">STATUS</span></td>
-              <td>
-                <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
-                <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
-              </td>
-              <td th:text="${j.target}" class="mono" style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">target</td>
-              <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}">endpoint</td>
-              <td th:text="${j.submittedBy}">user</td>
-              <td th:text="${j.submittedAt}" class="mono">time</td>
-            </tr>
-          </tbody>
-        </table>
+      <div th:if="${errorMsg}" class="alert alert-danger mb-3" th:text="${errorMsg}">error</div>
+
+      <!-- Verdict filter tabs with counts -->
+      <div class="d-flex gap-2 flex-wrap mb-3">
+        <a th:href="@{/jobs(filter='all')}"
+           th:class="${filter == 'all'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          All <span class="muted ms-1" style="font-size:11px;" th:text="${countAll}">0</span>
+        </a>
+        <a th:href="@{/jobs(filter='ok')}"
+           th:class="${filter == 'ok'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          <span class="badge-status badge-ok me-1">OK</span>
+          <span th:text="${countOk}">0</span>
+        </a>
+        <a th:href="@{/jobs(filter='virus')}"
+           th:class="${filter == 'virus'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          <span class="badge-status badge-virus_found me-1">VIRUS</span>
+          <span th:text="${countVirus}">0</span>
+        </a>
+        <a th:href="@{/jobs(filter='error')}"
+           th:class="${filter == 'error'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          <span class="badge-status badge-error me-1">ERROR</span>
+          <span th:text="${countError}">0</span>
+        </a>
+        <a th:href="@{/jobs(filter='skipped')}"
+           th:class="${filter == 'skipped'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          <span class="badge-status badge-skipped me-1">SKIPPED</span>
+          <span th:text="${countSkipped}">0</span>
+        </a>
+      </div>
+
+      <div class="panel">
+        <div class="panel-body">
+          <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">
+            No jobs match this filter.
+          </div>
+          <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
+            <table class="table table-striped table-hover align-middle">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Type</th><th>Status</th><th>Verdict</th>
+                  <th>Target</th><th>Endpoint</th><th>Submitted by</th><th>Submitted at</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr th:each="j : ${jobs}">
+                  <td><a th:href="@{'/jobs/' + ${j.id}}" th:text="${#strings.substring(j.id,0,8)}" class="mono">id</a></td>
+                  <td th:text="${j.type}" class="mono" style="font-size:11px;">TYPE</td>
+                  <td><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.status)}" th:text="${j.status}">STATUS</span></td>
+                  <td>
+                    <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
+                    <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+                  </td>
+                  <td th:text="${j.target}" class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">target</td>
+                  <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}" style="font-size:13px;">ep</td>
+                  <td th:text="${j.submittedBy}" style="font-size:13px;">user</td>
+                  <td th:text="${j.submittedAt}" class="mono muted" style="font-size:11px;">time</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 

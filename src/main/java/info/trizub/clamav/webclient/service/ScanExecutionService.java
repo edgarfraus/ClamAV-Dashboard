@@ -97,7 +97,22 @@ public class ScanExecutionService {
                     ScanResult result = client.scan(in);
                     handleResult(jobId, job.getType(), result, stored);
                 }
-            } else if (job.getType() == ScanJobType.PATH || job.getType() == ScanJobType.WATCH) {
+            } else if (job.getType() == ScanJobType.WATCH) {
+                // WATCH: stream content to clamd via INSTREAM so remote endpoints work.
+                // The watched file lives in the web-client container, not on the clamd host.
+                Path file = Paths.get(job.getTarget());
+                if (!Files.isRegularFile(file)) {
+                    // File vanished between detection and scan — not an error, just skip it.
+                    finishSkipped(jobId, "File no longer accessible at scan time");
+                    log.debug("Job {} SKIPPED: file gone before scan: {}", jobId, file);
+                    return;
+                }
+                try (InputStream in = Files.newInputStream(file)) {
+                    ScanResult result = client.scan(in);
+                    handleResult(jobId, job.getType(), result, null);
+                }
+            } else if (job.getType() == ScanJobType.PATH) {
+                // PATH: clamd must have access to the path on its own filesystem.
                 Path target = Paths.get(job.getTarget());
                 ScanResult result = client.parallelScan(target);
                 handleResult(jobId, job.getType(), result, null);
@@ -201,6 +216,16 @@ public class ScanExecutionService {
         job.setStatus(ScanJobStatus.FINISHED);
         job.setVerdict(ScanVerdict.ERROR);
         job.setErrorMessage(message);
+        job.setFinishedAt(Instant.now());
+        jobRepo.save(job);
+    }
+
+    @Transactional
+    public void finishSkipped(String id, String reason) {
+        ScanJob job = jobRepo.findById(id).orElseThrow();
+        job.setStatus(ScanJobStatus.FINISHED);
+        job.setVerdict(ScanVerdict.SKIPPED);
+        job.setErrorMessage(reason);
         job.setFinishedAt(Instant.now());
         jobRepo.save(job);
     }
