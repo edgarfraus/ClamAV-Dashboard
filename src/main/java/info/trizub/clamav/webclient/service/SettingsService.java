@@ -30,6 +30,8 @@ public class SettingsService {
     private static final String WEBHOOK_URL = "app.webhook.url";
     private static final String WATCH_ENABLED = "app.watch.enabled";
     private static final String WATCH_POLL_SECONDS = "app.watch.pollSeconds";
+    private static final String SIGNATURE_RELOAD_ENABLED = "app.signatureReload.enabled";
+    private static final String SIGNATURE_RELOAD_CRON = "app.signatureReload.cron";
 
     // Legacy keys (kept for backward compatibility)
     private static final String CLAMAV_SERVICE_HOST_PROPERTY = "clamav.service.host";
@@ -53,6 +55,8 @@ public class SettingsService {
             props.putIfAbsent(WEBHOOK_URL, "");
             props.putIfAbsent(WATCH_ENABLED, "false");
             props.putIfAbsent(WATCH_POLL_SECONDS, "30");
+            props.putIfAbsent(SIGNATURE_RELOAD_ENABLED, "false");
+            props.putIfAbsent(SIGNATURE_RELOAD_CRON, "0 0 2 * * *");
 
             // Legacy defaults if absent
             props.putIfAbsent(CLAMAV_SERVICE_HOST_PROPERTY, Optional.ofNullable(System.getenv("CLAMAV_HOST")).orElse("localhost"));
@@ -133,6 +137,14 @@ public class SettingsService {
 
     public int watchPollSeconds() {
         try { return Integer.parseInt(props.getProperty(WATCH_POLL_SECONDS, "30")); } catch (Exception e) { return 30; }
+    }
+
+    public boolean signatureReloadEnabled() {
+        return Boolean.parseBoolean(props.getProperty(SIGNATURE_RELOAD_ENABLED, "false"));
+    }
+
+    public String signatureReloadCron() {
+        return props.getProperty(SIGNATURE_RELOAD_CRON, "0 0 2 * * *");
     }
 
     // Legacy getters

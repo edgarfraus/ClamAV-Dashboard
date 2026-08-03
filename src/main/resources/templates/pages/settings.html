@@ -21,28 +21,26 @@
     <div class="app-topbar">
       <div>
         <div class="app-title__name">Settings</div>
-        <div class="app-title__subtitle">Application-wide scan &amp; storage configuration</div>
+        <div class="app-title__subtitle">Application-wide scan, storage, and automation configuration</div>
       </div>
     </div>
 
     <div class="app-content">
       <div class="alert alert-warning" style="font-size:13px;">
-        Note: unchecked checkboxes are not submitted by browsers, so unticking a box and saving
-        will not persist that change unless you also re-save with it deliberately unticked and the
-        form re-submitted. Toggle carefully and reload the page to confirm.
+        Note: unchecked checkboxes are not submitted by browsers — unticking and saving will not persist
+        unless the form is re-submitted with the checkbox explicitly unticked.
       </div>
 
       <form th:action="@{/admin/settings}" method="post">
         <div class="panel mb-3">
           <div class="panel-body">
             <div class="card-title mb-3">Scan roots &amp; uploads</div>
-
             <div class="mb-3">
               <label class="form-label">Allowed scan roots (comma-separated absolute paths)</label>
-              <input type="text" class="form-control" name="app.allowedScanRoots"
+              <input type="text" class="form-control mono" name="app.allowedScanRoots"
                      th:value="${settings['app.allowedScanRoots']}"/>
+              <div class="muted mt-1" style="font-size:12px;">To allow full-disk scans on Linux add <code>/</code> here (e.g. <code>/,/scandir</code>).</div>
             </div>
-
             <div class="row g-3">
               <div class="col-md-4">
                 <label class="form-label">Upload max bytes</label>
@@ -120,7 +118,42 @@
           </div>
         </div>
 
+        <div class="panel mb-3">
+          <div class="panel-body">
+            <div class="card-title mb-3"><i class="fa-solid fa-rotate"></i> Signature DB reload</div>
+            <p class="muted" style="font-size:13px;">
+              Sends a <code>RELOAD</code> command to all enabled endpoints, telling clamd to reload its signature
+              database from disk. Useful after <code>freshclam</code> has downloaded new definitions.
+            </p>
+            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+              <label class="switch">
+                <input type="checkbox" name="app.signatureReload.enabled" value="true"
+                       th:checked="${settings['app.signatureReload.enabled'] == 'true'}"/>
+                <span class="slider"></span>
+              </label>
+              <span>Enable scheduled reload</span>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Reload cron expression <span class="muted" style="font-size:11px;">(6-field Spring cron)</span></label>
+              <input type="text" class="form-control mono" name="app.signatureReload.cron"
+                     th:value="${settings['app.signatureReload.cron']}"
+                     placeholder="0 0 2 * * *"/>
+              <div class="muted mt-1" style="font-size:12px;">Default: <code>0 0 2 * * *</code> = every day at 02:00</div>
+            </div>
+            <div th:if="${lastReloadAt != null}" class="muted mb-2" style="font-size:12px;">
+              Last reload: <span th:text="${lastReloadAt}" class="mono">—</span>
+              <span th:if="${lastReloadResults != null}">&nbsp;|&nbsp;<span th:text="${lastReloadResults}">results</span></span>
+            </div>
+          </div>
+        </div>
+
         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save settings</button>
+      </form>
+
+      <form th:action="@{/admin/signatures/reload-now}" method="post" class="mt-3">
+        <button type="submit" class="btn btn-outline-light">
+          <i class="fa-solid fa-rotate"></i> Reload signatures now (all endpoints)
+        </button>
       </form>
     </div>
 

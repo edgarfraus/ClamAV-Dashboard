@@ -21,29 +21,58 @@
     <div class="app-topbar">
       <div>
         <div class="app-title__name">Dashboard</div>
-        <div class="app-title__subtitle">Overview of endpoints and recent scan activity</div>
+        <div class="app-title__subtitle">Overview of endpoints, alerts, and recent scan activity</div>
       </div>
     </div>
 
     <div class="app-content">
       <div class="row g-3 mb-3">
-        <div class="col-sm-4">
+        <div class="col-sm-3">
           <div class="panel"><div class="panel-body">
-            <div class="section-title muted">Endpoints configured</div>
+            <div class="section-title muted">Endpoints</div>
             <div class="kpi" th:text="${endpointsCount}">0</div>
           </div></div>
         </div>
-        <div class="col-sm-4">
+        <div class="col-sm-3">
           <div class="panel"><div class="panel-body">
             <div class="section-title muted">Recent jobs</div>
             <div class="kpi" th:text="${jobsCount}">0</div>
           </div></div>
         </div>
-        <div class="col-sm-4">
-          <div class="panel"><div class="panel-body">
-            <div class="section-title muted">Default endpoint</div>
-            <div class="kpi-sm" th:text="${defaultEndpointName}">—</div>
-          </div></div>
+        <div class="col-sm-3">
+          <a href="/alerts" style="text-decoration:none;">
+            <div class="panel" th:style="${openAlertsCount > 0} ? 'border-color:var(--alert);' : ''">
+              <div class="panel-body">
+                <div class="section-title muted">Open alerts</div>
+                <div class="kpi" th:style="${openAlertsCount > 0} ? 'color:var(--alert);' : ''"
+                     th:text="${openAlertsCount}">0</div>
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="col-sm-3">
+          <a href="/admin/schedules" style="text-decoration:none;">
+            <div class="panel"><div class="panel-body">
+              <div class="section-title muted">Active schedules</div>
+              <div class="kpi" th:text="${scheduledScansCount}">0</div>
+            </div></div>
+          </a>
+        </div>
+      </div>
+
+      <div th:if="${openAlertsCount > 0}" class="panel mb-3"
+           style="border-color:var(--alert);background:color-mix(in srgb,var(--alert) 5%,var(--paper2));">
+        <div class="panel-body d-flex align-items-center gap-3">
+          <i class="fa-solid fa-triangle-exclamation" style="color:var(--alert);font-size:1.4rem;"></i>
+          <div>
+            <div style="font-weight:600;color:var(--alert);">
+              <span th:text="${openAlertsCount}">N</span> open threat alert<span th:if="${openAlertsCount > 1}">s</span> require review
+            </div>
+            <div class="muted" style="font-size:13px;">Virus signatures detected — acknowledge after investigation</div>
+          </div>
+          <a href="/alerts" class="btn btn-sm ms-auto" style="background:var(--alert);color:#fff;border:none;">
+            View alerts <i class="fa-solid fa-arrow-right"></i>
+          </a>
         </div>
       </div>
 
@@ -65,7 +94,7 @@
                     <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
                     <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
                   </td>
-                  <td th:text="${j.target}" class="mono" style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">target</td>
+                  <td th:text="${j.target}" class="mono" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">target</td>
                   <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}">endpoint</td>
                   <td th:text="${j.submittedAt}" class="mono">time</td>
                 </tr>

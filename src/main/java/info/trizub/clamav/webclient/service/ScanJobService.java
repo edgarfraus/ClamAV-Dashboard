@@ -131,6 +131,45 @@ public class ScanJobService {
     }
 
     @Transactional
+    public ScanJob createScheduledPathJob(String path, ClamdEndpoint endpoint, String submittedBy) {
+        // Scheduled scans bypass allowedRoots check — admin configured the path
+        Path requested = PathPolicy.normalize(path);
+        String id = UUID.randomUUID().toString().replace("-", "");
+        ScanJob job = new ScanJob();
+        job.setId(id);
+        job.setType(ScanJobType.PATH);
+        job.setStatus(ScanJobStatus.QUEUED);
+        job.setTarget(requested.toString());
+        job.setEndpoint(endpoint);
+        job.setSubmittedBy(submittedBy);
+        job.setSubmittedAt(Instant.now());
+        repo.save(job);
+        enqueueAfterCommit(job.getId());
+        return job;
+    }
+
+    @Transactional
+    public void acknowledge(String jobId, String username) {
+        ScanJob job = repo.findById(jobId).orElseThrow();
+        job.setAcknowledged(true);
+        job.setAcknowledgedBy(username);
+        job.setAcknowledgedAt(Instant.now());
+        repo.save(job);
+    }
+
+    @Transactional
+    public void acknowledgeAll(String username) {
+        repo.findByVerdictAndAcknowledgedOrderBySubmittedAtDesc(
+                info.trizub.clamav.webclient.model.ScanVerdict.VIRUS_FOUND, false)
+            .forEach(job -> {
+                job.setAcknowledged(true);
+                job.setAcknowledgedBy(username);
+                job.setAcknowledgedAt(Instant.now());
+                repo.save(job);
+            });
+    }
+
+    @Transactional
     public ScanJob createWatchFileJob(Path file, ClamdEndpoint endpoint, String username) {
         String id = UUID.randomUUID().toString().replace("-", "");
         ScanJob job = new ScanJob();

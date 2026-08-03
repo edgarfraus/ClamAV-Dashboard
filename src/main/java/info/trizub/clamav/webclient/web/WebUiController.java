@@ -1,10 +1,11 @@
 package info.trizub.clamav.webclient.web;
 
-import info.trizub.clamav.webclient.model.ClamdEndpoint;
-import info.trizub.clamav.webclient.model.Role;
-import info.trizub.clamav.webclient.model.ScanJob;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import info.trizub.clamav.webclient.model.*;
 import info.trizub.clamav.webclient.repo.AuditEventRepository;
 import info.trizub.clamav.webclient.repo.AppUserRepository;
+import info.trizub.clamav.webclient.repo.ScanJobRepository;
 import info.trizub.clamav.webclient.repo.WatchedDirectoryRepository;
 import info.trizub.clamav.webclient.service.*;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,14 +18,15 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import xyz.capybara.clamav.ClamavClient;
 
+import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Controller
 public class WebUiController {
 
     @ModelAttribute
     public void addCommonModelAttributes(Model model, Authentication authentication) {
-        // Always provide non-null settings + dashboard flags so fragments cannot crash on nulls
         try {
             model.addAttribute("settings", settings.snapshot());
         } catch (Exception e) {
@@ -37,14 +39,17 @@ public class WebUiController {
 
         if (authentication != null) {
             model.addAttribute("username", authentication.getName());
+            try {
+                long openAlerts = scanJobRepo.countByVerdictAndAcknowledged(ScanVerdict.VIRUS_FOUND, false);
+                model.addAttribute("openAlertsCount", openAlerts);
+            } catch (Exception e) {
+                model.addAttribute("openAlertsCount", 0L);
+            }
         }
     }
 
-
     private static final Logger log = LoggerFactory.getLogger(WebUiController.class);
 
-    // Each tab is rendered as its own page template under templates/pages/.
-    // This prevents duplicated/stacked sections across tabs.
     private static final String PAGE_DASHBOARD = "pages/dashboard";
     private static final String PAGE_MAIN = "pages/main";
     private static final String PAGE_SCAN = "pages/scan";
@@ -55,8 +60,10 @@ public class WebUiController {
     private static final String PAGE_USERS = "pages/users";
     private static final String PAGE_WATCH = "pages/watch";
     private static final String PAGE_AUDIT = "pages/audit";
-
-    // NOTE: We no longer rely on an "action" model attribute for rendering.
+    private static final String PAGE_GROUPS = "pages/groups";
+    private static final String PAGE_SCHEDULES = "pages/schedules";
+    private static final String PAGE_ALERTS = "pages/alerts";
+    private static final String PAGE_ALERT_DETAIL = "pages/alert-detail";
 
     private final SettingsService settings;
     private final EndpointService endpoints;
@@ -67,6 +74,11 @@ public class WebUiController {
     private final AppUserRepository userRepo;
     private final UserService userService;
     private final WatchedDirectoryRepository watchRepo;
+    private final ScanJobRepository scanJobRepo;
+    private final EndpointGroupService groupService;
+    private final ScheduledScanService scheduledScanService;
+    private final SignatureReloadService signatureReloadService;
+    private final ObjectMapper objectMapper;
 
     public WebUiController(SettingsService settings,
                            EndpointService endpoints,
@@ -76,7 +88,12 @@ public class WebUiController {
                            AuditEventRepository auditRepo,
                            AppUserRepository userRepo,
                            UserService userService,
-                           WatchedDirectoryRepository watchRepo) {
+                           WatchedDirectoryRepository watchRepo,
+                           ScanJobRepository scanJobRepo,
+                           EndpointGroupService groupService,
+                           ScheduledScanService scheduledScanService,
+                           SignatureReloadService signatureReloadService,
+                           ObjectMapper objectMapper) {
         this.settings = settings;
         this.endpoints = endpoints;
         this.jobs = jobs;
@@ -86,17 +103,22 @@ public class WebUiController {
         this.userRepo = userRepo;
         this.userService = userService;
         this.watchRepo = watchRepo;
+        this.scanJobRepo = scanJobRepo;
+        this.groupService = groupService;
+        this.scheduledScanService = scheduledScanService;
+        this.signatureReloadService = signatureReloadService;
+        this.objectMapper = objectMapper;
     }
+
+    // ---- Auth ----
 
     @GetMapping("/login")
-    public String login() {
-        return "login";
-    }
+    public String login() { return "login"; }
 
     @GetMapping(value = {"/"})
-    public String root() {
-        return "redirect:/dashboard";
-    }
+    public String root() { return "redirect:/dashboard"; }
+
+    // ---- Dashboard ----
 
     @GetMapping("/dashboard")
     public String dashboard(Model model) {
@@ -106,19 +128,23 @@ public class WebUiController {
         model.addAttribute("jobsCount", latest != null ? latest.size() : 0);
         var def = endpoints.defaultEndpointOrEnsure();
         model.addAttribute("defaultEndpointName", def != null ? def.getName() : "—");
+        long openAlerts = scanJobRepo.countByVerdictAndAcknowledged(ScanVerdict.VIRUS_FOUND, false);
+        model.addAttribute("openAlertsCount", openAlerts);
+        model.addAttribute("scheduledScansCount", scheduledScanService.all().size());
         return PAGE_DASHBOARD;
     }
 
+    // ---- Main (endpoint health) ----
+
     @GetMapping({"/main"})
-    public String main(@RequestParam(name="endpointId", required = false) Long endpointId,
-                       Model model) {
+    public String main(@RequestParam(name="endpointId", required = false) Long endpointId, Model model) {
         ClamdEndpoint ep = endpointId != null ? endpoints.get(endpointId) : endpoints.defaultEndpointOrEnsure();
         model.addAttribute("endpoint", ep);
         model.addAttribute("endpoints", endpoints.all());
 
         if (ep == null) {
             model.addAttribute("pingOk", false);
-            model.addAttribute("error", "No endpoints configured. Ask an admin to create one (or restart to auto-create the default)." );
+            model.addAttribute("error", "No endpoints configured.");
             return PAGE_MAIN;
         }
 
@@ -136,12 +162,13 @@ public class WebUiController {
         return PAGE_MAIN;
     }
 
+    // ---- Scan ----
 
     @GetMapping("/scan")
-    public String scan(Model model,
-                       @RequestParam(name="endpointId", required = false) Long endpointId) {
+    public String scan(Model model, @RequestParam(name="endpointId", required = false) Long endpointId) {
         model.addAttribute("endpoints", endpoints.all());
-        model.addAttribute("endpointId", endpointId != null ? endpointId : Optional.ofNullable(endpoints.defaultEndpointOrEnsure()).map(ClamdEndpoint::getId).orElse(null));
+        model.addAttribute("endpointId", endpointId != null ? endpointId
+                : Optional.ofNullable(endpoints.defaultEndpointOrEnsure()).map(ClamdEndpoint::getId).orElse(null));
         model.addAttribute("allowedRoots", settings.allowedRoots());
         model.addAttribute("uploadMaxBytes", settings.uploadMaxBytes());
         model.addAttribute("jobs", jobs.latest());
@@ -151,13 +178,12 @@ public class WebUiController {
     @PostMapping("/scan/upload")
     public String scanUpload(@RequestParam("files") List<MultipartFile> files,
                              @RequestParam("endpointId") Long endpointId,
-                             Authentication auth,
-                             HttpServletRequest req,
-                             Model model) {
+                             Authentication auth, HttpServletRequest req, Model model) {
         try {
             ClamdEndpoint ep = endpoints.get(endpointId);
             List<ScanJob> created = jobs.createUploadJobs(files, ep, auth.getName());
-            audit.record(auth, req, "SCAN_UPLOAD", "files=" + created.size(), "SUCCESS", created.isEmpty() ? null : created.get(0).getId());
+            audit.record(auth, req, "SCAN_UPLOAD", "files=" + created.size(), "SUCCESS",
+                    created.isEmpty() ? null : created.get(0).getId());
             return "redirect:/jobs";
         } catch (Exception e) {
             audit.record(auth, req, "SCAN_UPLOAD", e.getMessage(), "FAILED", null);
@@ -169,9 +195,7 @@ public class WebUiController {
     @PostMapping("/scan/path")
     public String scanPath(@RequestParam("path") String path,
                            @RequestParam("endpointId") Long endpointId,
-                           Authentication auth,
-                           HttpServletRequest req,
-                           Model model) {
+                           Authentication auth, HttpServletRequest req, Model model) {
         try {
             ClamdEndpoint ep = endpoints.get(endpointId);
             ScanJob job = jobs.createPathJob(path, ep, auth.getName());
@@ -184,6 +208,8 @@ public class WebUiController {
         }
     }
 
+    // ---- Jobs ----
+
     @GetMapping("/jobs")
     public String jobs(Model model) {
         model.addAttribute("jobs", jobs.latest());
@@ -195,7 +221,6 @@ public class WebUiController {
         var job = jobs.getOrNull(id);
         if (job == null) {
             model.addAttribute("errorMsg", "Job not found: " + id);
-            // fall back to jobs list
             model.addAttribute("jobs", jobs.latest());
             return PAGE_JOBS;
         }
@@ -203,19 +228,132 @@ public class WebUiController {
         return PAGE_JOB;
     }
 
-    // --- Admin pages ---
+    // ---- Alerts ----
+
+    @GetMapping("/alerts")
+    public String alerts(@RequestParam(name="filter", defaultValue = "open") String filter, Model model) {
+        List<ScanJob> allAlerts;
+        if ("all".equals(filter)) {
+            allAlerts = scanJobRepo.findByVerdictOrderBySubmittedAtDesc(ScanVerdict.VIRUS_FOUND);
+        } else if ("acked".equals(filter)) {
+            allAlerts = scanJobRepo.findByVerdictAndAcknowledgedOrderBySubmittedAtDesc(ScanVerdict.VIRUS_FOUND, true);
+        } else {
+            allAlerts = scanJobRepo.findByVerdictAndAcknowledgedOrderBySubmittedAtDesc(ScanVerdict.VIRUS_FOUND, false);
+        }
+
+        // Group by endpoint
+        Map<Long, List<ScanJob>> byEndpointId = new LinkedHashMap<>();
+        List<ScanJob> orphans = new ArrayList<>();
+        for (ScanJob j : allAlerts) {
+            if (j.getEndpoint() == null) {
+                orphans.add(j);
+            } else {
+                byEndpointId.computeIfAbsent(j.getEndpoint().getId(), k -> new ArrayList<>()).add(j);
+            }
+        }
+
+        // Build ordered groups (most open alerts first)
+        List<EndpointAlertGroup> endpointGroups = endpoints.all().stream()
+            .filter(ep -> byEndpointId.containsKey(ep.getId()))
+            .map(ep -> new EndpointAlertGroup(ep, byEndpointId.get(ep.getId())))
+            .sorted(Comparator.comparingLong(EndpointAlertGroup::getOpenCount).reversed())
+            .collect(Collectors.toList());
+
+        if (!orphans.isEmpty()) {
+            endpointGroups.add(new EndpointAlertGroup(null, orphans));
+        }
+
+        model.addAttribute("endpointGroups", endpointGroups);
+        model.addAttribute("filter", filter);
+        model.addAttribute("openCount", scanJobRepo.countByVerdictAndAcknowledged(ScanVerdict.VIRUS_FOUND, false));
+        model.addAttribute("ackedCount", scanJobRepo.countByVerdictAndAcknowledged(ScanVerdict.VIRUS_FOUND, true));
+        return PAGE_ALERTS;
+    }
+
+    @GetMapping("/alerts/{id}")
+    public String alertDetail(@PathVariable("id") String id, Model model) {
+        ScanJob job = jobs.getOrNull(id);
+        if (job == null) {
+            model.addAttribute("errorMsg", "Alert not found: " + id);
+            return alerts("open", model);
+        }
+        model.addAttribute("job", job);
+        model.addAttribute("parentService", deriveParentService(job));
+        model.addAttribute("parentPath", deriveParentPath(job));
+        model.addAttribute("virusEntries", parseVirusEntries(job.getFoundVirusesJson()));
+        return PAGE_ALERT_DETAIL;
+    }
+
+    @PostMapping("/alerts/{id}/ack")
+    public String alertAck(@PathVariable("id") String id, Authentication auth,
+                           HttpServletRequest req) {
+        jobs.acknowledge(id, auth.getName());
+        audit.record(auth, req, "ALERT_ACK", "jobId=" + id, "SUCCESS", id);
+        return "redirect:/alerts/" + id;
+    }
+
+    @PostMapping("/alerts/ack-all")
+    public String alertAckAll(Authentication auth, HttpServletRequest req) {
+        jobs.acknowledgeAll(auth.getName());
+        audit.record(auth, req, "ALERT_ACK_ALL", null, "SUCCESS", null);
+        return "redirect:/alerts";
+    }
+
+    // ---- Alert helpers ----
+
+    private String deriveParentService(ScanJob job) {
+        String by = job.getSubmittedBy();
+        if (by == null) return "Unknown";
+        if (by.startsWith("scheduler:")) return "Scheduled Scan — " + by.substring("scheduler:".length());
+        if ("watcher".equals(by)) return "Directory Watcher";
+        return "Manual — " + by;
+    }
+
+    private String deriveParentPath(ScanJob job) {
+        if (job.getType() == ScanJobType.WATCH) {
+            try {
+                java.nio.file.Path p = Paths.get(job.getTarget());
+                java.nio.file.Path parent = p.getParent();
+                return parent != null ? parent.toString() : job.getTarget();
+            } catch (Exception e) {
+                return job.getTarget();
+            }
+        }
+        if (job.getType() == ScanJobType.UPLOAD && job.getStoredPath() != null) {
+            try {
+                java.nio.file.Path p = Paths.get(job.getStoredPath());
+                java.nio.file.Path parent = p.getParent();
+                return parent != null ? parent.toString() : job.getStoredPath();
+            } catch (Exception e) {
+                return job.getStoredPath();
+            }
+        }
+        return job.getTarget();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, List<String>> parseVirusEntries(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyMap();
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, List<String>>>() {});
+        } catch (Exception e) {
+            return Collections.singletonMap("(raw)", Collections.singletonList(json));
+        }
+    }
+
+    // ---- Admin: Settings ----
 
     @GetMapping("/admin/settings")
     public String adminSettings(Model model) {
         model.addAttribute("settings", settings.snapshot());
+        model.addAttribute("lastReloadAt", signatureReloadService.getLastReloadAt());
+        model.addAttribute("lastReloadResults", signatureReloadService.getLastReloadResults());
         return PAGE_SETTINGS;
     }
 
     @PostMapping("/admin/settings")
     public String adminSettingsSave(@RequestParam Map<String,String> params,
-                                    Authentication auth,
-                                    HttpServletRequest req) {
-        // Only accept known keys (others ignored)
+                                    Authentication auth, HttpServletRequest req) {
         Map<String,String> allowed = new HashMap<>();
         for (String key : List.of(
                 "app.allowedScanRoots",
@@ -227,18 +365,40 @@ public class WebUiController {
                 "app.webhook.enabled",
                 "app.webhook.url",
                 "app.watch.enabled",
-                "app.watch.pollSeconds"
+                "app.watch.pollSeconds",
+                "app.signatureReload.enabled",
+                "app.signatureReload.cron"
         )) {
             if (params.containsKey(key)) allowed.put(key, params.get(key));
         }
         settings.updateFromMap(allowed);
+        signatureReloadService.reschedule();
         audit.record(auth, req, "ADMIN_SETTINGS_UPDATE", "keys=" + allowed.keySet(), "SUCCESS", null);
         return "redirect:/admin/settings";
     }
 
+    @PostMapping("/admin/signatures/reload-now")
+    public String adminSignaturesReloadNow(Authentication auth, HttpServletRequest req) {
+        Map<String, String> results = signatureReloadService.reloadAll();
+        audit.record(auth, req, "SIGNATURE_RELOAD", results.toString(), "SUCCESS", null);
+        return "redirect:/admin/settings";
+    }
+
+    @PostMapping("/admin/signatures/{id}/reload")
+    public String adminSignaturesReloadEndpoint(@PathVariable Long id,
+                                                Authentication auth, HttpServletRequest req) {
+        var ep = endpoints.get(id);
+        signatureReloadService.reloadEndpoint(ep);
+        audit.record(auth, req, "SIGNATURE_RELOAD_ENDPOINT", ep.getName(), "SUCCESS", null);
+        return "redirect:/admin/endpoints";
+    }
+
+    // ---- Admin: Endpoints ----
+
     @GetMapping("/admin/endpoints")
     public String adminEndpoints(Model model) {
         model.addAttribute("endpoints", endpoints.all());
+        model.addAttribute("groups", groupService.all());
         return PAGE_ENDPOINTS;
     }
 
@@ -248,9 +408,13 @@ public class WebUiController {
                                        @RequestParam int port,
                                        @RequestParam String platform,
                                        @RequestParam(defaultValue = "true") boolean enabled,
-                                       Authentication auth,
-                                       HttpServletRequest req) {
-        endpoints.create(name, host, port, xyz.capybara.clamav.Platform.valueOf(platform), enabled);
+                                       @RequestParam(required = false) Long groupId,
+                                       Authentication auth, HttpServletRequest req) {
+        ClamdEndpoint ep = endpoints.create(name, host, port,
+                xyz.capybara.clamav.Platform.valueOf(platform), enabled);
+        if (groupId != null) {
+            endpoints.setGroup(ep.getId(), groupId);
+        }
         audit.record(auth, req, "ENDPOINT_CREATE", name + "@" + host + ":" + port, "SUCCESS", null);
         return "redirect:/admin/endpoints";
     }
@@ -262,21 +426,110 @@ public class WebUiController {
                                        @RequestParam int port,
                                        @RequestParam String platform,
                                        @RequestParam(defaultValue = "true") boolean enabled,
-                                       Authentication auth,
-                                       HttpServletRequest req) {
+                                       @RequestParam(required = false) Long groupId,
+                                       Authentication auth, HttpServletRequest req) {
         endpoints.update(id, name, host, port, xyz.capybara.clamav.Platform.valueOf(platform), enabled);
+        endpoints.setGroup(id, groupId);
         audit.record(auth, req, "ENDPOINT_UPDATE", "id=" + id, "SUCCESS", null);
         return "redirect:/admin/endpoints";
     }
 
     @PostMapping("/admin/endpoints/{id}/delete")
-    public String adminEndpointsDelete(@PathVariable Long id,
-                                       Authentication auth,
-                                       HttpServletRequest req) {
+    public String adminEndpointsDelete(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
         endpoints.delete(id);
         audit.record(auth, req, "ENDPOINT_DELETE", "id=" + id, "SUCCESS", null);
         return "redirect:/admin/endpoints";
     }
+
+    // ---- Admin: Endpoint Groups ----
+
+    @GetMapping("/admin/groups")
+    public String adminGroups(Model model) {
+        model.addAttribute("groups", groupService.all());
+        model.addAttribute("endpoints", endpoints.all());
+        return PAGE_GROUPS;
+    }
+
+    @PostMapping("/admin/groups/create")
+    public String adminGroupsCreate(@RequestParam String name,
+                                    @RequestParam(required = false) String description,
+                                    Authentication auth, HttpServletRequest req) {
+        groupService.create(name, description != null ? description : "");
+        audit.record(auth, req, "GROUP_CREATE", name, "SUCCESS", null);
+        return "redirect:/admin/groups";
+    }
+
+    @PostMapping("/admin/groups/{id}/update")
+    public String adminGroupsUpdate(@PathVariable Long id,
+                                    @RequestParam String name,
+                                    @RequestParam(required = false) String description,
+                                    Authentication auth, HttpServletRequest req) {
+        groupService.update(id, name, description != null ? description : "");
+        audit.record(auth, req, "GROUP_UPDATE", "id=" + id, "SUCCESS", null);
+        return "redirect:/admin/groups";
+    }
+
+    @PostMapping("/admin/groups/{id}/delete")
+    public String adminGroupsDelete(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
+        groupService.delete(id);
+        audit.record(auth, req, "GROUP_DELETE", "id=" + id, "SUCCESS", null);
+        return "redirect:/admin/groups";
+    }
+
+    // ---- Admin: Scheduled Scans ----
+
+    @GetMapping("/admin/schedules")
+    public String adminSchedules(Model model) {
+        model.addAttribute("schedules", scheduledScanService.all());
+        model.addAttribute("endpoints", endpoints.all());
+        model.addAttribute("groups", groupService.all());
+        return PAGE_SCHEDULES;
+    }
+
+    @PostMapping("/admin/schedules/create")
+    public String adminSchedulesCreate(@RequestParam String name,
+                                       @RequestParam String cronExpression,
+                                       @RequestParam String scanPath,
+                                       @RequestParam String targetType,
+                                       @RequestParam(required = false) Long endpointId,
+                                       @RequestParam(required = false) Long groupId,
+                                       @RequestParam(defaultValue = "true") boolean enabled,
+                                       Authentication auth, HttpServletRequest req) {
+        try {
+            scheduledScanService.create(name, cronExpression, scanPath,
+                    ScheduledScanTargetType.valueOf(targetType),
+                    endpointId, groupId, enabled, auth.getName());
+            audit.record(auth, req, "SCHEDULE_CREATE", name + " cron=" + cronExpression, "SUCCESS", null);
+        } catch (Exception e) {
+            audit.record(auth, req, "SCHEDULE_CREATE", e.getMessage(), "FAILED", null);
+            model.addAttribute("errorMsg", e.getMessage());
+            return adminSchedules(model);
+        }
+        return "redirect:/admin/schedules";
+    }
+
+    @PostMapping("/admin/schedules/{id}/toggle")
+    public String adminSchedulesToggle(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
+        scheduledScanService.toggle(id);
+        audit.record(auth, req, "SCHEDULE_TOGGLE", "id=" + id, "SUCCESS", null);
+        return "redirect:/admin/schedules";
+    }
+
+    @PostMapping("/admin/schedules/{id}/run-now")
+    public String adminSchedulesRunNow(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
+        scheduledScanService.runScanNow(id);
+        audit.record(auth, req, "SCHEDULE_RUN_NOW", "id=" + id, "SUCCESS", null);
+        return "redirect:/admin/schedules";
+    }
+
+    @PostMapping("/admin/schedules/{id}/delete")
+    public String adminSchedulesDelete(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
+        scheduledScanService.delete(id);
+        audit.record(auth, req, "SCHEDULE_DELETE", "id=" + id, "SUCCESS", null);
+        return "redirect:/admin/schedules";
+    }
+
+    // ---- Admin: Users ----
 
     @GetMapping("/admin/users")
     public String adminUsers(Model model) {
@@ -289,10 +542,8 @@ public class WebUiController {
                                    @RequestParam String password,
                                    @RequestParam(defaultValue = "true") boolean enabled,
                                    @RequestParam(defaultValue = "VIEWER") String role,
-                                   Authentication auth,
-                                   HttpServletRequest req) {
+                                   Authentication auth, HttpServletRequest req) {
         Set<String> roles = new HashSet<>();
-        // role parameter represents minimum role
         if ("ADMIN".equalsIgnoreCase(role)) {
             roles.add(Role.ADMIN.asAuthority());
             roles.add(Role.OPERATOR.asAuthority());
@@ -309,9 +560,7 @@ public class WebUiController {
     }
 
     @PostMapping("/admin/users/{id}/delete")
-    public String adminUsersDelete(@PathVariable Long id,
-                                   Authentication auth,
-                                   HttpServletRequest req) {
+    public String adminUsersDelete(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
         userService.deleteUser(id);
         audit.record(auth, req, "USER_DELETE", "id=" + id, "SUCCESS", null);
         return "redirect:/admin/users";
@@ -320,12 +569,13 @@ public class WebUiController {
     @PostMapping("/admin/users/{id}/reset")
     public String adminUsersReset(@PathVariable Long id,
                                   @RequestParam String newPassword,
-                                  Authentication auth,
-                                  HttpServletRequest req) {
+                                  Authentication auth, HttpServletRequest req) {
         userService.resetPassword(id, newPassword);
         audit.record(auth, req, "USER_RESET_PASSWORD", "id=" + id, "SUCCESS", null);
         return "redirect:/admin/users";
     }
+
+    // ---- Admin: Watch dirs ----
 
     @GetMapping("/admin/watch")
     public String adminWatch(Model model) {
@@ -339,8 +589,7 @@ public class WebUiController {
     @PostMapping("/admin/watch/create")
     public String adminWatchCreate(@RequestParam String path,
                                    @RequestParam Long endpointId,
-                                   Authentication auth,
-                                   HttpServletRequest req) {
+                                   Authentication auth, HttpServletRequest req) {
         var ep = endpoints.get(endpointId);
         watchRepo.save(new info.trizub.clamav.webclient.model.WatchedDirectory(path, ep));
         audit.record(auth, req, "WATCH_CREATE", path, "SUCCESS", null);
@@ -348,9 +597,7 @@ public class WebUiController {
     }
 
     @PostMapping("/admin/watch/{id}/toggle")
-    public String adminWatchToggle(@PathVariable Long id,
-                                   Authentication auth,
-                                   HttpServletRequest req) {
+    public String adminWatchToggle(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
         var wd = watchRepo.findById(id).orElseThrow();
         wd.setEnabled(!wd.isEnabled());
         watchRepo.save(wd);
@@ -359,13 +606,13 @@ public class WebUiController {
     }
 
     @PostMapping("/admin/watch/{id}/delete")
-    public String adminWatchDelete(@PathVariable Long id,
-                                   Authentication auth,
-                                   HttpServletRequest req) {
+    public String adminWatchDelete(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
         watchRepo.deleteById(id);
         audit.record(auth, req, "WATCH_DELETE", "id=" + id, "SUCCESS", null);
         return "redirect:/admin/watch";
     }
+
+    // ---- Admin: Audit log ----
 
     @GetMapping("/admin/audit")
     public String adminAudit(Model model) {

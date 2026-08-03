@@ -21,7 +21,7 @@
     <div class="app-topbar">
       <div>
         <div class="app-title__name">Endpoints</div>
-        <div class="app-title__subtitle">Manage the clamd endpoints this console can scan against</div>
+        <div class="app-title__subtitle">Manage clamd endpoints — live status loads in background</div>
       </div>
     </div>
 
@@ -30,15 +30,15 @@
         <div class="panel-body">
           <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> Add endpoint</div>
           <form th:action="@{/admin/endpoints/create}" method="post" class="row g-2 align-items-end">
-            <div class="col-md-3">
+            <div class="col-md-2">
               <label class="form-label">Name</label>
               <input type="text" class="form-control" name="name" required="required"/>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
               <label class="form-label">Host</label>
               <input type="text" class="form-control" name="host" placeholder="clamav-server or IP" required="required"/>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
               <label class="form-label">Port</label>
               <input type="number" class="form-control" name="port" value="3310" required="required"/>
             </div>
@@ -48,6 +48,13 @@
                 <option value="UNIX">UNIX</option>
                 <option value="WINDOWS">WINDOWS</option>
                 <option value="JVM_PLATFORM">JVM_PLATFORM</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Group</label>
+              <select class="form-select" name="groupId">
+                <option value="">None</option>
+                <option th:each="g : ${groups}" th:value="${g.id}" th:text="${g.name}">group</option>
               </select>
             </div>
             <div class="col-md-1">
@@ -70,28 +77,58 @@
           <div class="table-responsive" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
             <table class="table table-striped table-hover align-middle">
               <thead>
-                <tr><th>Name</th><th>Host</th><th>Port</th><th>Platform</th><th>Enabled</th><th style="width:220px;">Actions</th></tr>
+                <tr>
+                  <th>Status</th><th>Name</th><th>Host</th><th>Port</th>
+                  <th>Platform</th><th>Group</th><th>Enabled</th>
+                  <th>DB version</th><th>DB age</th>
+                  <th style="width:260px;">Actions</th>
+                </tr>
               </thead>
               <tbody>
-                <tr th:each="e : ${endpoints}">
+                <tr th:each="e : ${endpoints}" th:id="${'row-' + e.id}" th:attr="data-ep-id=${e.id}">
+                  <td>
+                    <span class="badge-status badge-neutral" th:id="${'status-' + e.id}">
+                      <i class="fa-solid fa-circle-notch fa-spin" style="font-size:10px;"></i>
+                    </span>
+                  </td>
                   <td><input type="text" class="form-control form-control-sm" th:form="${'ep-form-' + e.id}" name="name" th:value="${e.name}" required="required"/></td>
                   <td><input type="text" class="form-control form-control-sm" th:form="${'ep-form-' + e.id}" name="host" th:value="${e.host}" required="required"/></td>
-                  <td style="width:100px;"><input type="number" class="form-control form-control-sm" th:form="${'ep-form-' + e.id}" name="port" th:value="${e.port}" required="required"/></td>
-                  <td style="width:150px;">
+                  <td style="width:90px;"><input type="number" class="form-control form-control-sm" th:form="${'ep-form-' + e.id}" name="port" th:value="${e.port}" required="required"/></td>
+                  <td style="width:140px;">
                     <select class="form-select form-select-sm" th:form="${'ep-form-' + e.id}" name="platform">
                       <option value="UNIX" th:selected="${e.platform.name() == 'UNIX'}">UNIX</option>
                       <option value="WINDOWS" th:selected="${e.platform.name() == 'WINDOWS'}">WINDOWS</option>
-                      <option value="JVM_PLATFORM" th:selected="${e.platform.name() == 'JVM_PLATFORM'}">JVM_PLATFORM</option>
+                      <option value="JVM_PLATFORM" th:selected="${e.platform.name() == 'JVM_PLATFORM'}">JVM</option>
+                    </select>
+                  </td>
+                  <td style="width:130px;">
+                    <select class="form-select form-select-sm" th:form="${'ep-form-' + e.id}" name="groupId">
+                      <option value="">None</option>
+                      <option th:each="g : ${groups}" th:value="${g.id}"
+                              th:selected="${e.group != null and e.group.id == g.id}"
+                              th:text="${g.name}">group</option>
                     </select>
                   </td>
                   <td style="width:70px;">
                     <input type="checkbox" th:form="${'ep-form-' + e.id}" name="enabled" value="true" th:checked="${e.enabled}"/>
                   </td>
+                  <td style="font-size:12px;" class="mono muted" th:id="${'dbver-' + e.id}">—</td>
+                  <td style="font-size:12px;" th:id="${'dbage-' + e.id}">—</td>
                   <td>
-                    <button type="submit" th:form="${'ep-form-' + e.id}" class="btn btn-outline-light btn-sm"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                    <button type="submit" th:form="${'ep-form-' + e.id}" class="btn btn-outline-light btn-sm">
+                      <i class="fa-solid fa-floppy-disk"></i> Save
+                    </button>
+                    <form th:action="@{'/admin/signatures/' + ${e.id} + '/reload'}" method="post" style="display:inline;"
+                          title="Send RELOAD to clamd (reloads signature DB)">
+                      <button type="submit" class="btn btn-outline-light btn-sm">
+                        <i class="fa-solid fa-rotate"></i>
+                      </button>
+                    </form>
                     <form th:action="@{'/admin/endpoints/' + ${e.id} + '/delete'}" method="post" style="display:inline;"
                           onsubmit="return confirm('Delete this endpoint?');">
-                      <button type="submit" class="btn btn-outline-light btn-sm text-danger"><i class="fa-solid fa-trash"></i></button>
+                      <button type="submit" class="btn btn-outline-light btn-sm text-danger">
+                        <i class="fa-solid fa-trash"></i>
+                      </button>
                     </form>
                   </td>
                 </tr>
@@ -109,5 +146,37 @@
   </main>
 </div>
 <script src="/js/script.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('tr[data-ep-id]').forEach(function (row) {
+    var id = row.getAttribute('data-ep-id');
+    fetch('/api/endpoints/' + id + '/status')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var badge = document.getElementById('status-' + id);
+        var dbver = document.getElementById('dbver-' + id);
+        var dbage = document.getElementById('dbage-' + id);
+        if (data.online) {
+          badge.className = 'badge-status badge-ok';
+          badge.innerHTML = 'Online';
+          if (dbver) dbver.textContent = data.dbVersion || '—';
+          if (dbage && data.dbAgeDays >= 0) {
+            var stale = data.stale;
+            dbage.innerHTML = '<span style="color:' + (stale ? 'var(--alert)' : 'var(--signal)') + ';">' +
+              data.dbAgeDays + 'd ago' + (stale ? ' ⚠' : '') + '</span>';
+          }
+        } else {
+          badge.className = 'badge-status badge-danger';
+          badge.innerHTML = 'Offline';
+          badge.title = data.error || '';
+        }
+      })
+      .catch(function () {
+        var badge = document.getElementById('status-' + id);
+        if (badge) { badge.className = 'badge-status badge-neutral'; badge.innerHTML = 'Unknown'; }
+      });
+  });
+});
+</script>
 </body>
 </html>

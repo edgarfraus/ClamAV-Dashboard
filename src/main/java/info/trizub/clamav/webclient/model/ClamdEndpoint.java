@@ -27,6 +27,10 @@ public class ClamdEndpoint {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "group_id")
+    private EndpointGroup group;
+
     public ClamdEndpoint() {}
 
     public ClamdEndpoint(String name, String host, int port, Platform platform) {
@@ -47,4 +51,6 @@ public class ClamdEndpoint {
     public void setPlatform(Platform platform) { this.platform = platform; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public EndpointGroup getGroup() { return group; }
+    public void setGroup(EndpointGroup group) { this.group = group; }
 }

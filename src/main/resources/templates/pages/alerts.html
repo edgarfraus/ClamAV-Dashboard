@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Alerts - ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+  <style>
+    .alert-row-detail { display:none; background:color-mix(in srgb,var(--alert) 4%,var(--paper2)); }
+    .alert-row-detail.open { display:table-row; }
+    .alert-row-detail td { border-top:none !important; padding:0 !important; }
+    .alert-detail-inner { padding:14px 18px; border-left:3px solid var(--alert); margin:0 12px 12px 12px; border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+    .sig-pill { display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--alert) 12%,transparent);
+      color:var(--alert);border:1px solid color-mix(in srgb,var(--alert) 30%,transparent);
+      border-radius:999px;padding:2px 10px;font-size:11px;font-family:var(--font-mono);font-weight:600;margin:2px; }
+    .ep-header { display:flex;align-items:center;gap:10px;padding:10px 16px;
+      background:color-mix(in srgb,var(--ink) 4%,var(--paper2));
+      border-radius:var(--radius-sm) var(--radius-sm) 0 0;border-bottom:1px solid var(--line); }
+    .group-tag { font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;
+      background:color-mix(in srgb,var(--signal) 12%,transparent);
+      color:var(--signal);border:1px solid color-mix(in srgb,var(--signal) 30%,transparent); }
+    .expand-btn { background:none;border:1px solid var(--line);border-radius:var(--radius-sm);
+      padding:2px 8px;cursor:pointer;font-size:12px;color:var(--muted); }
+    .expand-btn:hover { border-color:var(--ink);color:var(--ink); }
+  </style>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Alerts</div>
+        <div class="app-title__subtitle">Virus detections by endpoint — grouped with group membership</div>
+      </div>
+      <div class="d-flex align-items-center gap-2" sec:authorize="hasAnyRole('OPERATOR','ADMIN')">
+        <form th:action="@{/alerts/ack-all}" method="post">
+          <button type="submit" class="btn btn-outline-light btn-sm"
+                  th:disabled="${openCount == 0}"
+                  onclick="return confirm('Acknowledge all open alerts?');">
+            <i class="fa-solid fa-check-double"></i> Ack all open
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="app-content">
+
+      <!-- KPI row -->
+      <div class="row g-3 mb-3">
+        <div class="col-sm-4">
+          <div class="panel"><div class="panel-body">
+            <div class="section-title muted">Open threats</div>
+            <div class="kpi" style="color:var(--alert);" th:text="${openCount}">0</div>
+          </div></div>
+        </div>
+        <div class="col-sm-4">
+          <div class="panel"><div class="panel-body">
+            <div class="section-title muted">Acknowledged</div>
+            <div class="kpi" th:text="${ackedCount}">0</div>
+          </div></div>
+        </div>
+        <div class="col-sm-4">
+          <div class="panel"><div class="panel-body">
+            <div class="section-title muted">Endpoints affected</div>
+            <div class="kpi" th:text="${endpointGroups != null ? endpointGroups.size() : 0}">0</div>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- Filter tabs -->
+      <div class="d-flex gap-2 mb-3">
+        <a th:href="@{/alerts(filter='open')}"
+           th:class="${filter == 'open'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          <i class="fa-solid fa-circle-exclamation"></i> Open
+        </a>
+        <a th:href="@{/alerts(filter='all')}"
+           th:class="${filter == 'all'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          All
+        </a>
+        <a th:href="@{/alerts(filter='acked')}"
+           th:class="${filter == 'acked'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+          <i class="fa-solid fa-check"></i> Acknowledged
+        </a>
+      </div>
+
+      <!-- Empty state -->
+      <div th:if="${endpointGroups == null or #lists.isEmpty(endpointGroups)}" class="panel">
+        <div class="panel-body muted">
+          <span th:if="${filter == 'open'}">No open alerts — all clear.</span>
+          <span th:if="${filter == 'acked'}">No acknowledged alerts.</span>
+          <span th:if="${filter == 'all'}">No virus detections recorded.</span>
+        </div>
+      </div>
+
+      <!-- Per-endpoint groups -->
+      <div class="panel mb-3" th:each="epGroup : ${endpointGroups}">
+
+        <!-- Endpoint header -->
+        <div class="ep-header">
+          <i class="fa-solid fa-network-wired" style="color:var(--muted);"></i>
+          <div>
+            <span class="fw-semibold" th:text="${epGroup.endpointName}">endpoint</span>
+            <span class="muted ms-1" style="font-size:12px;" th:text="${epGroup.endpointHost}">host:port</span>
+          </div>
+          <span th:if="${epGroup.groupName != null}" class="group-tag">
+            <i class="fa-solid fa-layer-group fa-xs"></i>
+            <span th:text="${epGroup.groupName}">group</span>
+          </span>
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <span th:if="${epGroup.openCount > 0}"
+                  style="font-size:12px;font-weight:600;color:var(--alert);">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+              <span th:text="${epGroup.openCount}">0</span> open
+            </span>
+            <span class="muted" style="font-size:12px;">
+              <span th:text="${epGroup.ackedCount}">0</span> acked
+            </span>
+          </div>
+        </div>
+
+        <!-- Alerts table -->
+        <div class="panel-body" style="padding:0;">
+          <table class="table table-striped table-hover align-middle mb-0"
+                 style="border-radius:0;">
+            <thead>
+              <tr>
+                <th style="width:30px;"></th>
+                <th>File / Target</th>
+                <th>Signatures detected</th>
+                <th>Origin</th>
+                <th>Detected</th>
+                <th>Status</th>
+                <th sec:authorize="hasAnyRole('OPERATOR','ADMIN')" style="width:140px;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <th:block th:each="j : ${epGroup.alerts}">
+
+                <!-- Main row -->
+                <tr th:id="${'job-row-' + j.id}" class="alert-main-row" style="cursor:pointer;"
+                    th:onclick="${'toggleDetail(\'' + j.id + '\')'}">
+                  <td>
+                    <button class="expand-btn" th:id="${'btn-' + j.id}"
+                            th:onclick="${'event.stopPropagation();toggleDetail(\'' + j.id + '\')'}">
+                      <i class="fa-solid fa-chevron-right" style="font-size:9px;"></i>
+                    </button>
+                  </td>
+                  <td>
+                    <div class="mono" style="font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                         th:text="${j.target}">target</div>
+                    <div class="muted" style="font-size:11px;" th:if="${j.type != null}">
+                      <span th:text="${j.type}">type</span>
+                    </div>
+                  </td>
+                  <td style="max-width:240px;">
+                    <div th:if="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
+                         style="font-size:11px;color:var(--alert);font-family:var(--font-mono);
+                                overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                         th:text="${j.foundVirusesJson}">sigs</div>
+                    <span th:unless="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
+                          class="muted" style="font-size:11px;">—</span>
+                  </td>
+                  <td style="font-size:12px;" th:text="${j.submittedBy}">by</td>
+                  <td class="mono muted" style="font-size:11px;" th:text="${j.finishedAt}">time</td>
+                  <td>
+                    <span th:if="${j.acknowledged}" class="badge-status badge-neutral">
+                      <i class="fa-solid fa-check"></i> Acked
+                    </span>
+                    <span th:unless="${j.acknowledged}" class="badge-status badge-danger">Open</span>
+                  </td>
+                  <td sec:authorize="hasAnyRole('OPERATOR','ADMIN')" onclick="event.stopPropagation();">
+                    <a th:href="@{'/alerts/' + ${j.id}}" class="btn btn-outline-light btn-sm">
+                      <i class="fa-solid fa-eye"></i> Detail
+                    </a>
+                    <form th:if="${!j.acknowledged}" th:action="@{'/alerts/' + ${j.id} + '/ack'}" method="post"
+                          style="display:inline;" onclick="event.stopPropagation();">
+                      <button type="submit" class="btn btn-outline-light btn-sm">
+                        <i class="fa-solid fa-check"></i>
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+
+                <!-- Expandable detail row -->
+                <tr class="alert-row-detail" th:id="${'detail-' + j.id}">
+                  <td th:colspan="${7}" style="padding:0!important;">
+                    <div class="alert-detail-inner">
+                      <div class="row g-3">
+                        <div class="col-md-5">
+                          <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
+                            Infected file / path
+                          </div>
+                          <code style="font-size:12px;word-break:break-all;" th:text="${j.target}">target</code>
+
+                          <div th:if="${j.sha256}" class="mt-2">
+                            <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;">SHA-256</div>
+                            <code style="font-size:11px;word-break:break-all;color:var(--muted);" th:text="${j.sha256}">sha</code>
+                          </div>
+
+                          <div th:if="${j.sizeBytes != null}" class="mt-2">
+                            <span class="muted" style="font-size:11px;">Size: </span>
+                            <span class="mono" style="font-size:12px;" th:text="${j.sizeBytes + ' bytes'}">size</span>
+                          </div>
+
+                          <div th:if="${j.quarantinePath}" class="mt-2"
+                               style="padding:6px 10px;border-radius:var(--radius-sm);background:color-mix(in srgb,var(--amber) 10%,transparent);">
+                            <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;">Quarantined to</div>
+                            <code style="font-size:11px;color:var(--amber);" th:text="${j.quarantinePath}">path</code>
+                          </div>
+                        </div>
+
+                        <div class="col-md-4">
+                          <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
+                            Detected signatures
+                          </div>
+                          <div th:if="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
+                               style="font-size:12px;font-family:var(--font-mono);color:var(--alert);">
+                            <div style="white-space:pre-wrap;word-break:break-word;" th:text="${j.foundVirusesJson}">json</div>
+                          </div>
+                          <span th:unless="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
+                                class="muted">—</span>
+
+                          <div class="mt-3">
+                            <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
+                              Origin / triggered by
+                            </div>
+                            <div style="font-size:13px;">
+                              <i class="fa-solid fa-circle-nodes muted"></i>
+                              <span th:text="${j.submittedBy}">by</span>
+                            </div>
+                            <div class="muted" style="font-size:11px;margin-top:2px;">
+                              Type: <span th:text="${j.type}">TYPE</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="col-md-3">
+                          <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
+                            Timeline
+                          </div>
+                          <div style="font-size:12px;" class="d-flex flex-column gap-1">
+                            <div><span class="muted">Submitted:</span><br/><span class="mono" style="font-size:11px;" th:text="${j.submittedAt}">—</span></div>
+                            <div th:if="${j.startedAt}"><span class="muted">Started:</span><br/><span class="mono" style="font-size:11px;" th:text="${j.startedAt}">—</span></div>
+                            <div th:if="${j.finishedAt}"><span class="muted">Detected:</span><br/><span class="mono" style="font-size:11px;" th:text="${j.finishedAt}">—</span></div>
+                            <div th:if="${j.acknowledged}">
+                              <span class="muted">Acked:</span><br/>
+                              <span class="mono" style="font-size:11px;" th:text="${j.acknowledgedAt}">—</span>
+                              <span class="muted" style="font-size:11px;"> by </span>
+                              <span style="font-size:11px;" th:text="${j.acknowledgedBy}">user</span>
+                            </div>
+                          </div>
+
+                          <div class="mt-3 d-flex flex-column gap-1">
+                            <a th:href="@{'/alerts/' + ${j.id}}"
+                               class="btn btn-outline-light btn-sm w-100">
+                              <i class="fa-solid fa-magnifying-glass"></i> Full detail
+                            </a>
+                            <form th:if="${!j.acknowledged}" th:action="@{'/alerts/' + ${j.id} + '/ack'}" method="post">
+                              <button type="submit" class="btn btn-outline-light btn-sm w-100"
+                                      sec:authorize="hasAnyRole('OPERATOR','ADMIN')">
+                                <i class="fa-solid fa-check"></i> Acknowledge
+                              </button>
+                            </form>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+
+              </th:block>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+<script>
+function toggleDetail(jobId) {
+  var detail = document.getElementById('detail-' + jobId);
+  var btn = document.getElementById('btn-' + jobId);
+  if (!detail) return;
+  var isOpen = detail.classList.contains('open');
+  detail.classList.toggle('open', !isOpen);
+  if (btn) {
+    var icon = btn.querySelector('i');
+    if (icon) {
+      icon.className = isOpen
+        ? 'fa-solid fa-chevron-right'
+        : 'fa-solid fa-chevron-down';
+      icon.style.fontSize = '9px';
+    }
+  }
+}
+</script>
+</body>
+</html>

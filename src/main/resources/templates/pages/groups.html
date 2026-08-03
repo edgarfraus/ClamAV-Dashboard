@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Endpoint Groups - ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Endpoint Groups</div>
+        <div class="app-title__subtitle">Organise endpoints into groups for bulk scheduled scans</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div class="panel mb-3">
+        <div class="panel-body">
+          <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> Create group</div>
+          <form th:action="@{/admin/groups/create}" method="post" class="row g-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Name</label>
+              <input type="text" class="form-control" name="name" required="required" placeholder="e.g. production"/>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Description</label>
+              <input type="text" class="form-control" name="description" placeholder="Optional description"/>
+            </div>
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i> Create</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel mb-3">
+        <div class="panel-body">
+          <div class="card-title mb-2">Unassigned endpoints</div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px;">Assign a group to an endpoint in the <a href="/admin/endpoints">Endpoints</a> page.</div>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped">
+              <thead><tr><th>Endpoint</th><th>Host</th><th>Port</th><th>Enabled</th></tr></thead>
+              <tbody>
+                <tr th:each="ep : ${endpoints}" th:if="${ep.group == null}">
+                  <td><a th:href="@{/admin/endpoints}" th:text="${ep.name}">name</a></td>
+                  <td class="mono" th:text="${ep.host}">host</td>
+                  <td class="mono" th:text="${ep.port}">port</td>
+                  <td>
+                    <span th:if="${ep.enabled}" class="badge-status badge-ok">Enabled</span>
+                    <span th:unless="${ep.enabled}" class="badge-status badge-neutral">Disabled</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div th:if="${groups == null or #lists.isEmpty(groups)}" class="panel">
+        <div class="panel-body muted">No groups yet. Create one above.</div>
+      </div>
+
+      <div class="panel mb-3" th:each="g : ${groups}">
+        <div class="panel-body">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <div>
+              <div class="card-title mb-0" th:text="${g.name}">group</div>
+              <div class="muted" style="font-size:12px;" th:text="${g.description}"></div>
+            </div>
+            <form th:action="@{'/admin/groups/' + ${g.id} + '/delete'}" method="post" class="ms-auto"
+                  onsubmit="return confirm('Delete group? Endpoints will be unassigned.');">
+              <button type="submit" class="btn btn-outline-light btn-sm text-danger">
+                <i class="fa-solid fa-trash"></i> Delete group
+              </button>
+            </form>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped">
+              <thead><tr><th>Endpoint</th><th>Host</th><th>Port</th><th>Enabled</th></tr></thead>
+              <tbody>
+                <tr th:each="ep : ${endpoints}" th:if="${ep.group != null and ep.group.id == g.id}">
+                  <td th:text="${ep.name}">name</td>
+                  <td class="mono" th:text="${ep.host}">host</td>
+                  <td class="mono" th:text="${ep.port}">port</td>
+                  <td>
+                    <span th:if="${ep.enabled}" class="badge-status badge-ok">Enabled</span>
+                    <span th:unless="${ep.enabled}" class="badge-status badge-neutral">Disabled</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+</body>
+</html>

@@ -57,6 +57,14 @@ public class ScanJob {
     @Column(length = 2048)
     private String quarantinePath;
 
+    @Column(nullable = false)
+    private boolean acknowledged = false;
+
+    @Column(length = 64)
+    private String acknowledgedBy;
+
+    private Instant acknowledgedAt;
+
     public ScanJob() {}
 
     public String getId() { return id; }
@@ -91,4 +99,10 @@ public class ScanJob {
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
     public String getQuarantinePath() { return quarantinePath; }
     public void setQuarantinePath(String quarantinePath) { this.quarantinePath = quarantinePath; }
+    public boolean isAcknowledged() { return acknowledged; }
+    public void setAcknowledged(boolean acknowledged) { this.acknowledged = acknowledged; }
+    public String getAcknowledgedBy() { return acknowledgedBy; }
+    public void setAcknowledgedBy(String acknowledgedBy) { this.acknowledgedBy = acknowledgedBy; }
+    public Instant getAcknowledgedAt() { return acknowledgedAt; }
+    public void setAcknowledgedAt(Instant acknowledgedAt) { this.acknowledgedAt = acknowledgedAt; }
 }

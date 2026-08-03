@@ -16,6 +16,13 @@
     <a class="nav-btn" th:classappend="${currentUri == '/main'} ? ' active'" href="/main"><i class="fa-solid fa-server"></i> Server status</a>
     <a class="nav-btn" th:classappend="${currentUri == '/scan'} ? ' active'" href="/scan"><i class="fa-solid fa-magnifying-glass"></i> Scan</a>
     <a class="nav-btn" th:classappend="${currentUri == '/jobs'} ? ' active'" href="/jobs"><i class="fa-solid fa-list-check"></i> Jobs</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/alerts'} ? ' active'" href="/alerts"
+       style="position:relative;">
+      <i class="fa-solid fa-triangle-exclamation"></i> Alerts
+      <span th:if="${openAlertsCount != null and openAlertsCount > 0}"
+            style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:var(--alert);color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700;"
+            th:text="${openAlertsCount}">0</span>
+    </a>
   </nav>
 
   <div class="sidebar-divider" sec:authorize="hasRole('ADMIN')"></div>
@@ -23,6 +30,8 @@
   <nav class="sidebar-section" sec:authorize="hasRole('ADMIN')">
     <div class="sidebar-section__title">Admin</div>
     <a class="nav-btn" th:classappend="${currentUri == '/admin/endpoints'} ? ' active'" href="/admin/endpoints"><i class="fa-solid fa-network-wired"></i> Endpoints</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/admin/groups'} ? ' active'" href="/admin/groups"><i class="fa-solid fa-layer-group"></i> Groups</a>
+    <a class="nav-btn" th:classappend="${currentUri == '/admin/schedules'} ? ' active'" href="/admin/schedules"><i class="fa-solid fa-clock"></i> Schedules</a>
     <a class="nav-btn" th:classappend="${currentUri == '/admin/watch'} ? ' active'" href="/admin/watch"><i class="fa-solid fa-eye"></i> Watch dirs</a>
     <a class="nav-btn" th:classappend="${currentUri == '/admin/users'} ? ' active'" href="/admin/users"><i class="fa-solid fa-users"></i> Users</a>
     <a class="nav-btn" th:classappend="${currentUri == '/admin/audit'} ? ' active'" href="/admin/audit"><i class="fa-solid fa-clipboard-list"></i> Audit log</a>

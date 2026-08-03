@@ -39,6 +39,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/**").hasAnyRole("OPERATOR","ADMIN")
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .requestMatchers("/jobs/**", "/scan/**").hasAnyRole("OPERATOR","ADMIN")
+                .requestMatchers(HttpMethod.POST, "/alerts/*/ack", "/alerts/ack-all").hasAnyRole("OPERATOR","ADMIN")
+                .requestMatchers(HttpMethod.GET, "/alerts", "/alerts/**").hasAnyRole("VIEWER","OPERATOR","ADMIN")
                 .requestMatchers("/", "/dashboard", "/settings", "/main", "/ping", "/version", "/stats").hasAnyRole("VIEWER","OPERATOR","ADMIN")
                 .anyRequest().authenticated()
             )

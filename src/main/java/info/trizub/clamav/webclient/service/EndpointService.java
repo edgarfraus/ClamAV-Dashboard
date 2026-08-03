@@ -1,7 +1,9 @@
 package info.trizub.clamav.webclient.service;
 
 import info.trizub.clamav.webclient.model.ClamdEndpoint;
+import info.trizub.clamav.webclient.model.EndpointGroup;
 import info.trizub.clamav.webclient.repo.ClamdEndpointRepository;
+import info.trizub.clamav.webclient.repo.EndpointGroupRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import xyz.capybara.clamav.Platform;
@@ -13,10 +15,13 @@ public class EndpointService {
 
     private final ClamdEndpointRepository repo;
     private final SettingsService settings;
+    private final EndpointGroupRepository groupRepo;
 
-    public EndpointService(ClamdEndpointRepository repo, SettingsService settings) {
+    public EndpointService(ClamdEndpointRepository repo, SettingsService settings,
+                           EndpointGroupRepository groupRepo) {
         this.repo = repo;
         this.settings = settings;
+        this.groupRepo = groupRepo;
     }
 
     @Transactional
@@ -58,6 +63,18 @@ public class EndpointService {
     @Transactional
     public void delete(Long id) {
         repo.deleteById(id);
+    }
+
+    @Transactional
+    public void setGroup(Long endpointId, Long groupId) {
+        ClamdEndpoint ep = repo.findById(endpointId).orElseThrow();
+        if (groupId == null) {
+            ep.setGroup(null);
+        } else {
+            EndpointGroup g = groupRepo.findById(groupId).orElse(null);
+            ep.setGroup(g);
+        }
+        repo.save(ep);
     }
 
     public ClamdEndpoint defaultEndpoint() {

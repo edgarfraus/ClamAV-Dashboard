@@ -15,6 +15,7 @@ import java.util.Locale;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.support.ResourceBundleMessageSource;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver;
 import org.springframework.web.servlet.i18n.SessionLocaleResolver;
@@ -36,6 +37,16 @@ public class ClamAVWebClientAppConfig extends AcceptHeaderLocaleResolver impleme
 		source.setDefaultEncoding("UTF-8");
 		source.setUseCodeAsDefaultMessage(true);
 		return source;
+	}
+
+	@Bean
+	public ThreadPoolTaskScheduler taskScheduler() {
+		ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+		scheduler.setPoolSize(4);
+		scheduler.setThreadNamePrefix("scan-scheduler-");
+		scheduler.setDaemon(false);
+		scheduler.initialize();
+		return scheduler;
 	}
 
 }

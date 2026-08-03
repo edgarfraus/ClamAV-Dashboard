@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Scheduled Scans - ClamAV Web Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
+  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/icons/favicon.ico"/>
+</head>
+<body data-theme="dark">
+<div class="app-shell">
+  <div th:replace="~{fragments/nav :: sidebar}"></div>
+
+  <main class="app-main">
+    <div class="app-topbar">
+      <div>
+        <div class="app-title__name">Scheduled Scans</div>
+        <div class="app-title__subtitle">Automate path scans on a cron schedule against endpoints or groups</div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div th:if="${errorMsg}" class="alert alert-danger mb-3" th:text="${errorMsg}"></div>
+
+      <div class="panel mb-3">
+        <div class="panel-body">
+          <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> New scheduled scan</div>
+          <div class="alert" style="font-size:12px;background:color-mix(in srgb,var(--amber) 10%,transparent);color:var(--amber);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:12px;">
+            To scan the entire filesystem, add <code>/</code> to <a href="/admin/settings">Allowed Scan Roots</a> in Settings, then use <code>/</code> as the scan path.
+          </div>
+          <form th:action="@{/admin/schedules/create}" method="post">
+            <div class="row g-2 mb-2">
+              <div class="col-md-3">
+                <label class="form-label">Name</label>
+                <input type="text" class="form-control" name="name" required="required" placeholder="e.g. Nightly full scan"/>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Cron expression <span class="muted" style="font-size:11px;">(6-field Spring cron)</span></label>
+                <input type="text" class="form-control mono" name="cronExpression" required="required"
+                       placeholder="0 0 2 * * *" value="0 0 2 * * *"/>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Scan path</label>
+                <input type="text" class="form-control mono" name="scanPath" required="required" placeholder="/scandir or /"/>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Target type</label>
+                <select class="form-select" name="targetType" id="targetTypeSelect" onchange="toggleTarget(this.value)">
+                  <option value="ENDPOINT">Single endpoint</option>
+                  <option value="GROUP">Endpoint group</option>
+                </select>
+              </div>
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col-md-4" id="endpointDiv">
+                <label class="form-label">Endpoint</label>
+                <select class="form-select" name="endpointId">
+                  <option value="">— select —</option>
+                  <option th:each="ep : ${endpoints}" th:value="${ep.id}" th:text="${ep.name + ' (' + ep.host + ':' + ep.port + ')'}">endpoint</option>
+                </select>
+              </div>
+              <div class="col-md-4" id="groupDiv" style="display:none;">
+                <label class="form-label">Group</label>
+                <select class="form-select" name="groupId">
+                  <option value="">— select —</option>
+                  <option th:each="g : ${groups}" th:value="${g.id}" th:text="${g.name}">group</option>
+                </select>
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" name="enabled" value="true" id="schedEnabled" checked/>
+                  <label class="form-check-label" for="schedEnabled">Enabled</label>
+                </div>
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i> Create</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-body">
+          <div class="card-title mb-3">Configured schedules</div>
+          <div th:if="${schedules == null or #lists.isEmpty(schedules)}" class="muted">No scheduled scans yet.</div>
+          <div class="table-responsive" th:unless="${schedules == null or #lists.isEmpty(schedules)}">
+            <table class="table table-striped table-hover align-middle">
+              <thead>
+                <tr>
+                  <th>Name</th><th>Cron</th><th>Path</th><th>Target</th>
+                  <th>Status</th><th>Last run</th><th style="width:200px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr th:each="s : ${schedules}">
+                  <td th:text="${s.name}">name</td>
+                  <td class="mono" th:text="${s.cronExpression}">cron</td>
+                  <td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                      th:text="${s.scanPath}">path</td>
+                  <td>
+                    <span th:if="${s.targetType.name() == 'ENDPOINT'}" th:text="${s.endpoint != null ? s.endpoint.name : '—'}">ep</span>
+                    <span th:if="${s.targetType.name() == 'GROUP'}">
+                      <i class="fa-solid fa-layer-group fa-xs"></i>
+                      <span th:text="${s.endpointGroup != null ? s.endpointGroup.name : '—'}">group</span>
+                    </span>
+                  </td>
+                  <td>
+                    <span th:if="${s.enabled}" class="badge-status badge-ok">Active</span>
+                    <span th:unless="${s.enabled}" class="badge-status badge-neutral">Paused</span>
+                  </td>
+                  <td class="mono muted" style="font-size:12px;" th:text="${s.lastRunAt != null ? s.lastRunAt : '—'}">—</td>
+                  <td>
+                    <form th:action="@{'/admin/schedules/' + ${s.id} + '/run-now'}" method="post" style="display:inline;">
+                      <button type="submit" class="btn btn-outline-light btn-sm" title="Run now">
+                        <i class="fa-solid fa-play"></i>
+                      </button>
+                    </form>
+                    <form th:action="@{'/admin/schedules/' + ${s.id} + '/toggle'}" method="post" style="display:inline;">
+                      <button type="submit" class="btn btn-outline-light btn-sm"
+                              th:title="${s.enabled ? 'Pause' : 'Activate'}">
+                        <i th:class="${s.enabled ? 'fa-solid fa-pause' : 'fa-solid fa-play-circle'}"></i>
+                      </button>
+                    </form>
+                    <form th:action="@{'/admin/schedules/' + ${s.id} + '/delete'}" method="post" style="display:inline;"
+                          onsubmit="return confirm('Delete this scheduled scan?');">
+                      <button type="submit" class="btn btn-outline-light btn-sm text-danger">
+                        <i class="fa-solid fa-trash"></i>
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel mt-3">
+        <div class="panel-body">
+          <div class="card-title mb-1">Cron expression examples</div>
+          <table class="table table-sm" style="font-size:12px;">
+            <tbody>
+              <tr><td class="mono">0 0 2 * * *</td><td>Every day at 02:00</td></tr>
+              <tr><td class="mono">0 0 2 * * MON</td><td>Every Monday at 02:00</td></tr>
+              <tr><td class="mono">0 0 */6 * * *</td><td>Every 6 hours</td></tr>
+              <tr><td class="mono">0 */30 * * * *</td><td>Every 30 minutes</td></tr>
+              <tr><td class="mono">0 0 1 1 * *</td><td>1st of every month at 01:00</td></tr>
+            </tbody>
+          </table>
+          <div class="muted" style="font-size:12px;">Spring cron uses 6 fields: <code>second minute hour day-of-month month day-of-week</code></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-footer muted">ClamAV Web Client</div>
+  </main>
+</div>
+<script src="/js/script.js"></script>
+<script>
+function toggleTarget(val) {
+  document.getElementById('endpointDiv').style.display = val === 'ENDPOINT' ? '' : 'none';
+  document.getElementById('groupDiv').style.display = val === 'GROUP' ? '' : 'none';
+}
+</script>
+</body>
+</html>
