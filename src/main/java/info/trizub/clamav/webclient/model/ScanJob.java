@@ -57,7 +57,7 @@ public class ScanJob {
     @Column(length = 2048)
     private String quarantinePath;
 
-    @Column(nullable = false)
+    @Column(columnDefinition = "boolean default false")
     private boolean acknowledged = false;
 
     @Column(length = 64)
