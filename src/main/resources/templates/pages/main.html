@@ -21,7 +21,7 @@
     <div class="app-topbar">
       <div>
         <div class="app-title__name">Server status</div>
-        <div class="app-title__subtitle">Live ping / version / stats for the selected endpoint</div>
+        <div class="app-title__subtitle">ClamAV version, DB info and daemon stats for the selected endpoint</div>
       </div>
       <div class="app-topbar__right">
         <form th:action="@{/main}" method="get" class="d-flex" style="gap:8px;">
@@ -34,40 +34,101 @@
     </div>
 
     <div class="app-content">
-      <div th:if="${error}" class="alert alert-danger" th:text="${error}">error</div>
-
       <div th:if="${endpoint == null}" class="alert alert-warning">
         No endpoints configured yet. Go to <a href="/admin/endpoints">Admin &gt; Endpoints</a> to create one.
       </div>
 
       <div th:if="${endpoint != null}">
+
+        <!-- Endpoint + status row -->
         <div class="panel mb-3">
           <div class="panel-body">
-            <div class="card-title">Endpoint</div>
-            <div><strong th:text="${endpoint.name}">name</strong> —
-              <span class="muted" th:text="${endpoint.host} + ':' + ${endpoint.port} + ' (' + ${endpoint.platform} + ')'">host:port</span>
-            </div>
-            <div class="mt-2">
-              <span th:if="${pingOk}" class="badge-status badge-ok">Online</span>
-              <span th:unless="${pingOk}" class="badge-status badge-danger">Unreachable</span>
+            <div class="d-flex align-items-center gap-3" style="flex-wrap:wrap;">
+              <div>
+                <div style="font-size:16px;font-weight:600;" th:text="${endpoint.name}">name</div>
+                <div class="muted" style="font-size:13px;" th:text="${endpoint.host + ':' + endpoint.port + '  ·  ' + endpoint.platform}">host</div>
+              </div>
+              <div style="margin-left:auto;">
+                <span th:if="${pingOk}" class="badge-status badge-ok"><i class="fa-solid fa-circle" style="font-size:8px;"></i> Online</span>
+                <span th:unless="${pingOk}" class="badge-status badge-danger"><i class="fa-solid fa-circle" style="font-size:8px;"></i> Unreachable</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="row g-3" th:if="${pingOk}">
-          <div class="col-md-6">
-            <div class="panel"><div class="panel-body">
-              <div class="card-title">Version</div>
-              <pre th:text="${version}">version</pre>
-            </div></div>
+        <!-- ClamAV version info cards -->
+        <div class="row g-3 mb-3" th:if="${pingOk}">
+          <div class="col-6 col-md-3">
+            <div class="panel h-100">
+              <div class="panel-body">
+                <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">ClamAV</div>
+                <div class="mono" style="font-size:18px;font-weight:600;"
+                     th:text="${versionInfo != null and versionInfo.clamVersion != null ? versionInfo.clamVersion : '—'}">—</div>
+              </div>
+            </div>
           </div>
-          <div class="col-md-6">
-            <div class="panel"><div class="panel-body">
-              <div class="card-title">Stats</div>
-              <pre th:text="${stats}">stats</pre>
-            </div></div>
+          <div class="col-6 col-md-3">
+            <div class="panel h-100">
+              <div class="panel-body">
+                <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">DB Version</div>
+                <div class="mono" style="font-size:18px;font-weight:600;"
+                     th:text="${versionInfo != null and versionInfo.dbVersion != null ? versionInfo.dbVersion : '—'}">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="panel h-100">
+              <div class="panel-body">
+                <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">DB Date</div>
+                <div style="font-size:13px;font-weight:500;"
+                     th:text="${versionInfo != null and versionInfo.dbDate != null ? versionInfo.dbDate : '—'}">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="panel h-100">
+              <div class="panel-body">
+                <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">DB Age</div>
+                <div th:if="${versionInfo != null and versionInfo.dbAgeDays >= 0}">
+                  <span th:if="${versionInfo.stale}"
+                        style="color:var(--alert);font-size:18px;font-weight:600;"
+                        th:text="${versionInfo.dbAgeDays + 'd ⚠'}">stale</span>
+                  <span th:unless="${versionInfo.stale}"
+                        style="color:var(--signal);font-size:18px;font-weight:600;"
+                        th:text="${versionInfo.dbAgeDays + 'd'}">fresh</span>
+                </div>
+                <div th:unless="${versionInfo != null and versionInfo.dbAgeDays >= 0}" class="muted">—</div>
+              </div>
+            </div>
           </div>
         </div>
+
+        <!-- Stats -->
+        <div class="panel mb-3" th:if="${pingOk}">
+          <div class="panel-body">
+            <div class="card-title mb-3"><i class="fa-solid fa-chart-bar"></i> ClamD Stats</div>
+            <div th:if="${statsMap != null}" class="row g-0">
+              <div th:each="entry : ${statsMap}" class="col-12 col-md-6"
+                   style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);align-items:baseline;">
+                <span style="font-size:11px;font-weight:600;min-width:90px;color:var(--muted);flex-shrink:0;text-transform:uppercase;letter-spacing:0.3px;"
+                      th:text="${entry.key}">KEY</span>
+                <span class="mono" style="font-size:12px;word-break:break-all;" th:text="${entry.value}">VALUE</span>
+              </div>
+            </div>
+            <pre th:unless="${statsMap != null}" th:text="${stats}" style="font-size:12px;">stats</pre>
+          </div>
+        </div>
+
+        <!-- Raw version string (collapsed) -->
+        <div th:if="${pingOk and version != null}">
+          <details>
+            <summary class="muted" style="font-size:12px;cursor:pointer;user-select:none;">Raw version string</summary>
+            <pre style="font-size:12px;margin-top:8px;" th:text="${version}">version</pre>
+          </details>
+        </div>
+
+        <!-- Offline error -->
+        <div th:unless="${pingOk}" class="alert alert-danger mt-3" th:if="${error}" th:text="${error}">error</div>
       </div>
     </div>
 

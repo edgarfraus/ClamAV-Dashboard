@@ -51,6 +51,11 @@ public class ScanJobService {
         return repo.findTop200ByOrderBySubmittedAtDesc();
     }
 
+    public List<ScanJob> activeJobs() {
+        return repo.findByStatusInOrderBySubmittedAtDesc(
+                java.util.Arrays.asList(ScanJobStatus.RUNNING, ScanJobStatus.QUEUED));
+    }
+
     /**
      * Fetch a job by id.
      *
@@ -128,6 +133,23 @@ public class ScanJobService {
         repo.save(job);
         enqueueAfterCommit(job.getId());
                 return job;
+    }
+
+    @Transactional
+    public ScanJob createFullDiskScanJob(String path, ClamdEndpoint endpoint, String username) {
+        // Full disk scan bypasses allowedRoots — user explicitly requested scanning the disk root
+        String id = UUID.randomUUID().toString().replace("-", "");
+        ScanJob job = new ScanJob();
+        job.setId(id);
+        job.setType(ScanJobType.PATH);
+        job.setStatus(ScanJobStatus.QUEUED);
+        job.setTarget(path);
+        job.setEndpoint(endpoint);
+        job.setSubmittedBy(username);
+        job.setSubmittedAt(Instant.now());
+        repo.save(job);
+        enqueueAfterCommit(job.getId());
+        return job;
     }
 
     @Transactional

@@ -21,7 +21,7 @@
     <div class="app-topbar">
       <div>
         <div class="app-title__name">Scan</div>
-        <div class="app-title__subtitle">Upload files or scan a path on the selected endpoint</div>
+        <div class="app-title__subtitle">Upload files, scan a path, or launch a full disk scan on the selected endpoint</div>
       </div>
     </div>
 
@@ -31,6 +31,7 @@
         No endpoints configured yet. Go to <a href="/admin/endpoints">Admin &gt; Endpoints</a> to create one first.
       </div>
 
+      <!-- Upload + Path scan -->
       <div class="row g-3" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
         <div class="col-lg-6">
           <div class="panel">
@@ -86,6 +87,50 @@
         </div>
       </div>
 
+      <!-- Full disk scan -->
+      <div class="panel mt-3" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
+        <div class="panel-body">
+          <div class="card-title mb-2"><i class="fa-solid fa-hard-drive"></i> Full disk scan</div>
+          <p class="muted mb-3" style="font-size:13px;">
+            Sends a PATH scan for <code>/</code> (UNIX/JVM) or <code>C:\</code> (Windows) on clamd's filesystem.
+            clamd must have the necessary read permissions for the root path.
+          </p>
+          <form th:action="@{/scan/fulldisk}" method="post" class="row g-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Endpoint</label>
+              <select name="endpointId" class="form-select" required="required">
+                <option th:each="e : ${endpoints}" th:value="${e.id}"
+                        th:text="${e.name + ' — ' + e.platform}"
+                        th:selected="${endpointId != null and endpointId == e.id}">endpoint</option>
+              </select>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-warning"
+                      onclick="return confirm('Launch a full disk scan on the selected endpoint?');">
+                <i class="fa-solid fa-magnifying-glass"></i> Start full disk scan
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Live scan progress -->
+      <div class="panel mt-3">
+        <div class="panel-body">
+          <div class="d-flex align-items-center gap-2 mb-3" style="flex-wrap:wrap;">
+            <div class="card-title mb-0">
+              <i class="fa-solid fa-circle-notch" id="active-spinner" style="font-size:14px;"></i> Running scans
+            </div>
+            <span id="active-count" class="badge-status badge-neutral" style="display:none;"></span>
+            <span class="muted" style="font-size:12px;margin-left:auto;" id="active-last-updated"></span>
+          </div>
+          <div id="active-jobs-body">
+            <p class="muted">Checking for active scans…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent jobs -->
       <div class="panel mt-3">
         <div class="panel-body">
           <div class="card-title mb-3">Recent jobs</div>
@@ -118,5 +163,64 @@
   </main>
 </div>
 <script src="/js/script.js"></script>
+<script>
+(function () {
+  var spinner = document.getElementById('active-spinner');
+  var countBadge = document.getElementById('active-count');
+  var body = document.getElementById('active-jobs-body');
+  var lastUpdated = document.getElementById('active-last-updated');
+  var pollTimer = null;
+
+  function fmt(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleTimeString(); } catch (e) { return ts; }
+  }
+
+  function pollActive() {
+    fetch('/api/jobs/active')
+      .then(function (r) { return r.json(); })
+      .then(function (jobs) {
+        lastUpdated.textContent = 'updated ' + new Date().toLocaleTimeString();
+
+        if (!jobs || jobs.length === 0) {
+          spinner.classList.remove('fa-spin');
+          countBadge.style.display = 'none';
+          body.innerHTML = '<p class="muted">No scans currently running or queued.</p>';
+          pollTimer = setTimeout(pollActive, 8000);
+          return;
+        }
+
+        spinner.classList.add('fa-spin');
+        countBadge.style.display = '';
+        countBadge.textContent = jobs.length + ' active';
+
+        var rows = jobs.map(function (j) {
+          var sc = 'badge-' + (j.status || '').toLowerCase();
+          var target = (j.target || '').replace(/</g, '&lt;');
+          return '<tr>' +
+            '<td><a href="/jobs/' + j.id + '" class="mono">' + (j.idShort || '') + '</a></td>' +
+            '<td class="mono" style="font-size:11px;">' + (j.type || '') + '</td>' +
+            '<td><span class="badge-status ' + sc + '">' + (j.status || '') + '</span></td>' +
+            '<td class="mono" style="font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + target + '</td>' +
+            '<td style="font-size:13px;">' + (j.endpointName || '—') + '</td>' +
+            '<td class="mono muted" style="font-size:11px;">' + fmt(j.submittedAt) + '</td>' +
+            '</tr>';
+        }).join('');
+
+        body.innerHTML = '<div class="table-responsive"><table class="table table-striped align-middle">' +
+          '<thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Target</th><th>Endpoint</th><th>Submitted</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table></div>';
+
+        pollTimer = setTimeout(pollActive, 3000);
+      })
+      .catch(function () {
+        lastUpdated.textContent = 'poll error';
+        pollTimer = setTimeout(pollActive, 10000);
+      });
+  }
+
+  pollActive();
+})();
+</script>
 </body>
 </html>

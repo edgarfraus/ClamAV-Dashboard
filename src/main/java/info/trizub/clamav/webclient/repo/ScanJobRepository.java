@@ -17,4 +17,5 @@ public interface ScanJobRepository extends JpaRepository<ScanJob, String> {
     long countByVerdictAndAcknowledged(ScanVerdict verdict, boolean acknowledged);
     long countByVerdict(ScanVerdict verdict);
     long countByStatus(ScanJobStatus status);
+    List<ScanJob> findByStatusInOrderBySubmittedAtDesc(java.util.Collection<ScanJobStatus> statuses);
 }

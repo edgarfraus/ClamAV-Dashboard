@@ -16,7 +16,9 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import info.trizub.clamav.webclient.util.ClamVersionInfo;
 import xyz.capybara.clamav.ClamavClient;
+import xyz.capybara.clamav.Platform;
 
 import java.nio.file.Paths;
 import java.util.*;
@@ -157,15 +159,36 @@ public class WebUiController {
         try {
             ClamavClient c = clientProvider.clientFor(ep);
             c.ping();
+            String versionStr = c.version();
+            String statsStr = c.stats();
             model.addAttribute("pingOk", true);
-            model.addAttribute("version", c.version());
-            model.addAttribute("stats", c.stats());
+            model.addAttribute("version", versionStr);
+            model.addAttribute("stats", statsStr);
+            model.addAttribute("versionInfo", ClamVersionInfo.parse(versionStr));
+            model.addAttribute("statsMap", parseStats(statsStr));
         } catch (Exception e) {
             model.addAttribute("pingOk", false);
             model.addAttribute("error", e.getMessage());
         }
 
         return PAGE_MAIN;
+    }
+
+    private Map<String, String> parseStats(String stats) {
+        if (stats == null) return Collections.emptyMap();
+        Map<String, String> result = new LinkedHashMap<>();
+        String lastKey = null;
+        for (String line : stats.split("\n")) {
+            if (line.trim().isEmpty() || "END".equals(line.trim())) continue;
+            int colon = line.indexOf(": ");
+            if (colon > 0 && !Character.isWhitespace(line.charAt(0))) {
+                lastKey = line.substring(0, colon).trim();
+                result.put(lastKey, line.substring(colon + 2).trim());
+            } else if (lastKey != null && !line.trim().isEmpty()) {
+                result.put(lastKey, result.get(lastKey) + " · " + line.trim());
+            }
+        }
+        return result;
     }
 
     // ---- Scan ----
@@ -193,6 +216,22 @@ public class WebUiController {
             return "redirect:/jobs";
         } catch (Exception e) {
             audit.record(auth, req, "SCAN_UPLOAD", e.getMessage(), "FAILED", null);
+            model.addAttribute("errorMsg", e.getMessage());
+            return scan(model, endpointId);
+        }
+    }
+
+    @PostMapping("/scan/fulldisk")
+    public String scanFullDisk(@RequestParam("endpointId") Long endpointId,
+                               Authentication auth, HttpServletRequest req, Model model) {
+        try {
+            ClamdEndpoint ep = endpoints.get(endpointId);
+            String diskPath = ep.getPlatform() == Platform.WINDOWS ? "C:\\" : "/";
+            ScanJob job = jobs.createFullDiskScanJob(diskPath, ep, auth.getName());
+            audit.record(auth, req, "SCAN_FULLDISK", "path=" + diskPath + " endpoint=" + ep.getName(), "SUCCESS", job.getId());
+            return "redirect:/scan";
+        } catch (Exception e) {
+            audit.record(auth, req, "SCAN_FULLDISK", e.getMessage(), "FAILED", null);
             model.addAttribute("errorMsg", e.getMessage());
             return scan(model, endpointId);
         }

@@ -12,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -67,6 +68,22 @@ public class ApiController {
 
     @GetMapping("/jobs")
     public List<ScanJob> listJobs() { return jobs.latest(); }
+
+    @GetMapping("/jobs/active")
+    public List<Map<String, Object>> activeJobs() {
+        return jobs.activeJobs().stream().map(j -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            String id = j.getId();
+            m.put("id", id);
+            m.put("idShort", id != null && id.length() >= 8 ? id.substring(0, 8) : id);
+            m.put("type", j.getType() != null ? j.getType().name() : null);
+            m.put("status", j.getStatus() != null ? j.getStatus().name() : null);
+            m.put("target", j.getTarget());
+            m.put("endpointName", j.getEndpoint() != null ? j.getEndpoint().getName() : null);
+            m.put("submittedAt", j.getSubmittedAt() != null ? j.getSubmittedAt().toString() : null);
+            return m;
+        }).toList();
+    }
 
     @GetMapping("/jobs/{id}")
     public ScanJob getJob(@PathVariable String id) {
