@@ -20,7 +20,7 @@ public class ScanJob {
     private ScanJobStatus status = ScanJobStatus.QUEUED;
 
     @Enumerated(EnumType.STRING)
-    @Column(length = 16)
+    @Column(length = 20, columnDefinition = "varchar(20)")
     private ScanVerdict verdict;
 
     @Column(nullable = false, length = 2048)
