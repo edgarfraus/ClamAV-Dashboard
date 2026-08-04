@@ -124,6 +124,12 @@
                         <i class="fa-solid fa-rotate"></i>
                       </button>
                     </form>
+                    <button type="button" class="btn btn-outline-light btn-sm"
+                            title="Configure full disk scan targets"
+                            th:attr="data-ep-id=${e.id}, data-ep-name=${e.name}, data-ep-targets=${e.fullDiskTargets}"
+                            onclick="openTargetsModal(this)">
+                      <i class="fa-solid fa-bullseye"></i>
+                    </button>
                     <form th:action="@{'/admin/endpoints/' + ${e.id} + '/delete'}" method="post" style="display:inline;"
                           onsubmit="return confirm('Delete this endpoint?');">
                       <button type="submit" class="btn btn-outline-light btn-sm text-danger">
@@ -142,10 +148,49 @@
       </div>
     </div>
 
+    <!-- Scan targets modal -->
+    <div id="targetsModal" style="display:none;position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.6);align-items:center;justify-content:center;">
+      <div style="background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:24px;width:min(480px,90vw);max-height:80vh;overflow:auto;">
+        <div style="font-size:15px;font-weight:600;margin-bottom:4px;">Full disk scan targets</div>
+        <div class="muted" style="font-size:13px;margin-bottom:12px;" id="modal-ep-name">endpoint</div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">
+          One path per line. Lines starting with <code>#</code> are comments. Leave empty to use the platform default
+          (<code>/etc, /home, /var, /usr, /opt, /tmp…</code> for UNIX; <code>C:\Users, C:\Program&nbsp;Files…</code> for Windows).
+        </div>
+        <form id="targets-form" method="post">
+          <textarea name="targets" id="modal-targets" class="form-control mono"
+                    style="height:180px;font-size:13px;resize:vertical;"
+                    placeholder="# UNIX example&#10;/etc&#10;/home&#10;/var&#10;/usr&#10;/opt&#10;/tmp"></textarea>
+          <div class="d-flex gap-2 mt-3 justify-content-end">
+            <button type="button" class="btn btn-outline-light btn-sm" onclick="closeTargetsModal()">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-floppy-disk"></i> Save targets</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="app-footer muted">ClamAV Web Client</div>
   </main>
 </div>
 <script src="/js/script.js"></script>
+<script>
+function openTargetsModal(btn) {
+  var id = btn.getAttribute('data-ep-id');
+  var name = btn.getAttribute('data-ep-name');
+  var targets = btn.getAttribute('data-ep-targets') || '';
+  document.getElementById('modal-ep-name').textContent = name;
+  document.getElementById('modal-targets').value = targets;
+  document.getElementById('targets-form').action = '/admin/endpoints/' + id + '/scan-targets';
+  var modal = document.getElementById('targetsModal');
+  modal.style.display = 'flex';
+}
+function closeTargetsModal() {
+  document.getElementById('targetsModal').style.display = 'none';
+}
+document.getElementById('targetsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeTargetsModal();
+});
+</script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('tr[data-ep-id]').forEach(function (row) {

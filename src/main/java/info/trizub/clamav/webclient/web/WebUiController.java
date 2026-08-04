@@ -195,12 +195,18 @@ public class WebUiController {
 
     @GetMapping("/scan")
     public String scan(Model model, @RequestParam(name="endpointId", required = false) Long endpointId) {
-        model.addAttribute("endpoints", endpoints.all());
+        List<ClamdEndpoint> epList = endpoints.all();
+        model.addAttribute("endpoints", epList);
         model.addAttribute("endpointId", endpointId != null ? endpointId
                 : Optional.ofNullable(endpoints.defaultEndpointOrEnsure()).map(ClamdEndpoint::getId).orElse(null));
         model.addAttribute("allowedRoots", settings.allowedRoots());
         model.addAttribute("uploadMaxBytes", settings.uploadMaxBytes());
         model.addAttribute("jobs", jobs.latest());
+        Map<String, List<String>> epTargets = new LinkedHashMap<>();
+        for (ClamdEndpoint ep : epList) {
+            epTargets.put(String.valueOf(ep.getId()), resolveFullDiskTargets(ep));
+        }
+        model.addAttribute("endpointTargets", epTargets);
         return PAGE_SCAN;
     }
 
@@ -226,15 +232,36 @@ public class WebUiController {
                                Authentication auth, HttpServletRequest req, Model model) {
         try {
             ClamdEndpoint ep = endpoints.get(endpointId);
-            String diskPath = ep.getPlatform() == Platform.WINDOWS ? "C:\\" : "/";
-            ScanJob job = jobs.createFullDiskScanJob(diskPath, ep, auth.getName());
-            audit.record(auth, req, "SCAN_FULLDISK", "path=" + diskPath + " endpoint=" + ep.getName(), "SUCCESS", job.getId());
+            List<String> targets = resolveFullDiskTargets(ep);
+            String firstJobId = null;
+            for (String target : targets) {
+                ScanJob job = jobs.createFullDiskScanJob(target, ep, auth.getName());
+                if (firstJobId == null) firstJobId = job.getId();
+            }
+            audit.record(auth, req, "SCAN_FULLDISK",
+                    "targets=" + targets.size() + " endpoint=" + ep.getName(), "SUCCESS", firstJobId);
             return "redirect:/scan";
         } catch (Exception e) {
             audit.record(auth, req, "SCAN_FULLDISK", e.getMessage(), "FAILED", null);
             model.addAttribute("errorMsg", e.getMessage());
             return scan(model, endpointId);
         }
+    }
+
+    private static final List<String> DEFAULT_UNIX_TARGETS =
+            List.of("/etc", "/home", "/var", "/usr", "/opt", "/tmp", "/srv", "/root", "/data");
+    private static final List<String> DEFAULT_WINDOWS_TARGETS =
+            List.of("C:\\Users", "C:\\Program Files", "C:\\Program Files (x86)");
+
+    private List<String> resolveFullDiskTargets(ClamdEndpoint ep) {
+        String cfg = ep.getFullDiskTargets();
+        if (cfg != null && !cfg.isBlank()) {
+            return Arrays.stream(cfg.split("\n"))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty() && !s.startsWith("#"))
+                    .collect(Collectors.toList());
+        }
+        return ep.getPlatform() == Platform.WINDOWS ? DEFAULT_WINDOWS_TARGETS : DEFAULT_UNIX_TARGETS;
     }
 
     @PostMapping("/scan/path")
@@ -497,6 +524,15 @@ public class WebUiController {
     public String adminEndpointsDelete(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
         endpoints.delete(id);
         audit.record(auth, req, "ENDPOINT_DELETE", "id=" + id, "SUCCESS", null);
+        return "redirect:/admin/endpoints";
+    }
+
+    @PostMapping("/admin/endpoints/{id}/scan-targets")
+    public String adminEndpointScanTargets(@PathVariable Long id,
+                                           @RequestParam(defaultValue = "") String targets,
+                                           Authentication auth, HttpServletRequest req) {
+        endpoints.saveScanTargets(id, targets);
+        audit.record(auth, req, "ENDPOINT_SCAN_TARGETS_UPDATE", "id=" + id, "SUCCESS", null);
         return "redirect:/admin/endpoints";
     }
 

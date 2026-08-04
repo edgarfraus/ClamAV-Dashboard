@@ -92,13 +92,15 @@
         <div class="panel-body">
           <div class="card-title mb-2"><i class="fa-solid fa-hard-drive"></i> Full disk scan</div>
           <p class="muted mb-3" style="font-size:13px;">
-            Sends a PATH scan for <code>/</code> (UNIX/JVM) or <code>C:\</code> (Windows) on clamd's filesystem.
-            clamd must have the necessary read permissions for the root path.
+            Scans the configured target paths on the selected endpoint's filesystem. Targets are set per-endpoint in
+            <a href="/admin/endpoints">Admin › Endpoints</a> (bullseye icon). Default targets exclude noisy system paths like
+            <code>/proc</code>, <code>/sys</code>, <code>/dev</code>.
           </p>
-          <form th:action="@{/scan/fulldisk}" method="post" class="row g-2 align-items-end">
+          <form th:action="@{/scan/fulldisk}" method="post" class="row g-2 align-items-end" id="fulldisk-form">
             <div class="col-md-4">
               <label class="form-label">Endpoint</label>
-              <select name="endpointId" class="form-select" required="required">
+              <select name="endpointId" class="form-select" required="required" id="fulldisk-ep-select"
+                      onchange="updateFulldiskTargets()">
                 <option th:each="e : ${endpoints}" th:value="${e.id}"
                         th:text="${e.name + ' — ' + e.platform}"
                         th:selected="${endpointId != null and endpointId == e.id}">endpoint</option>
@@ -109,6 +111,9 @@
                       onclick="return confirm('Launch a full disk scan on the selected endpoint?');">
                 <i class="fa-solid fa-magnifying-glass"></i> Start full disk scan
               </button>
+            </div>
+            <div class="col-12">
+              <div id="fulldisk-targets-preview" class="muted" style="font-size:12px;margin-top:4px;"></div>
             </div>
           </form>
         </div>
@@ -163,6 +168,24 @@
   </main>
 </div>
 <script src="/js/script.js"></script>
+<script th:inline="javascript">
+/*<![CDATA[*/
+var epTargets = /*[[${endpointTargets}]]*/ {};
+/*]]>*/
+function updateFulldiskTargets() {
+  var sel = document.getElementById('fulldisk-ep-select');
+  var preview = document.getElementById('fulldisk-targets-preview');
+  if (!sel || !preview) return;
+  var id = sel.value;
+  var targets = epTargets[id];
+  if (targets && targets.length) {
+    preview.textContent = 'Will scan: ' + targets.join(' · ');
+  } else {
+    preview.textContent = '';
+  }
+}
+document.addEventListener('DOMContentLoaded', function () { updateFulldiskTargets(); });
+</script>
 <script>
 (function () {
   var spinner = document.getElementById('active-spinner');

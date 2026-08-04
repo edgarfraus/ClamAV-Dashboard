@@ -66,6 +66,13 @@ public class EndpointService {
     }
 
     @Transactional
+    public void saveScanTargets(Long id, String targets) {
+        ClamdEndpoint ep = repo.findById(id).orElseThrow();
+        ep.setFullDiskTargets(targets == null || targets.isBlank() ? null : targets);
+        repo.save(ep);
+    }
+
+    @Transactional
     public void setGroup(Long endpointId, Long groupId) {
         ClamdEndpoint ep = repo.findById(endpointId).orElseThrow();
         if (groupId == null) {

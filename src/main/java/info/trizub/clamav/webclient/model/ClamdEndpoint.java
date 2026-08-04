@@ -27,6 +27,9 @@ public class ClamdEndpoint {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @Column(columnDefinition = "TEXT")
+    private String fullDiskTargets; // newline-separated paths; null = use platform default
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "group_id")
     private EndpointGroup group;
@@ -51,6 +54,8 @@ public class ClamdEndpoint {
     public void setPlatform(Platform platform) { this.platform = platform; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public String getFullDiskTargets() { return fullDiskTargets; }
+    public void setFullDiskTargets(String fullDiskTargets) { this.fullDiskTargets = fullDiskTargets; }
     public EndpointGroup getGroup() { return group; }
     public void setGroup(EndpointGroup group) { this.group = group; }
 }
