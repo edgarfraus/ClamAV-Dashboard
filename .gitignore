@@ -1,2 +1,6 @@
 # Runtime H2 database (created by the app at runtime, not source)
 data/*.db
+
+# Runtime app settings (written by the app via SettingsService; each host keeps
+# its own). The app auto-creates it with sane defaults on first run.
+conf/clamav-web-client.properties
