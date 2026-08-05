@@ -147,10 +147,11 @@
 
                 <!-- Main row -->
                 <tr th:id="${'job-row-' + j.id}" class="alert-main-row" style="cursor:pointer;"
-                    th:onclick="${'toggleDetail(\'' + j.id + '\')'}">
+                    th:data-job-id="${j.id}" onclick="toggleDetail(this)">
                   <td>
                     <button class="expand-btn" th:id="${'btn-' + j.id}"
-                            th:onclick="${'event.stopPropagation();toggleDetail(\'' + j.id + '\')'}">
+                            th:data-job-id="${j.id}"
+                            onclick="event.stopPropagation();toggleDetail(this)">
                       <i class="fa-solid fa-chevron-right" style="font-size:9px;"></i>
                     </button>
                   </td>
@@ -161,13 +162,15 @@
                       <span th:text="${j.type}">type</span>
                     </div>
                   </td>
-                  <td style="max-width:240px;">
-                    <div th:if="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
-                         style="font-size:11px;color:var(--alert);font-family:var(--font-mono);
-                                overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                         th:text="${j.foundVirusesJson}">sigs</div>
-                    <span th:unless="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
-                          class="muted" style="font-size:11px;">—</span>
+                  <td style="max-width:280px;">
+                    <div th:if="${!j.distinctSignatures.isEmpty()}">
+                      <span th:each="sig : ${j.distinctSignatures}" class="sig-pill">
+                        <i class="fa-solid fa-virus fa-xs"></i> <span th:text="${sig}">sig</span>
+                      </span>
+                      <div class="muted" style="font-size:11px;margin-top:3px;"
+                           th:text="${j.infectedFileCount} + (${j.infectedFileCount} == 1 ? ' infected file' : ' infected files')">files</div>
+                    </div>
+                    <span th:if="${j.distinctSignatures.isEmpty()}" class="muted" style="font-size:11px;">—</span>
                   </td>
                   <td style="font-size:12px;" th:text="${j.submittedBy}">by</td>
                   <td class="mono muted" style="font-size:11px;" th:text="${j.finishedAt}">time</td>
@@ -222,12 +225,18 @@
                           <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
                             Detected signatures
                           </div>
-                          <div th:if="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
-                               style="font-size:12px;font-family:var(--font-mono);color:var(--alert);">
-                            <div style="white-space:pre-wrap;word-break:break-word;" th:text="${j.foundVirusesJson}">json</div>
+                          <div th:if="${!#maps.isEmpty(j.foundVirusesMap)}">
+                            <div th:each="entry : ${j.foundVirusesMap}" class="mb-2">
+                              <div>
+                                <span th:each="sig : ${entry.value}" class="sig-pill">
+                                  <i class="fa-solid fa-virus fa-xs"></i> <span th:text="${sig}">sig</span>
+                                </span>
+                              </div>
+                              <code style="font-size:11px;word-break:break-all;color:var(--muted);"
+                                    th:text="${entry.key}">path</code>
+                            </div>
                           </div>
-                          <span th:unless="${j.foundVirusesJson != null and !j.foundVirusesJson.isBlank()}"
-                                class="muted">—</span>
+                          <span th:if="${#maps.isEmpty(j.foundVirusesMap)}" class="muted">—</span>
 
                           <div class="mt-3">
                             <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
@@ -289,7 +298,9 @@
 </div>
 <script src="/js/script.js"></script>
 <script>
-function toggleDetail(jobId) {
+function toggleDetail(el) {
+  var jobId = el.getAttribute('data-job-id');
+  if (!jobId) return;
   var detail = document.getElementById('detail-' + jobId);
   var btn = document.getElementById('btn-' + jobId);
   if (!detail) return;

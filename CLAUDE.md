@@ -1,0 +1,120 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A Spring Boot 3.3.5 / Java 17 web application (`info.trizub.clamav:clamav-web-client`) that is a web UI and **job tracker** in front of one or more `clamd` (ClamAV daemon) servers. It accepts scans (file upload or filesystem path), dispatches them to a clamd endpoint via the `xyz.capybara:clamav-client` library, persists every scan as a **job**, and adds RBAC, directory watching, quarantine, webhook notifications, and an audit log on top.
+
+Key mental model: this app only tracks scans initiated **through it** (UI or `/api`). Scans run directly against clamd (e.g. `clamdscan`) never appear here.
+
+## Build / run / test
+
+```bash
+mvn clean package              # build the jar (target/clamav-web-client-<version>.jar), runs tests
+mvn spring-boot:run            # run locally on http://localhost:8080
+mvn test                       # run all tests
+mvn -Dtest=SomeClassName test  # run a single test class
+mvn -DskipTests package        # build without tests
+
+./build_docker.sh              # mvn package + docker build (tags rguziy/clamav-web-client:latest)
+docker compose up --build      # bring up clamav-server + clamav-web-client together
+```
+
+Notes:
+- Local build targets **JDK 17** (`pom.xml`); the Docker multi-stage build uses **JDK 21** (Maven build stage + `eclipse-temurin:21-jre` runtime). Either JDK 17+ works locally.
+- There are **no unit tests** in the tree yet (only the `spring-boot-starter-test` dependency); `mvn test` is effectively a no-op today.
+- First run auto-creates a default admin user **`admin` / `admin`** — change it via `/admin/users`.
+
+## Configuration: two separate stores
+
+This is the most important architectural nuance. Configuration lives in **two places that do not overlap**:
+
+1. **JPA database** (`spring.datasource.*` in `application.properties`) — holds `ScanJob`, `AppUser`, `ClamdEndpoint`, `WatchedDirectory`, `ProcessedFile`, `AuditEvent`. Defaults to **H2 file** at `./data/clamav-web-client`. Override to PostgreSQL via `SPRING_DATASOURCE_URL` / `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` env vars (the postgres driver is bundled).
+2. **A plain properties file** `conf/clamav-web-client.properties` — holds *admin settings* (allowed scan roots, upload limits, concurrency, quarantine/webhook/watch toggles). Managed by `SettingsService` via `AtomicPropertiesFile` (atomic write), **not** JPA. This file is bind-mounted `rw` in Docker so settings survive restarts. `application.properties` (in the jar) is Spring boilerplate; runtime-tunable settings live in the external properties file.
+
+When adding a new admin-tunable setting: add the key + default in `SettingsService.init()`, a typed getter there, add it to the allow-list in `WebUiController.adminSettingsSave()`, and surface it in `templates/pages/settings.html`.
+
+### clamd endpoints: DB-backed, not config
+The clamd servers the app talks to are `ClamdEndpoint` **entities in the DB** (managed under `/admin/endpoints`), each with host/port/`Platform` (UNIX/JNA). `ClamavClientProvider.clientFor(endpoint)` builds a fresh `ClamavClient` per call. The `clamav.service.*` keys in the properties file are **legacy** — used only by `StartupInitializer.ensureDefaultEndpoint()` to seed the first endpoint on an empty DB.
+
+## Scan job lifecycle
+
+The core flow spans several classes — read them together:
+
+1. **Create** (`ScanJobService`): `createUploadJobs` (stores file to `uploadDir`, computes SHA-256), `createPathJob` (validates against allowed roots via `PathPolicy`), or `createWatchFileJob`. Job is saved as `QUEUED`.
+2. **Enqueue** (`ScanJobService.enqueueAfterCommit`): registers a `TransactionSynchronization` so the job is only handed to the executor **after the DB commit** — avoids the worker reading a not-yet-persisted job.
+3. **Execute** (`ScanExecutionService`): a fixed `ThreadPoolExecutor` sized by `settings.concurrentScans()`, built once in `@PostConstruct` (so **changing concurrency needs an app restart**). Threads are deliberately **non-daemon** (see comment — container lifecycle can kill daemon threads mid-scan). UPLOAD jobs stream the stored file (`client.scan(InputStream)` → INSTREAM); PATH/WATCH jobs use `client.parallelScan(path)`.
+4. **Result** (`ScanExecutionService.handleResult`): sets verdict OK / VIRUS_FOUND / ERROR. On virus: quarantine (`QuarantineService`) + webhook (`NotificationService.notifyIfNeeded`).
+5. **Restart recovery** (`ScanJobService.resumeQueued` `@PostConstruct`): any non-`FINISHED` job is reset to `QUEUED` and re-enqueued on startup.
+
+Status enum: `QUEUED → RUNNING → FINISHED`. Verdict enum: `OK | VIRUS_FOUND | ERROR`. Type enum: `UPLOAD | PATH | WATCH`. Note `finish*`/`markRunning` helpers are duplicated in both `ScanJobService` and `ScanExecutionService`; the executor uses its own copies.
+
+## Path safety
+
+Any path-based scan or watch dir must pass `PathPolicy.isUnderAllowedRoots()` against `settings.allowedRoots()` (comma-separated, normalized to absolute). This is the primary guard against scanning arbitrary host paths — preserve it when touching path handling. In Docker, allowed roots must also be volume-mounted into the web-client container or the path won't be visible.
+
+## Watching
+
+`WatcherService.poll()` is `@Scheduled(fixedDelay=30s)` but self-throttles to `settings.watchPollSeconds()` and no-ops unless `watchEnabled()`. It walks each enabled `WatchedDirectory` (depth 5, max 1000 files), dedupes via `ProcessedFile` (path + lastModified + size), and queues a WATCH job for new/changed files. `start()/stop()` only reset in-process timing — they do **not** flip the persisted setting.
+
+## Web layer
+
+- `WebUiController` (`@Controller`) — Thymeleaf pages, one template per tab under `src/main/resources/templates/pages/` (`dashboard`, `main`, `scan`, `jobs`, `job`, `settings`, `endpoints`, `users`, `watch`, `audit`). Every admin mutation calls `audit.record(...)`.
+- `ApiController` (`@RestController`, `/api`) — programmatic scan/query. Upload expects multipart fields **`files`** (repeatable) and **`endpointId`** (numeric); path scan is JSON `{path, endpointId}`.
+- `ClamAVWebClientController` / `ClamAVWebClientService` are **legacy** carryovers from the upstream `rguziy/clamav-web-client` project; the active paths are the two controllers above.
+- `UiModelAdvice` / `WebUiController.addCommonModelAttributes` inject non-null `settings` + health flags into every model so fragments never NPE.
+
+## Security (`SecurityConfig`)
+
+BCrypt, DB-backed auth (`DbUserDetailsService`), form login + HTTP Basic (Basic is what `/api/**` uses). Three cumulative roles — a user is granted all roles up to their level (see `WebUiController.adminUsersCreate`):
+- `VIEWER` — dashboard/settings/main read-only + `/api/health`
+- `OPERATOR` — scan + jobs + `/api/**`
+- `ADMIN` — `/admin/**` and the H2 console at `/h2`
+
+CSRF is disabled for `/api/**` and `/h2/**`. The **H2 console is enabled** (`/h2`) — note this if hardening for production.
+
+## Postgres LOB migration
+
+`PostgresLobMigration` runs on `ApplicationReadyEvent`, only on Postgres. Older schemas created `@Lob String` columns as OID large objects, which break in autocommit mode. It converts `scan_jobs.found_viruses_json` / `error_message` from OID to `TEXT` in-place. It logs and continues on failure rather than crashing startup. Harmless no-op on H2 or already-migrated schemas.
+
+## REST API quick reference
+
+All `/api/**` endpoints require HTTP Basic auth (`OPERATOR`+; `/api/health` allows `VIEWER`+). Multipart field names and types matter — the common curl errors below are caused by getting them wrong.
+
+```bash
+# List recent jobs (top 200, newest first)
+curl -sS -u admin:admin http://HOST:8080/api/jobs
+
+# Single job by id
+curl -sS -u admin:admin http://HOST:8080/api/jobs/<jobId>
+
+# Health (endpoint names)
+curl -sS -u admin:admin http://HOST:8080/api/health
+
+# Upload scan — fields MUST be `files` (repeatable) and `endpointId` (numeric)
+curl -u admin:admin \
+  -F 'endpointId=33' \
+  -F 'files=@/path/a.txt' -F 'files=@/path/b.txt' \
+  http://HOST:8080/api/scan/upload
+
+# Path scan — JSON body; path must be under allowed roots
+curl -u admin:admin -H 'Content-Type: application/json' \
+  -d '{"path":"/scandir/file","endpointId":33}' \
+  http://HOST:8080/api/scan/path
+```
+
+The equivalent UI form endpoints (`POST /scan/upload`, `POST /scan/path`) are CSRF-protected and used by the browser; the `/api/*` variants are CSRF-exempt for programmatic use.
+
+## Gotchas
+
+- **Concurrency change needs a restart** — the executor thread pool is built once in `ScanExecutionService.@PostConstruct` from `app.concurrentScans`. Editing it in Settings persists but doesn't resize the live pool.
+- **`files` vs `file`, `endpointId` vs name** — upload requires the plural `files` part and a numeric `endpointId`; wrong names give `Required part 'files' is not present` / `Required parameter 'endpointId' is not present`.
+- **Path/watch invisibility in Docker** — if the scan root isn't bind-mounted into the *web-client* container, `PathPolicy` may still pass but the file isn't there to scan.
+- **INSTREAM loses filenames** — upload scans stream bytes, so clamd logs `instream(...): OK/FOUND` without the original name. Use path scans if server-side filenames in clamd logs matter.
+- **Duplicated finish/mark helpers** — `finishOk/finishFound/finishError/markRunning` exist in both `ScanJobService` and `ScanExecutionService`; the executor path uses its own. Update the right copy.
+- **New DB entities need no manual DDL** — `spring.jpa.hibernate.ddl-auto=update` auto-creates/updates tables. Adding a `@Lob String` on Postgres can resurrect the OID problem `PostgresLobMigration` fixes; prefer `columnDefinition = "text"`.
+
+## Deployment
+
+`docker-compose.yml` runs two containers: `clamav` (the clamd server, port 3310) and `clamav-web-client` (this app, port 8080, `build: .`). PATH/WATCH scans require the scan roots to be mounted into the web-client container. `install-clamd-remote.sh` provisions clamd on a remote host.

@@ -25,10 +25,15 @@
 #   --console-ip IP       IP della console web: se indicato, il firewall (ufw o
 #                          firewalld, se presenti) viene aperto SOLO per quell'IP.
 #   --skip-install        Non installare i pacchetti (solo riconfigura)
+#   --scan-system         Configura clamd per scansionare l'INTERA macchina
+#                          (User root + boolean SELinux antivirus_can_scan_system).
+#                          ATTENZIONE: clamd leggera' qualunque file come root; usa
+#                          SEMPRE --console-ip per limitare l'accesso alla porta.
 #   -h, --help             Mostra questo aiuto
 #
-# ESEMPIO:
+# ESEMPI:
 #   sudo ./install-clamd-remote.sh --console-ip 192.168.1.50
+#   sudo ./install-clamd-remote.sh --scan-system --console-ip 192.168.1.50
 #
 set -euo pipefail
 
@@ -36,6 +41,7 @@ PORT=3310
 BIND_ADDR="0.0.0.0"
 CONSOLE_IP=""
 SKIP_INSTALL=0
+SCAN_SYSTEM=0
 
 log()  { echo -e "\033[1;34m[*]\033[0m $*"; }
 ok()   { echo -e "\033[1;32m[OK]\033[0m $*"; }
@@ -48,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --bind) BIND_ADDR="$2"; shift 2 ;;
     --console-ip) CONSOLE_IP="$2"; shift 2 ;;
     --skip-install) SKIP_INSTALL=1; shift ;;
+    --scan-system) SCAN_SYSTEM=1; shift ;;
     -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) err "Opzione sconosciuta: $1"; exit 1 ;;
   esac
@@ -185,16 +192,32 @@ unit_exists() {
   [[ "$state" == "loaded" || "$state" == "masked" ]]
 }
 
+# Verifica l'esistenza di un TEMPLATE unit (es. clamd@.service).
+# Per un template "nudo" (senza istanza) systemctl show riporta LoadState=stub,
+# quindi unit_exists() lo considererebbe assente: usiamo "systemctl cat", che
+# invece restituisce il contenuto del template se esiste.
+template_exists() {
+  systemctl cat "$1" >/dev/null 2>&1
+}
+
 if [[ "$INIT_SYS" == "systemd" ]]; then
+  # Le distro RHEL/Fedora usano un TEMPLATE unit clamd@.service, che va
+  # istanziato col nome del file di config: /etc/clamd.d/scan.conf -> clamd@scan.
+  # Ricaviamo il nome dell'istanza dal config gia' rilevato (niente hardcode).
+  CLAMD_INSTANCE=""
+  case "$CLAMD_CONF" in
+    /etc/clamd.d/*.conf) CLAMD_INSTANCE="$(basename "$CLAMD_CONF" .conf)" ;;
+  esac
+
   systemctl stop clamav-daemon.service clamav-daemon.socket 2>/dev/null || true
-  systemctl stop 'clamd@scan.service' 2>/dev/null || true
+  [[ -n "$CLAMD_INSTANCE" ]] && systemctl stop "clamd@${CLAMD_INSTANCE}.service" 2>/dev/null || true
   systemctl stop clamd.service 2>/dev/null || true
 
   if unit_exists clamav-daemon.service; then
     CLAMD_SERVICE="clamav-daemon.service"
     unit_exists clamav-daemon.socket && CLAMD_SOCKET="clamav-daemon.socket"
-  elif [[ -f /etc/clamd.d/scan.conf ]] && unit_exists 'clamd@.service'; then
-    CLAMD_SERVICE="clamd@scan.service"
+  elif [[ -n "$CLAMD_INSTANCE" ]] && template_exists 'clamd@.service'; then
+    CLAMD_SERVICE="clamd@${CLAMD_INSTANCE}.service"
   elif unit_exists clamd.service; then
     CLAMD_SERVICE="clamd.service"
   fi
@@ -226,9 +249,39 @@ set_conf_value() {
   fi
 }
 
+# Fedora/RHEL: il config di default (/etc/clamd.d/scan.conf) contiene una riga
+# "Example" che fa rifiutare l'avvio a clamd ("Please edit the example config
+# file") finche' non viene rimossa/commentata. Idempotente: agisce solo se
+# esiste una riga "Example" isolata.
+if grep -qE '^[[:space:]]*Example[[:space:]]*$' "$CLAMD_CONF"; then
+  sed -i -E 's|^[[:space:]]*Example[[:space:]]*$|# Example (commentata da install-clamd-remote.sh)|' "$CLAMD_CONF"
+  ok "Riga 'Example' commentata in $CLAMD_CONF (richiesta su Fedora/RHEL per avviare clamd)."
+fi
+
 set_conf_value "TCPSocket" "$PORT" "$CLAMD_CONF"
 set_conf_value "TCPAddr" "$BIND_ADDR" "$CLAMD_CONF"
 ok "TCPSocket = $PORT, TCPAddr = $BIND_ADDR impostati (backup salvato accanto all'originale)."
+
+# --scan-system: abilita la scansione dell'INTERO filesystem via scansioni PATH.
+# Su TCP il fd-pass non e' disponibile, quindi e' clamd stesso ad aprire i file:
+# per leggere qualunque path deve girare come root E, su sistemi SELinux, avere
+# il boolean antivirus_can_scan_system attivo. Senza entrambe, i path fuori dai
+# contesti di clamd falliscono con "Permission denied".
+if [[ "$SCAN_SYSTEM" -eq 1 ]]; then
+  log "Modalita' --scan-system: configuro clamd per leggere l'intero filesystem..."
+  set_conf_value "User" "root" "$CLAMD_CONF"
+  if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
+    if command -v setsebool >/dev/null 2>&1; then
+      if setsebool -P antivirus_can_scan_system 1 2>/dev/null; then
+        ok "SELinux: boolean antivirus_can_scan_system abilitato (persistente)."
+      else
+        warn "Non sono riuscito a impostare il boolean SELinux antivirus_can_scan_system: se le scansioni di path di sistema falliscono, eseguilo a mano."
+      fi
+    fi
+  fi
+  warn "clamd girera' come ROOT e leggera' qualunque file: assicurati di aver limitato la porta $PORT (usa --console-ip)."
+  ok "Scansione intero sistema configurata (User=root${INIT_SYS:+, SELinux gestito se presente})."
+fi
 
 # ---------------------------------------------------------------------------
 # 7) Socket unit: alcune distro (es. Ubuntu recenti, tramite
