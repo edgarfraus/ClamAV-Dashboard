@@ -1,0 +1,2 @@
+# Runtime H2 database (created by the app at runtime, not source)
+data/*.db
