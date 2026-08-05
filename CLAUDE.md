@@ -118,3 +118,13 @@ The equivalent UI form endpoints (`POST /scan/upload`, `POST /scan/path`) are CS
 ## Deployment
 
 `docker-compose.yml` runs two containers: `clamav` (the clamd server, port 3310) and `clamav-web-client` (this app, port 8080, `build: .`). PATH/WATCH scans require the scan roots to be mounted into the web-client container. `install-clamd-remote.sh` provisions clamd on a remote host.
+
+## Project context & working notes
+
+Durable context that isn't obvious from the code (kept here so it travels with the repo across machines):
+
+- **Direction:** this is headed toward a **managed, lightweight fleet AV**. Target architecture is **model B — an agent per machine**: a local agent talks to a local clamd over a UNIX socket (fd-pass works, so clamd need not run as root nor be network-exposed) and reports to the console over **HTTPS + mTLS (private CA) + per-agent tokens**. Today's model is the reverse: the console reaches OUT to each clamd over plaintext TCP.
+- **clamd over TCP constraint:** fd-pass is impossible over TCP (SCM_RIGHTS needs a local UNIX socket), so for PATH scans clamd opens the files itself. To scan a whole machine it must run as **root** + SELinux `antivirus_can_scan_system=on` — this is what `install-clamd-remote.sh --scan-system` sets up. Always restrict the clamd port (`--console-ip` / firewall).
+- **Machines:** dev = a Mac (Docker only, no local Java/Maven; rebuild via `docker compose up --build -d`). "prod" = a small ARM board, deployed via `git pull` + compose — **not public / not a real prod**. Test clamd endpoint = a Fedora box, **powered off between test sessions**.
+- **Runtime files are gitignored** so they stop blocking `git pull`: `data/*.db` (H2 DB — holds endpoints/users/jobs) and `conf/clamav-web-client.properties` (app settings; recreated with defaults on first run). They do **not** travel with git — copy them by hand if you need the same config/state on another machine.
+- **Git workflow:** commit **directly on `main`** and push; do not create feature branches for this repo unless asked.
