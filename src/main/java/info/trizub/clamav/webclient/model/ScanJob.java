@@ -95,6 +95,38 @@ public class ScanJob {
     public void setFinishedAt(Instant finishedAt) { this.finishedAt = finishedAt; }
     public String getFoundVirusesJson() { return foundVirusesJson; }
     public void setFoundVirusesJson(String foundVirusesJson) { this.foundVirusesJson = foundVirusesJson; }
+
+    // --- Parsed view of foundVirusesJson (infected file path -> list of signatures) ---
+    // Transient + JsonIgnore: not persisted, not serialized in the REST API.
+    // Lets templates render which files are infected without dumping raw JSON.
+    private static final com.fasterxml.jackson.databind.ObjectMapper FOUND_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    @Transient
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public java.util.Map<String, java.util.List<String>> getFoundVirusesMap() {
+        if (foundVirusesJson == null || foundVirusesJson.isBlank()) return java.util.Collections.emptyMap();
+        try {
+            return FOUND_MAPPER.readValue(foundVirusesJson,
+                new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, java.util.List<String>>>() {});
+        } catch (Exception e) {
+            // Malformed JSON: surface it rather than hiding the detection.
+            return java.util.Collections.singletonMap(foundVirusesJson, java.util.Collections.emptyList());
+        }
+    }
+
+    @Transient
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public java.util.Set<String> getDistinctSignatures() {
+        java.util.LinkedHashSet<String> sigs = new java.util.LinkedHashSet<>();
+        getFoundVirusesMap().values().forEach(sigs::addAll);
+        return sigs;
+    }
+
+    @Transient
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public int getInfectedFileCount() { return getFoundVirusesMap().size(); }
+
     public String getErrorMessage() { return errorMessage; }
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
     public String getQuarantinePath() { return quarantinePath; }

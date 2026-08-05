@@ -353,12 +353,27 @@ public class WebUiController {
             }
         }
 
-        // Build ordered groups (most open alerts first)
-        List<EndpointAlertGroup> endpointGroups = endpoints.all().stream()
-            .filter(ep -> byEndpointId.containsKey(ep.getId()))
-            .map(ep -> new EndpointAlertGroup(ep, byEndpointId.get(ep.getId())))
-            .sorted(Comparator.comparingLong(EndpointAlertGroup::getOpenCount).reversed())
-            .collect(Collectors.toList());
+        // Build ordered groups (most open alerts first).
+        // Track which endpoint ids still exist, so alerts pointing at a
+        // deleted/hidden endpoint are NOT silently dropped from the list.
+        java.util.Set<Long> knownEndpointIds = new java.util.HashSet<>();
+        List<EndpointAlertGroup> endpointGroups = new ArrayList<>();
+        for (ClamdEndpoint ep : endpoints.all()) {
+            knownEndpointIds.add(ep.getId());
+            List<ScanJob> list = byEndpointId.get(ep.getId());
+            if (list != null && !list.isEmpty()) {
+                endpointGroups.add(new EndpointAlertGroup(ep, list));
+            }
+        }
+        // Alerts whose endpoint id is no longer in endpoints.all(): keep them
+        // visible using the (stale) endpoint reference carried by the job itself.
+        for (Map.Entry<Long, List<ScanJob>> e : byEndpointId.entrySet()) {
+            if (!knownEndpointIds.contains(e.getKey())) {
+                ClamdEndpoint stale = e.getValue().isEmpty() ? null : e.getValue().get(0).getEndpoint();
+                endpointGroups.add(new EndpointAlertGroup(stale, e.getValue()));
+            }
+        }
+        endpointGroups.sort(Comparator.comparingLong(EndpointAlertGroup::getOpenCount).reversed());
 
         if (!orphans.isEmpty()) {
             endpointGroups.add(new EndpointAlertGroup(null, orphans));
