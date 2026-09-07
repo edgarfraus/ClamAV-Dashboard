@@ -11,6 +11,7 @@ import java.util.List;
 public interface ScanExclusionRepository extends JpaRepository<ScanExclusion, Long> {
 
     List<ScanExclusion> findAllByOrderByEndpointAscPathAsc();
+    List<ScanExclusion> findByEndpoint(ClamdEndpoint endpoint);
 
     @Query("SELECT e FROM ScanExclusion e WHERE e.endpoint IS NULL OR e.endpoint = :ep ORDER BY e.path ASC")
     List<ScanExclusion> findApplicableTo(@Param("ep") ClamdEndpoint ep);

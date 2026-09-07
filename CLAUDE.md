@@ -38,6 +38,14 @@ When adding a new admin-tunable setting: add the key + default in `SettingsServi
 ### clamd endpoints: DB-backed, not config
 The clamd servers the app talks to are `ClamdEndpoint` **entities in the DB** (managed under `/admin/endpoints`), each with host/port/`Platform` (UNIX/JNA). `ClamavClientProvider.clientFor(endpoint)` builds a fresh `ClamavClient` per call. The `clamav.service.*` keys in the properties file are **legacy** — used only by `StartupInitializer.ensureDefaultEndpoint()` to seed the first endpoint on an empty DB.
 
+## Deleting an endpoint
+
+Five entities carry an `endpoint_id`: `ScanJob`, `WatchedDirectory`, `ScanExclusion`, `ScheduledScan`, `AgentCommand`. A bare `deleteById` therefore fails on the foreign key as soon as the endpoint has ever been used, and because `GlobalExceptionHandler` turns that into a redirect, the row just silently refuses to disappear. `EndpointService.delete` detaches or removes each dependent first, and the choice per entity is deliberate:
+
+- **scan jobs** keep their history and only lose the link; a job still QUEUED/RUNNING is closed as ERROR, since without an endpoint the executor has nothing to dial.
+- **watched directories, scheduled scans, agent commands** are configuration or work items tied to that endpoint — pointing them at nothing would only generate failures, so they are deleted.
+- **exclusions are deleted, never detached.** `ScanExclusion.endpoint == null` means *applies to every endpoint*, so clearing the field would silently widen an exclusion to the whole fleet — the one case where detaching would be a security regression rather than a tidy-up.
+
 ## Scan job lifecycle
 
 The core flow spans several classes — read them together:

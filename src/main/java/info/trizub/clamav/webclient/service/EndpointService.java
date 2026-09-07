@@ -2,8 +2,16 @@ package info.trizub.clamav.webclient.service;
 
 import info.trizub.clamav.webclient.model.ClamdEndpoint;
 import info.trizub.clamav.webclient.model.EndpointGroup;
+import info.trizub.clamav.webclient.model.ScanJob;
+import info.trizub.clamav.webclient.model.ScanJobStatus;
+import info.trizub.clamav.webclient.model.ScanVerdict;
+import info.trizub.clamav.webclient.repo.AgentCommandRepository;
 import info.trizub.clamav.webclient.repo.ClamdEndpointRepository;
 import info.trizub.clamav.webclient.repo.EndpointGroupRepository;
+import info.trizub.clamav.webclient.repo.ScanExclusionRepository;
+import info.trizub.clamav.webclient.repo.ScanJobRepository;
+import info.trizub.clamav.webclient.repo.ScheduledScanRepository;
+import info.trizub.clamav.webclient.repo.WatchedDirectoryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import xyz.capybara.clamav.Platform;
@@ -22,12 +30,27 @@ public class EndpointService {
     private final ClamdEndpointRepository repo;
     private final SettingsService settings;
     private final EndpointGroupRepository groupRepo;
+    private final ScanJobRepository jobRepo;
+    private final WatchedDirectoryRepository watchRepo;
+    private final ScanExclusionRepository exclusionRepo;
+    private final ScheduledScanRepository scheduledScanRepo;
+    private final AgentCommandRepository agentCommandRepo;
 
     public EndpointService(ClamdEndpointRepository repo, SettingsService settings,
-                           EndpointGroupRepository groupRepo) {
+                           EndpointGroupRepository groupRepo,
+                           ScanJobRepository jobRepo,
+                           WatchedDirectoryRepository watchRepo,
+                           ScanExclusionRepository exclusionRepo,
+                           ScheduledScanRepository scheduledScanRepo,
+                           AgentCommandRepository agentCommandRepo) {
         this.repo = repo;
         this.settings = settings;
         this.groupRepo = groupRepo;
+        this.jobRepo = jobRepo;
+        this.watchRepo = watchRepo;
+        this.exclusionRepo = exclusionRepo;
+        this.scheduledScanRepo = scheduledScanRepo;
+        this.agentCommandRepo = agentCommandRepo;
     }
 
     @Transactional
@@ -76,9 +99,47 @@ public class EndpointService {
         return repo.save(ep);
     }
 
+    /**
+     * Deletes an endpoint after detaching everything that points at it.
+     *
+     * Five entities carry an endpoint_id (scan jobs, watched directories, scan
+     * exclusions, scheduled scans, agent commands), so a bare deleteById fails on
+     * the foreign key as soon as the endpoint has ever been used, and the error is
+     * swallowed into a redirect: the row simply refuses to disappear.
+     *
+     * What happens to each dependent is deliberate:
+     *  - scan jobs keep their history and just lose the link; any job still queued
+     *    or running is closed as ERROR, because without an endpoint the executor
+     *    has nothing to talk to;
+     *  - watched directories, scheduled scans and agent commands are configuration
+     *    or work items bound to that endpoint: pointing them at nothing would only
+     *    produce failures, so they go;
+     *  - exclusions are DELETED, never detached: a null endpoint means "applies to
+     *    every endpoint", so clearing the field would silently widen an exclusion
+     *    to the whole fleet.
+     */
     @Transactional
     public void delete(Long id) {
-        repo.deleteById(id);
+        ClamdEndpoint ep = repo.findById(id).orElse(null);
+        if (ep == null) return;
+
+        for (ScanJob job : jobRepo.findByEndpoint(ep)) {
+            if (job.getStatus() != ScanJobStatus.FINISHED) {
+                job.setStatus(ScanJobStatus.FINISHED);
+                job.setVerdict(ScanVerdict.ERROR);
+                job.setErrorMessage("Endpoint '" + ep.getName() + "' was deleted while this scan was pending.");
+                job.setFinishedAt(Instant.now());
+            }
+            job.setEndpoint(null);
+            jobRepo.save(job);
+        }
+
+        agentCommandRepo.deleteAll(agentCommandRepo.findByEndpoint(ep));
+        watchRepo.deleteAll(watchRepo.findByEndpoint(ep));
+        scheduledScanRepo.deleteAll(scheduledScanRepo.findByEndpoint(ep));
+        exclusionRepo.deleteAll(exclusionRepo.findByEndpoint(ep));
+
+        repo.delete(ep);
     }
 
     /**

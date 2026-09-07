@@ -18,4 +18,5 @@ public interface ScanJobRepository extends JpaRepository<ScanJob, String> {
     long countByVerdict(ScanVerdict verdict);
     long countByStatus(ScanJobStatus status);
     List<ScanJob> findByStatusInOrderBySubmittedAtDesc(java.util.Collection<ScanJobStatus> statuses);
+    List<ScanJob> findByEndpoint(info.trizub.clamav.webclient.model.ClamdEndpoint endpoint);
 }

@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface WatchedDirectoryRepository extends JpaRepository<WatchedDirectory, Long> {
     List<WatchedDirectory> findByEnabledTrue();
+    List<WatchedDirectory> findByEndpoint(info.trizub.clamav.webclient.model.ClamdEndpoint endpoint);
 }

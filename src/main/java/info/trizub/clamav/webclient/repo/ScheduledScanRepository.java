@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface ScheduledScanRepository extends JpaRepository<ScheduledScan, Long> {
     List<ScheduledScan> findByEnabledTrue();
+    List<ScheduledScan> findByEndpoint(info.trizub.clamav.webclient.model.ClamdEndpoint endpoint);
 }

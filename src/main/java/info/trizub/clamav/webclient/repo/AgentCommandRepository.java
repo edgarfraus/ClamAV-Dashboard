@@ -14,4 +14,5 @@ public interface AgentCommandRepository extends JpaRepository<AgentCommand, Long
     List<AgentCommand> findByStatusAndDispatchedAtBefore(AgentCommandStatus status, Instant before);
     List<AgentCommand> findByStatusAndCreatedAtBefore(AgentCommandStatus status, Instant before);
     Optional<AgentCommand> findByJobId(String jobId);
+    List<AgentCommand> findByEndpoint(ClamdEndpoint endpoint);
 }
