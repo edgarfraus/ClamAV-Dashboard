@@ -166,7 +166,7 @@ fi
 
 DISTRO_ID="unknown"
 [[ -f /etc/os-release ]] && DISTRO_ID=$(. /etc/os-release && echo "${PRETTY_NAME:-$ID}")
-log "Distro rilevata: $DISTRO_ID  ->  package manager: $PKG_MGR"
+log "Detected distro: $DISTRO_ID  ->  package manager: $PKG_MGR"
 
 # Rilevamento init system (systemd vs OpenRC, es. Alpine)
 INIT_SYS="systemd"
@@ -386,6 +386,8 @@ CLAMONACC_MODE=""
 # Whether the realtime scanner is actually running, so the closing summary
 # reports what is true rather than what was requested.
 ONACC_ACTIVE=0
+# 1 when the kernel actually allows fanotify; probed before installing the unit.
+ONACC_SUPPORTED=1
 if [[ "$ON_ACCESS" -eq 1 ]]; then
   log "--on-access mode: configuring the realtime scanner (clamonacc)..."
 
@@ -596,14 +598,73 @@ if [[ "$ON_ACCESS" -eq 1 ]]; then
   for _u in clamav-clamonacc.service clamonacc.service; do
     if unit_exists "$_u"; then
       systemctl disable --now "$_u" >/dev/null 2>&1 || true
-      warn "Disabilitata l'unita' di distro $_u (sostituita da clamav-onacc.service)."
+      warn "Disabled the distro unit $_u (replaced by clamav-onacc.service)."
     fi
   done
 
+  # Probe before installing anything: fanotify_init() needs CAP_SYS_ADMIN in the
+  # host's user namespace, which an unprivileged LXC/Docker container never has.
+  # Installing a unit that can never start just produces an endless restart loop
+  # filling the journal with the same error, which is worse than not installing it.
+  log "Checking whether on-access scanning is possible on this machine..."
+  # Run clamonacc briefly and look at what it says. "timeout" is the obvious way
+  # to bound it, but if it were missing the probe would come back empty and we
+  # would wrongly conclude that fanotify works - so there is a fallback that
+  # backgrounds the process and kills it.
+  probe_onacc() {
+    local tmpf pid
+    tmpf="$(mktemp)"
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 10 "$CLAMONACC_BIN" --foreground --log=/dev/null >"$tmpf" 2>&1 </dev/null || true
+    else
+      "$CLAMONACC_BIN" --foreground --log=/dev/null >"$tmpf" 2>&1 </dev/null &
+      pid=$!
+      sleep 8
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+    cat "$tmpf"
+    rm -f "$tmpf"
+  }
+  ONACC_PROBE="$(probe_onacc)"
+  if printf '%s' "$ONACC_PROBE" | grep -q "fanotify_init failed"; then
+    CONTAINER_TYPE="none"
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+      CONTAINER_TYPE="$(systemd-detect-virt --container 2>/dev/null || echo none)"
+    elif [[ -f /run/systemd/container ]]; then
+      CONTAINER_TYPE="$(cat /run/systemd/container 2>/dev/null || echo container)"
+    elif [[ -f /.dockerenv ]]; then
+      CONTAINER_TYPE="docker"
+    fi
+
+    err "On-access scanning is NOT possible on this machine: the kernel refused"
+    err "fanotify_init (Operation not permitted)."
+    if [[ "$CONTAINER_TYPE" != "none" ]]; then
+      warn "Cause: this is a container ($CONTAINER_TYPE). fanotify needs CAP_SYS_ADMIN"
+      warn "in the host's user namespace, which an unprivileged LXC/Docker container"
+      warn "never has - being root inside the container is not enough."
+      warn "Options: run the agent on the host, or use a privileged LXC container"
+      warn "(unprivileged=0) that keeps CAP_SYS_ADMIN."
+    else
+      warn "Cause: the kernel denied fanotify_init. Check that the kernel supports"
+      warn "fanotify (>= 3.8) and that no sandboxing is stripping CAP_SYS_ADMIN."
+    fi
+    warn "Not installing clamav-onacc.service: a unit that can never start would"
+    warn "only loop on restart and flood the journal."
+    warn "Console-driven scans and scheduled scans are unaffected and work here."
+    ONACC_SUPPORTED=0
+  else
+    ONACC_SUPPORTED=1
+    ok "fanotify available: installing the realtime scanner."
+  fi
+
+  if [[ "$ONACC_SUPPORTED" -eq 1 ]]; then
   log "Creating the systemd units..."
   cat > /etc/systemd/system/clamav-onacc.service << EOF
 [Unit]
 Description=ClamAV on-access scanner (realtime) for the ClaimAV console
+StartLimitIntervalSec=300
+StartLimitBurst=3
 Documentation=man:clamonacc(8)
 After=${CLAMD_SERVICE}
 Requires=${CLAMD_SERVICE}
@@ -613,8 +674,11 @@ Type=simple
 # fanotify requires CAP_SYS_ADMIN: clamonacc must run as root.
 User=root
 ExecStart=${CLAMONACC_BIN} --foreground ${CLAMONACC_MODE} --log=${ONACC_LOG}
-Restart=always
-RestartSec=5
+# on-failure + a start limit: if on-access turns out to be impossible anyway,
+# systemd gives up after a few attempts instead of restarting forever and
+# filling the journal with the same error.
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -644,9 +708,11 @@ EOF
   systemctl enable --now clamav-console-report.service || true
   sleep 3
 
-  if systemctl is-active --quiet clamav-onacc.service; then
+  if [[ "$ONACC_SUPPORTED" -eq 1 ]] && systemctl is-active --quiet clamav-onacc.service; then
     ONACC_ACTIVE=1
     ok "clamav-onacc.service active (realtime scanning on: ${EXISTING_WATCH[*]})."
+  elif [[ "$ONACC_SUPPORTED" -eq 0 ]]; then
+    ONACC_ACTIVE=0
   else
     ONACC_ACTIVE=0
     err "clamav-onacc.service did not start. Log:"
@@ -683,6 +749,12 @@ EOF
   else
     err "clamav-console-report.service did not start. Log:"
     journalctl -u clamav-console-report.service -n 30 --no-pager || true
+  fi
+  else
+    # on-access impossible here: the log follower would watch a file nothing ever
+    # writes, so it is not installed either. The reporter script itself is still
+    # installed above, because "--test" is the diagnostic tool.
+    log "Skipping clamav-onacc.service and clamav-console-report.service."
   fi
 
   log "Checking that the console accepts reports from this machine..."
@@ -772,8 +844,13 @@ if [[ "$ON_ACCESS" -eq 1 ]]; then
   else
     # Never claim it is on when the service failed to start: the summary is the
     # one thing people read, and a wrong line here hides a real gap in coverage.
-    err "Realtime protection is NOT active: clamav-onacc.service is not running."
-    echo "    See the cause above. Scheduled scans and console-launched scans still work."
+    if [[ "$ONACC_SUPPORTED" -eq 0 ]]; then
+      warn "Realtime protection is NOT available on this machine (fanotify denied)."
+      echo "    See the explanation above. Console-driven and scheduled scans work normally."
+    else
+      err "Realtime protection is NOT active: clamav-onacc.service is not running."
+      echo "    See the cause above. Scheduled scans and console-launched scans still work."
+    fi
   fi
   echo
   echo "    Watched directories:   ${EXISTING_WATCH[*]}"

@@ -156,6 +156,15 @@ if [ -n "$INFECTED_LINES" ]; then
   FINDINGS_JSON+="]"
 fi
 
+# clamdscan prints the real error before the summary: pick the error lines,
+# otherwise the report carries "Infected files: 0" instead of the cause.
+scan_error_detail() {
+  local out="$1" detail
+  detail="$(printf '%s\n' "$out" | grep -iE "^ERROR:|Can't access|Permission denied|lstat\(\) failed|No such file" | head -3)"
+  [[ -z "$detail" ]] && detail="$(printf '%s\n' "$out" | tail -3)"
+  printf '%s' "$detail"
+}
+
 send_report() {
   local verdict="$1"
   local error_message="$2"
@@ -177,7 +186,7 @@ if [ -n "$INFECTED_LINES" ]; then
 
 elif [ "$EXIT_CODE" -eq 2 ]; then
   # Scan error (e.g. clamd unreachable) - report it anyway
-  send_report "ERROR" "Scan failed (exit code ${EXIT_CODE}) on ${SCAN_PATHS[*]}. Output: $(echo "$SCAN_OUTPUT" | tail -5)"
+  send_report "ERROR" "Scan failed (exit code ${EXIT_CODE}) on ${SCAN_PATHS[*]}: $(scan_error_detail "$SCAN_OUTPUT")"
   echo "[$TIMESTAMP] scan error, warning report sent to the dashboard" >> "$LOG_FILE"
 
 else

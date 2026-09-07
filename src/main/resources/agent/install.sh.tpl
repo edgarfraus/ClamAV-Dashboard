@@ -62,6 +62,17 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# Detected once, used both to set the realtime default and to explain why.
+IS_CONTAINER=""
+if command -v systemd-detect-virt >/dev/null 2>&1; then
+  IS_CONTAINER="$(systemd-detect-virt --container 2>/dev/null || true)"
+  [[ "$IS_CONTAINER" == "none" ]] && IS_CONTAINER=""
+elif [[ -f /run/systemd/container ]]; then
+  IS_CONTAINER="$(cat /run/systemd/container 2>/dev/null || echo container)"
+elif [[ -f /.dockerenv ]]; then
+  IS_CONTAINER="docker"
+fi
+
 ask() {
   # $1 = question, $2 = default (Y/n)
   local answer
@@ -86,9 +97,16 @@ if [[ -z "$WANT_REALTIME$WANT_CENTRAL$WANT_SCHEDULED" ]]; then
       echo "  1) Realtime protection (on-access)"
       echo "     Files are checked as they are written or opened, and every"
       echo "     detection reaches the console and Telegram immediately."
-      echo "     Not available inside an unprivileged container: fanotify needs"
-      echo "     CAP_SYS_ADMIN on the host."
-      ask "Enable realtime protection?" "Y" && WANT_REALTIME=1 || WANT_REALTIME=0
+      # In a container fanotify_init is denied outright, so the answer defaults
+      # to No: offering Yes would only install a service that cannot start.
+      if [[ -n "$IS_CONTAINER" ]]; then
+        echo "     NOT possible here: this machine is a container ($IS_CONTAINER), and"
+        echo "     fanotify needs CAP_SYS_ADMIN in the host namespace. Verified:"
+        echo "     clamonacc exits with \"fanotify_init failed: Operation not permitted\"."
+        ask "Enable realtime protection anyway?" "n" && WANT_REALTIME=1 || WANT_REALTIME=0
+      else
+        ask "Enable realtime protection?" "Y" && WANT_REALTIME=1 || WANT_REALTIME=0
+      fi
     else
       warn "Realtime protection is not available on $OS: ClamAV's on-access scanner"
       warn "uses fanotify, which is Linux-only. Skipping this option."
@@ -131,14 +149,12 @@ fi
 # fanotify_init() needs CAP_SYS_ADMIN in the host's user namespace, which an
 # unprivileged container never has. Warn before installing rather than after the
 # service has already failed to start.
-if [[ "$WANT_REALTIME" == "1" ]] && command -v systemd-detect-virt >/dev/null 2>&1; then
-  CONTAINER="$(systemd-detect-virt --container 2>/dev/null || echo none)"
-  if [[ "$CONTAINER" != "none" ]]; then
-    warn "This machine is a container ($CONTAINER). ClamAV on-access needs"
-    warn "CAP_SYS_ADMIN in the host namespace, which unprivileged LXC/Docker"
-    warn "containers do not have: realtime protection will most likely fail."
-    warn "Everything else (console-driven and scheduled scans) works fine here."
-  fi
+if [[ "$WANT_REALTIME" == "1" && -n "$IS_CONTAINER" ]]; then
+  warn "This machine is a container ($IS_CONTAINER). ClamAV on-access needs"
+  warn "CAP_SYS_ADMIN in the host namespace, which unprivileged LXC/Docker"
+  warn "containers do not have: realtime protection will not start."
+  warn "The installer probes for it and will skip the service rather than leave"
+  warn "a unit that restarts forever. Everything else works fine here."
 fi
 
 # ---------------------------------------------------------------------------

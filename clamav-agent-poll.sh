@@ -85,6 +85,16 @@ pick_scanner() {
   return 1
 }
 
+# clamdscan prints the real error first and a summary afterwards, so a blind
+# "tail" returns "Infected files: 0 / Total errors: 1" and hides the cause.
+# Prefer the actual error lines.
+scan_error_detail() {
+  local out="$1" detail
+  detail="$(printf '%s\n' "$out" | grep -iE "^ERROR:|Can't access|Permission denied|lstat\(\) failed|No such file" | head -3)"
+  [[ -z "$detail" ]] && detail="$(printf '%s\n' "$out" | tail -3)"
+  printf '%s' "$detail"
+}
+
 report_result() {
   local command_id="$1" verdict="$2" target="$3" findings_json="$4" error_message="$5"
   local payload
@@ -158,7 +168,7 @@ run_command() {
     report_result "$command_id" "OK" "${targets[*]}" "[]" ""
   else
     report_result "$command_id" "ERROR" "${targets[*]}" "[]" \
-      "Scan failed (exit code ${exit_code}). Output: $(printf '%s\n' "$output" | tail -5)"
+      "Scan failed (exit code ${exit_code}): $(scan_error_detail "$output")"
   fi
 }
 
