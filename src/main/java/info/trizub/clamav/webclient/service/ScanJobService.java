@@ -250,7 +250,10 @@ public class ScanJobService {
         job.setType(type != null ? type : ScanJobType.EXTERNAL);
         job.setStatus(ScanJobStatus.FINISHED);
         job.setVerdict(verdict);
-        job.setTarget(path);
+        // scan_jobs.target e' NOT NULL, ma un report spontaneo puo' arrivare senza
+        // percorso (una segnalazione on-access che riguarda l'intera macchina):
+        // in quel caso mostriamo l'host, che e' l'informazione utile.
+        job.setTarget(path != null && !path.isBlank() ? path : hostname);
         job.setSourceHost(hostname);
         // Se il report arriva da un agent autenticato con la chiave dell'endpoint,
         // il job viene legato a quell'endpoint e non resta un host "orfano".

@@ -39,6 +39,17 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
         this.endpoints = endpoints;
     }
 
+    /**
+     * Di default OncePerRequestFilter non rigira sul dispatch verso /error: senza
+     * questo, un errore in una richiesta dell'agent perde l'autenticazione lungo
+     * la strada e torna un 401 con "WWW-Authenticate: Basic" al posto dell'errore
+     * vero (500/400). Mascherare cosi' le cause rende la diagnosi impossibile.
+     */
+    @Override
+    protected boolean shouldNotFilterErrorDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {

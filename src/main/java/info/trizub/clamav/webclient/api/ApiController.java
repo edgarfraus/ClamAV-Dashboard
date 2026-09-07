@@ -14,6 +14,7 @@ import info.trizub.clamav.webclient.util.ClamVersionInfo;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -191,13 +192,13 @@ public class ApiController {
      * duplicated, and OK is accepted too — a clean result is what the user is waiting for.
      */
     @PostMapping(value = "/scan/report", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String,Object> scanReport(@RequestBody ScanReportRequest req, Authentication auth,
-                                        HttpServletRequest httpRequest) {
+    public ResponseEntity<Map<String,Object>> scanReport(@RequestBody ScanReportRequest req, Authentication auth,
+                                                        HttpServletRequest httpRequest) {
         ScanVerdict verdict;
         try {
             verdict = ScanVerdict.valueOf(req.verdict.trim().toUpperCase());
         } catch (Exception e) {
-            throw new IllegalArgumentException("verdict must be OK, VIRUS_FOUND or ERROR");
+            return badRequest("verdict must be OK, VIRUS_FOUND or ERROR");
         }
         // OK e' accettato solo per una scansione che la console ha chiesto: li'
         // "nessun virus" e' l'esito che l'utente sta aspettando. Per i report
@@ -206,7 +207,7 @@ public class ApiController {
         boolean commandResult = req.commandId != null;
         if (verdict != ScanVerdict.VIRUS_FOUND && verdict != ScanVerdict.ERROR
                 && !(commandResult && verdict == ScanVerdict.OK)) {
-            throw new IllegalArgumentException("verdict must be VIRUS_FOUND or ERROR"
+            return badRequest("verdict must be VIRUS_FOUND or ERROR"
                     + " (OK is accepted only together with commandId)");
         }
 
@@ -241,7 +242,7 @@ public class ApiController {
         if (commandResult) {
             AgentCommand cmd = agentCommands.findForEndpoint(req.commandId, reportingEndpoint).orElse(null);
             if (cmd == null) {
-                throw new IllegalArgumentException("commandId sconosciuto per questo agent: " + req.commandId);
+                return badRequest("commandId sconosciuto per questo agent: " + req.commandId);
             }
             String jobId = cmd.getJobId();
             if (jobId != null) {
@@ -255,11 +256,20 @@ public class ApiController {
                 jobs.notifyIfNeeded(jobId);
             }
             agentCommands.markDone(cmd.getId());
-            return Map.of("jobId", jobId == null ? "" : jobId);
+            return ResponseEntity.ok(Map.of("jobId", jobId == null ? "" : jobId));
         }
 
         var job = jobs.createExternalReport(req.hostname, req.path, verdict, found, req.errorMessage,
                 type, reportingEndpoint, auth.getName());
-        return Map.of("jobId", job.getId());
+        return ResponseEntity.ok(Map.of("jobId", job.getId()));
+    }
+
+    /**
+     * Errore di validazione con un messaggio leggibile. Senza questo l'eccezione
+     * risalirebbe non gestita (GlobalExceptionHandler copre solo il package web)
+     * e l'agent riceverebbe un 500 opaco al posto del motivo del rifiuto.
+     */
+    private ResponseEntity<Map<String,Object>> badRequest(String message) {
+        return ResponseEntity.badRequest().body(Map.of("error", message));
     }
 }
