@@ -231,35 +231,65 @@ log "Configuration file: $CLAMD_CONF"
 # ---------------------------------------------------------------------------
 # 4) Update the signature database (freshclam)
 # ---------------------------------------------------------------------------
-log "Updating the signature database (freshclam)..."
-if [[ "$INIT_SYS" == "systemd" ]]; then
-  systemctl stop clamav-freshclam 2>/dev/null || true
-fi
-freshclam --stdout || warn "freshclam reported a warning (often normal on a first run, e.g. database already up to date). Continuing."
-
-# On some distros clamd (via systemd socket activation) only starts if the
-# signature database is already on disk (ConditionPathExistsGlob). If freshclam
-# has not finished downloading it yet we wait here, otherwise the socket unit is
-# skipped and clamd may end up binding the port on its own, which then conflicts
-# when the socket unit retries later.
-log "Checking that the signature database is on disk..."
+# systemd guards clamd with two separate conditions:
+#   ConditionPathExistsGlob=/var/lib/clamav/daily.{c[vl]d,inc}
+#   ConditionPathExistsGlob=/var/lib/clamav/main.{c[vl]d,inc}
+# They are ANDed, so BOTH databases must be on disk or the unit is silently
+# "skipped, unmet condition check" - which looks exactly like a failed start.
 db_present() {
-  [[ -f /var/lib/clamav/daily.cvd || -f /var/lib/clamav/daily.cld ]] || \
-  [[ -f /var/lib/clamav/main.cvd  || -f /var/lib/clamav/main.cld  ]]
+  local base found
+  for base in daily main; do
+    found=0
+    for ext in cvd cld inc; do
+      [[ -e "/var/lib/clamav/${base}.${ext}" ]] && { found=1; break; }
+    done
+    [[ $found -eq 1 ]] || return 1
+  done
+  return 0
 }
-DB_WAIT=0
-while ! db_present; do
-  if [[ $DB_WAIT -ge 120 ]]; then
-    warn "The signature database is still not present after 2 minutes of waiting."
-    warn "Running freshclam once more to surface the error:"
-    freshclam --stdout || true
-    break
+
+if db_present; then
+  # Do NOT refresh an already working database. freshclam removes the old files
+  # before writing the new ones, so a failed download (a proxy, or the very
+  # common 429 rate limit from ClamAV's CDN) turns a healthy install into one
+  # with no signatures at all - and then clamd will not start. The
+  # clamav-freshclam service keeps them updated anyway.
+  ok "Signature database already present: leaving it alone (clamav-freshclam keeps it updated)."
+else
+  log "Signature database missing: downloading it with freshclam..."
+  if [[ "$INIT_SYS" == "systemd" ]]; then
+    systemctl stop clamav-freshclam 2>/dev/null || true
   fi
-  sleep 5
-  DB_WAIT=$((DB_WAIT + 5))
-  log "  ...still waiting for the signature database (${DB_WAIT}s)"
-done
-ok "Signature database ready (or proceeding anyway after the maximum wait)."
+  FRESHCLAM_OUT="$(freshclam --stdout 2>&1)"
+  FRESHCLAM_RC=$?
+  printf '%s\n' "$FRESHCLAM_OUT" | tail -5 | sed 's/^/    /'
+
+  # Only wait when freshclam reported success: the files may still be landing.
+  # If it failed there is nothing to wait for, and two minutes of "still waiting"
+  # would only bury the real error.
+  if [[ $FRESHCLAM_RC -eq 0 ]]; then
+    DB_WAIT=0
+    while ! db_present && [[ $DB_WAIT -lt 120 ]]; do
+      sleep 5
+      DB_WAIT=$((DB_WAIT + 5))
+      log "  ...still waiting for the signature database (${DB_WAIT}s)"
+    done
+  fi
+
+  if ! db_present; then
+    err "The signature database is still missing after freshclam."
+    err "clamd cannot start without it: systemd will report"
+    err "  \"skipped, unmet condition check ConditionPathExistsGlob=/var/lib/clamav/daily...\""
+    err "which reads like a startup failure but simply means there are no signatures."
+    err "freshclam said:"
+    printf '%s\n' "$FRESHCLAM_OUT" | tail -10 | sed 's/^/    /'
+    err "Frequent causes: no outbound access to database.clamav.net, an HTTP proxy"
+    err "that needs configuring in /etc/clamav/freshclam.conf, or the CDN rate limit"
+    err "(429 Too Many Requests) - in which case simply wait and re-run."
+    exit 1
+  fi
+  ok "Signature database downloaded."
+fi
 
 # ---------------------------------------------------------------------------
 # 5) Determine the systemd unit name(s) for clamd (they vary per distro)
@@ -556,6 +586,23 @@ fi
 # ---------------------------------------------------------------------------
 # 8) Start/enable the services
 # ---------------------------------------------------------------------------
+# clamd may have been switched to a different user by the steps above (agent mode
+# puts it back on its packaged user). If the signature database is still owned by
+# whoever ran freshclam last - typically root - the daemon then cannot read it and
+# fails to start for a reason that has nothing to do with the change itself.
+CLAMD_RUN_USER=$(grep -E '^[[:space:]]*User[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1)
+if [[ -n "$CLAMD_RUN_USER" && "$CLAMD_RUN_USER" != "root" ]] && id "$CLAMD_RUN_USER" >/dev/null 2>&1; then
+  DB_OWNER="$(stat -c %U /var/lib/clamav 2>/dev/null || true)"
+  if [[ "$DB_OWNER" != "$CLAMD_RUN_USER" ]]; then
+    log "Signature database owned by '$DB_OWNER' but clamd runs as '$CLAMD_RUN_USER': fixing ownership..."
+    chown -R "$CLAMD_RUN_USER" /var/lib/clamav 2>/dev/null || \
+      warn "Could not chown /var/lib/clamav to $CLAMD_RUN_USER; clamd may fail to read the database."
+  fi
+  for d in /var/log/clamav /var/run/clamav /run/clamav; do
+    [[ -d "$d" ]] && chown -R "$CLAMD_RUN_USER" "$d" 2>/dev/null || true
+  done
+fi
+
 log "Starting clamd..."
 if [[ "$INIT_SYS" == "systemd" ]]; then
   systemctl daemon-reload
