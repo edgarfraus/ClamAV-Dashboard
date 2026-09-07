@@ -2,26 +2,28 @@
 #
 # clamav-agent-poll.sh
 #
-# Agent della ClaimAV Dashboard: chiede alla console se ci sono scansioni da
-# fare su questa macchina, le esegue in locale e ne riporta l'esito.
+# ClaimAV Dashboard agent: asks the console whether there are scans to run on
+# this machine, runs them locally and reports the outcome.
 #
-# Perche' in polling e non in ascolto: la console non deve poter raggiungere la
-# macchina. Cosi' non si apre nessuna porta, funziona dietro NAT e l'unica
-# credenziale in gioco e' la chiave dell'endpoint.
+# Why polling instead of listening: the console must not need to reach this
+# machine. Nothing has to be exposed, it works behind NAT, and the only
+# credential involved is the endpoint key.
 #
-# Perche' l'agent invece delle scansioni PATH via TCP: qui clamdscan gira sulla
-# macchina e passa i descrittori di file gia' aperti (--fdpass), quindi non
-# esistono i problemi di permessi/SELinux che fanno fallire le scansioni in cui
-# e' clamd, da remoto, a dover aprire i file.
+# Why an agent instead of PATH scans over TCP: here clamdscan runs on the
+# machine and passes already-open file descriptors (--fdpass), so none of the
+# permission/SELinux problems apply that make scans fail when clamd, reached
+# remotely, has to open the files itself.
 #
-# USO:
-#   clamav-agent-poll.sh --loop     # servizio: interroga la console di continuo
-#   clamav-agent-poll.sh --once     # un solo giro (utile per il debug)
+# USAGE:
+#   clamav-agent-poll.sh --loop     # service: keeps polling the console
+#   clamav-agent-poll.sh --once     # a single pass (useful for debugging)
 #
-# CONFIGURAZIONE: /etc/clamav/console-report.conf (chmod 600)
-#   DASHBOARD_URL='http://192.168.1.50:8080'
+# CONFIGURATION: /etc/clamav/console-report.conf (chmod 600)
+#   DASHBOARD_URL='https://console.example.com'
 #   DASHBOARD_AGENT_KEY='cav_...'
-#   AGENT_POLL_SECONDS=30          # opzionale
+#   AGENT_POLL_SECONDS=30                                 # optional
+#   DASHBOARD_CA_BUNDLE='/etc/ssl/certs/internal-ca.pem'  # optional, private CA
+#   DASHBOARD_INSECURE=1                                  # optional, skip TLS verification
 #
 set -uo pipefail
 
@@ -30,30 +32,21 @@ CONFIG_FILE="${CONFIG_FILE:-/etc/clamav/console-report.conf}"
 
 DASHBOARD_URL="${DASHBOARD_URL:-}"
 DASHBOARD_AGENT_KEY="${DASHBOARD_AGENT_KEY:-}"
+DASHBOARD_CA_BUNDLE="${DASHBOARD_CA_BUNDLE:-}"
+DASHBOARD_INSECURE="${DASHBOARD_INSECURE:-0}"
 POLL_SECONDS="${AGENT_POLL_SECONDS:-30}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-15}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 if [[ -z "$DASHBOARD_URL" || -z "$DASHBOARD_AGENT_KEY" ]]; then
-  log "ERRORE: servono DASHBOARD_URL e DASHBOARD_AGENT_KEY in $CONFIG_FILE."
+  log "ERROR: DASHBOARD_URL and DASHBOARD_AGENT_KEY are required in $CONFIG_FILE."
   exit 1
 fi
 
-# Versione di clamd/ClamAV su questa macchina, nel formato
-# "ClamAV 1.0.3/27263/Tue Sep  2 ...". La alleghiamo a ogni richiesta: cosi' la
-# console mostra versione ed eta' del database delle firme senza doversi
-# collegare alla macchina, che con l'agent non fa piu'.
-clamav_version() {
-  local v=""
-  if command -v clamdscan >/dev/null 2>&1; then
-    v="$(clamdscan --version 2>/dev/null | head -1)"
-  fi
-  if [[ -z "$v" ]] && command -v clamscan >/dev/null 2>&1; then
-    v="$(clamscan --version 2>/dev/null | head -1)"
-  fi
-  printf '%s' "$v"
-}
+TLS_ARGS=()
+[[ -n "$DASHBOARD_CA_BUNDLE" ]] && TLS_ARGS+=(--cacert "$DASHBOARD_CA_BUNDLE")
+[[ "$DASHBOARD_INSECURE" == "1" ]] && TLS_ARGS+=(--insecure)
 
 json_escape() {
   local s="$1"
@@ -65,8 +58,22 @@ json_escape() {
   printf '%s' "$s"
 }
 
-# Sceglie lo scanner disponibile. clamdscan e' molto piu' veloce (firme gia' in
-# RAM nel demone); clamscan e' il ripiego quando clamd non risponde.
+# clamd/ClamAV version on this machine, as "ClamAV 1.0.3/27263/Tue Sep  2 ...".
+# Attached to every request so the console can display the signature database
+# version and age without connecting to this machine, which it no longer does.
+clamav_version() {
+  local v=""
+  if command -v clamdscan >/dev/null 2>&1; then
+    v="$(clamdscan --version 2>/dev/null | head -1)"
+  fi
+  if [[ -z "$v" ]] && command -v clamscan >/dev/null 2>&1; then
+    v="$(clamscan --version 2>/dev/null | head -1)"
+  fi
+  printf '%s' "$v"
+}
+
+# Picks whichever scanner is available. clamdscan is much faster (signatures are
+# already in the daemon's memory); clamscan is the fallback when clamd is silent.
 pick_scanner() {
   if command -v clamdscan >/dev/null 2>&1 && clamdscan --ping 1 >/dev/null 2>&1; then
     SCANNER=(clamdscan --multiscan --fdpass --infected)
@@ -91,43 +98,44 @@ report_result() {
   if curl -sS -f --max-time "$CURL_TIMEOUT" \
        -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
        -H "X-Agent-Clamav: $(clamav_version)" \
+       "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
        -X POST "${DASHBOARD_URL%/}/api/scan/report" \
        -H 'Content-Type: application/json' \
        -d "$payload" > /dev/null; then
-    log "comando ${command_id}: esito ${verdict} inviato"
+    log "command ${command_id}: ${verdict} reported"
   else
-    log "comando ${command_id}: invio dell'esito FALLITO (la console lo chiudera' per timeout)"
+    log "command ${command_id}: FAILED to report the outcome (the console will time it out)"
   fi
 }
 
 run_command() {
   local command_id="$1" targets_raw="$2"
 
-  # I target arrivano uno per riga; li mettiamo in un array per passarli tutti
-  # a un'unica invocazione dello scanner.
+  # Targets arrive one per line; collect them into an array so they can all be
+  # passed to a single scanner invocation.
   local targets=()
   while IFS= read -r line; do
     [[ -n "$line" ]] && targets+=("$line")
   done <<< "$targets_raw"
 
   if [[ ${#targets[@]} -eq 0 ]]; then
-    report_result "$command_id" "ERROR" "$targets_raw" "[]" "Comando senza percorsi da scansionare."
+    report_result "$command_id" "ERROR" "$targets_raw" "[]" "Command carried no paths to scan."
     return
   fi
 
   if ! pick_scanner; then
     report_result "$command_id" "ERROR" "${targets[*]}" "[]" \
-      "Ne' clamdscan ne' clamscan sono installati su questa macchina."
+      "Neither clamdscan nor clamscan is installed on this machine."
     return
   fi
 
-  log "comando ${command_id}: scansione di ${targets[*]}"
+  log "command ${command_id}: scanning ${targets[*]}"
   local output exit_code
   output="$("${SCANNER[@]}" "${targets[@]}" 2>&1)"
   exit_code=$?
 
-  # Righe nel formato "<path>: <FIRMA> FOUND": e' lo stesso che la console sa
-  # gia' interpretare, quindi le inoltriamo cosi' come sono.
+  # Lines shaped "<path>: <SIGNATURE> FOUND": the same format the console
+  # already knows how to parse, so they are forwarded verbatim.
   local infected
   infected="$(printf '%s\n' "$output" | grep 'FOUND$' || true)"
 
@@ -145,12 +153,12 @@ run_command() {
   if [[ -n "$infected" ]]; then
     report_result "$command_id" "VIRUS_FOUND" "${targets[*]}" "$findings_json" ""
   elif [[ "$exit_code" -eq 0 ]]; then
-    # Nessun virus: qui l'esito pulito va riportato comunque, perche' e' una
-    # scansione che un utente ha lanciato dalla console e sta aspettando.
+    # No virus: a clean result still has to be reported, because somebody
+    # started this scan from the console and is waiting for the answer.
     report_result "$command_id" "OK" "${targets[*]}" "[]" ""
   else
     report_result "$command_id" "ERROR" "${targets[*]}" "[]" \
-      "Scan fallito (exit code ${exit_code}). Output: $(printf '%s\n' "$output" | tail -5)"
+      "Scan failed (exit code ${exit_code}). Output: $(printf '%s\n' "$output" | tail -5)"
   fi
 }
 
@@ -159,20 +167,21 @@ poll_once() {
   response="$(curl -sS -f --max-time "$CURL_TIMEOUT" \
       -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
       -H "X-Agent-Clamav: $(clamav_version)" \
+      "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
       "${DASHBOARD_URL%/}/api/agent/commands?format=text" 2>/dev/null)" || {
-    log "console non raggiungibile, riprovo al prossimo giro"
+    log "console unreachable, retrying on the next pass"
     return 0
   }
 
   [[ -z "$response" ]] && return 0
 
-  # Ogni riga: "<id> <target codificato in base64>". Il base64 evita qualunque
-  # problema di spazi, apici o a capo nei percorsi.
+  # Each line: "<id> <base64-encoded targets>". Base64 avoids every quoting
+  # problem: paths may contain spaces and newlines.
   while IFS=' ' read -r command_id encoded; do
     [[ -z "$command_id" || -z "$encoded" ]] && continue
     local targets_raw
     targets_raw="$(printf '%s' "$encoded" | base64 -d 2>/dev/null)" || {
-      log "comando ${command_id}: target non decodificabile, salto"
+      log "command ${command_id}: undecodable targets, skipping"
       continue
     }
     run_command "$command_id" "$targets_raw"
@@ -184,14 +193,14 @@ case "${1:---loop}" in
     poll_once
     ;;
   --loop)
-    log "agent avviato: console ${DASHBOARD_URL%/}, poll ogni ${POLL_SECONDS}s"
+    log "agent started: console ${DASHBOARD_URL%/}, polling every ${POLL_SECONDS}s"
     while true; do
       poll_once
       sleep "$POLL_SECONDS"
     done
     ;;
   *)
-    grep '^#' "$0" | sed 's/^# \{0,1\}//'
+    awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
     exit 1
     ;;
 esac

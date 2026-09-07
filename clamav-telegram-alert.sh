@@ -1,28 +1,33 @@
 #!/bin/bash
 #
 # clamav-telegram-alert.sh
-# Esegue uno scan via clamd (piu' veloce di clamscan a freddo) e, se vengono
-# trovati file infetti (o lo scan fallisce), invia il risultato alla
-# ClaimAV Dashboard tramite POST /api/scan/report. E' la dashboard a inviare
-# l'alert Telegram (impostazioni admin -> Settings -> Telegram notifications),
-# cosi' bot token e chat id restano in un solo posto.
 #
-# Requisiti:
-#   - clamav-daemon (clamd) attivo e funzionante
-#   - clamdscan installato (pacchetto clamav-daemon su Debian/Ubuntu)
-#   - curl installato
+# Runs a scan through clamd (much faster than a cold clamscan) and, if infected
+# files are found (or the scan fails), sends the result to the ClaimAV Dashboard
+# via POST /api/scan/report. The dashboard is what sends the Telegram alert
+# (Admin > Settings > Telegram notifications), so the bot token and chat id live
+# in exactly one place.
 #
-# Configurazione: modifica le variabili qui sotto o esportale come
-# variabili d'ambiente prima di lanciare lo script.
-
+# Meant to be run periodically (systemd timer, launchd, cron).
+#
+# Requirements:
+#   - clamd running, or clamscan installed as a fallback
+#   - curl
+#
+# CONFIGURATION: /etc/clamav/console-report.conf (chmod 600), written by the
+# agent installer:
+#   DASHBOARD_URL='https://console.example.com'
+#   DASHBOARD_AGENT_KEY='cav_...'
+#   SCAN_PATHS_LIST='/home /srv'                          # optional, overrides the defaults
+#   DASHBOARD_CA_BUNDLE='/etc/ssl/certs/internal-ca.pem'  # optional, private CA
+#   DASHBOARD_INSECURE=1                                  # optional, skip TLS verification
+#
 set -euo pipefail
 
-### === CONFIGURAZIONE === ###
+### === CONFIGURATION === ###
 
-# URL base della ClaimAV Dashboard e credenziali (utente OPERATOR dedicato,
-# non l'admin di default: vedi /admin/users).
-# Se esiste, la configurazione scritta dall'installer ha la precedenza: cosi'
-# questo script e quello on-access condividono URL e credenziali.
+# The installer's configuration takes precedence when present, so this script
+# and the on-access one share the same URL and credentials.
 CONFIG_FILE="${CONFIG_FILE:-/etc/clamav/console-report.conf}"
 [[ -r "$CONFIG_FILE" ]] && . "$CONFIG_FILE"
 
@@ -30,23 +35,29 @@ DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:8080}"
 DASHBOARD_AGENT_KEY="${DASHBOARD_AGENT_KEY:-}"
 DASHBOARD_API_USER="${DASHBOARD_API_USER:-}"
 DASHBOARD_API_PASSWORD="${DASHBOARD_API_PASSWORD:-}"
+DASHBOARD_CA_BUNDLE="${DASHBOARD_CA_BUNDLE:-}"
+DASHBOARD_INSECURE="${DASHBOARD_INSECURE:-0}"
 
-# Chiave dell'endpoint (consigliata) o, in alternativa, utente OPERATOR.
+# Endpoint key (preferred) or, alternatively, an OPERATOR user.
 if [[ -n "$DASHBOARD_AGENT_KEY" ]]; then
   AUTH_ARGS=(-H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}")
 elif [[ -n "$DASHBOARD_API_USER" && -n "$DASHBOARD_API_PASSWORD" ]]; then
   AUTH_ARGS=(-u "${DASHBOARD_API_USER}:${DASHBOARD_API_PASSWORD}")
 else
-  echo "ERRORE: serve DASHBOARD_AGENT_KEY (o DASHBOARD_API_USER + DASHBOARD_API_PASSWORD)." >&2
+  echo "ERROR: DASHBOARD_AGENT_KEY (or DASHBOARD_API_USER + DASHBOARD_API_PASSWORD) is required." >&2
   exit 1
 fi
 
-# Percorsi da scansionare. L'installer puo' imporli scrivendo SCAN_PATHS_LIST
-# nel file di configurazione (su macOS, per esempio, i path Linux non esistono).
+TLS_ARGS=()
+[[ -n "$DASHBOARD_CA_BUNDLE" ]] && TLS_ARGS+=(--cacert "$DASHBOARD_CA_BUNDLE")
+[[ "$DASHBOARD_INSECURE" == "1" ]] && TLS_ARGS+=(--insecure)
+
+# Paths to scan. The installer can impose them by writing SCAN_PATHS_LIST into
+# the configuration file (on macOS, for instance, the Linux paths do not exist).
 if [[ -n "${SCAN_PATHS_LIST:-}" ]]; then
   read -r -a SCAN_PATHS <<< "$SCAN_PATHS_LIST"
 else
-  # Evita /proc /sys e mount di rete lenti.
+  # Avoid /proc, /sys and slow network mounts.
   SCAN_PATHS=(
     "/home"
     "/tmp"
@@ -55,7 +66,7 @@ else
   )
 fi
 
-# Percorsi da escludere (regex compatibili con clamdscan --exclude-dir)
+# Paths to exclude (regexes, as accepted by clamdscan --exclude-dir)
 EXCLUDE_DIRS=(
   "^/var/lib/docker"
   "\.git"
@@ -63,43 +74,38 @@ EXCLUDE_DIRS=(
   "^/home/[^/]+/\.cache"
 )
 
-# File di log locale (per storico, indipendente dalla dashboard)
-LOG_FILE="/var/log/clamav-telegram-alert.log"
+# Local log file (history, independent of the dashboard)
+LOG_FILE="${LOG_FILE:-/var/log/clamav-scan-report.log}"
 
-### === FINE CONFIGURAZIONE === ###
+### === END OF CONFIGURATION === ###
 
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 HOSTNAME="$(hostname)"
 
-# Costruisci gli argomenti --exclude-dir
 EXCLUDE_ARGS=()
 for pattern in "${EXCLUDE_DIRS[@]}"; do
   EXCLUDE_ARGS+=(--exclude-dir="${pattern}")
 done
 
-echo "[$TIMESTAMP] Avvio scan su: ${SCAN_PATHS[*]}" >> "$LOG_FILE"
+echo "[$TIMESTAMP] starting scan of: ${SCAN_PATHS[*]}" >> "$LOG_FILE"
 
-# clamdscan usa il demone clamd (signature gia' in RAM: molto piu' veloce)
-# --multiscan --fdpass abilita scan multithreaded passando i file descriptor
-# -i mostra solo i file infetti nell'output (piu' facile da parsare)
-#
-# clamdscan ha bisogno che clamd sia in esecuzione. Dove non lo e' (tipicamente
-# macOS con ClamAV da Homebrew, dove il demone non parte da solo) si ripiega su
-# clamscan, che e' autonomo: piu' lento, ma la scansione avviene comunque.
+# clamdscan needs clamd to be running. Where it is not (typically macOS with
+# ClamAV from Homebrew, where the daemon does not start on its own) it falls
+# back to clamscan, which is self-contained: slower, but the scan still happens.
 NO_SCANNER=0
 if command -v clamdscan >/dev/null 2>&1 && clamdscan --ping 1 >/dev/null 2>&1; then
   SCANNER=(clamdscan --multiscan --fdpass --infected)
 elif command -v clamscan >/dev/null 2>&1; then
   SCANNER=(clamscan --recursive --infected)
-  echo "[$TIMESTAMP] clamd non raggiungibile: uso clamscan (piu' lento)" >> "$LOG_FILE"
+  echo "[$TIMESTAMP] clamd unreachable: falling back to clamscan (slower)" >> "$LOG_FILE"
 else
-  echo "[$TIMESTAMP] ne clamdscan ne clamscan disponibili" >> "$LOG_FILE"
+  echo "[$TIMESTAMP] neither clamdscan nor clamscan available" >> "$LOG_FILE"
   NO_SCANNER=1
 fi
 
-# set +e/-e attorno alla chiamata: con "set -e" attivo, un exit code diverso
-# da 0 (1 = infetti trovati, 2 = errore) farebbe terminare subito lo script
-# PRIMA di leggere $?, quindi va disattivato solo per questo comando.
+# set +e/-e around the call: with "set -e" active, a non-zero exit code
+# (1 = infected files found, 2 = error) would end the script BEFORE $? is read,
+# so it is disabled for this command only.
 if [ "$NO_SCANNER" -eq 0 ]; then
   set +e
   SCAN_OUTPUT="$("${SCANNER[@]}" \
@@ -108,16 +114,16 @@ if [ "$NO_SCANNER" -eq 0 ]; then
   EXIT_CODE=$?
   set -e
 else
-  # Nessuno scanner: lo segnaliamo come errore di scan, cosi' la console lo vede
-  # invece di limitarsi a non ricevere piu' nulla da questa macchina.
-  SCAN_OUTPUT="Ne' clamdscan ne' clamscan sono installati su questa macchina."
+  # No scanner: report it as a scan error, so the console sees the problem
+  # instead of simply never hearing from this machine again.
+  SCAN_OUTPUT="Neither clamdscan nor clamscan is installed on this machine."
   EXIT_CODE=2
 fi
 
 echo "$SCAN_OUTPUT" >> "$LOG_FILE"
-echo "[$TIMESTAMP] Scan completato con exit code $EXIT_CODE" >> "$LOG_FILE"
+echo "[$TIMESTAMP] scan finished with exit code $EXIT_CODE" >> "$LOG_FILE"
 
-# Estrai solo le righe con file infetti (formato: "path: SIGNATURE FOUND")
+# Keep only the lines reporting infected files (format: "path: SIGNATURE FOUND")
 INFECTED_LINES="$(echo "$SCAN_OUTPUT" | grep "FOUND$" || true)"
 
 json_escape() {
@@ -128,8 +134,17 @@ json_escape() {
   printf '%s' "$s"
 }
 
-# Costruisci l'array JSON delle righe infette (una stringa raw per riga,
-# il parsing "path: SIGNATURE FOUND" lo fa la dashboard lato server).
+# ClamAV version, so the console can show the signature database age without
+# connecting to this machine.
+clamav_version() {
+  local v=""
+  command -v clamdscan >/dev/null 2>&1 && v="$(clamdscan --version 2>/dev/null | head -1)"
+  [[ -z "$v" ]] && command -v clamscan >/dev/null 2>&1 && v="$(clamscan --version 2>/dev/null | head -1)"
+  printf '%s' "$v"
+}
+
+# Build the JSON array of infected lines (one raw string per line; parsing
+# "path: SIGNATURE FOUND" is done server-side by the dashboard).
 FINDINGS_JSON="[]"
 if [ -n "$INFECTED_LINES" ]; then
   FINDINGS_JSON="["
@@ -147,7 +162,8 @@ send_report() {
   local payload
   payload="{\"hostname\":\"$(json_escape "$HOSTNAME")\",\"path\":\"$(json_escape "${SCAN_PATHS[*]}")\",\"verdict\":\"${verdict}\",\"findings\":${FINDINGS_JSON},\"errorMessage\":\"$(json_escape "$error_message")\"}"
 
-  curl -s "${AUTH_ARGS[@]}" \
+  curl -s "${AUTH_ARGS[@]}" "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
+    -H "X-Agent-Clamav: $(clamav_version)" \
     -X POST "${DASHBOARD_URL%/}/api/scan/report" \
     -H 'Content-Type: application/json' \
     -d "$payload" \
@@ -156,17 +172,16 @@ send_report() {
 
 if [ -n "$INFECTED_LINES" ]; then
   COUNT="$(echo "$INFECTED_LINES" | wc -l)"
-
   send_report "VIRUS_FOUND" ""
-  echo "[$TIMESTAMP] Report inviato alla dashboard (${COUNT} file infetti)" >> "$LOG_FILE"
+  echo "[$TIMESTAMP] report sent to the dashboard (${COUNT} infected files)" >> "$LOG_FILE"
 
 elif [ "$EXIT_CODE" -eq 2 ]; then
-  # Errore di scan (es. clamd non raggiungibile) - avvisa comunque
-  send_report "ERROR" "Scan fallito (exit code ${EXIT_CODE}) su ${SCAN_PATHS[*]}. Output: $(echo "$SCAN_OUTPUT" | tail -5)"
-  echo "[$TIMESTAMP] Errore di scan, report di warning inviato alla dashboard" >> "$LOG_FILE"
+  # Scan error (e.g. clamd unreachable) - report it anyway
+  send_report "ERROR" "Scan failed (exit code ${EXIT_CODE}) on ${SCAN_PATHS[*]}. Output: $(echo "$SCAN_OUTPUT" | tail -5)"
+  echo "[$TIMESTAMP] scan error, warning report sent to the dashboard" >> "$LOG_FILE"
 
 else
-  echo "[$TIMESTAMP] Nessuna infezione trovata, nessun report inviato" >> "$LOG_FILE"
+  echo "[$TIMESTAMP] nothing infected, no report sent" >> "$LOG_FILE"
 fi
 
 exit 0

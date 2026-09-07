@@ -150,6 +150,12 @@ Both installers **ask what to install** (realtime / console-dispatched scans / s
 
 **`AgentInstallController` must stay out of the `web` package.** `GlobalExceptionHandler` is a `@ControllerAdvice(basePackages = "…webclient.web")` whose `@ExceptionHandler(Exception.class)` returns `redirect:/dashboard`; a download controller under `web` answers every failure with a silent redirect instead of the file, which is exactly what "the installer won't download" looks like.
 
+**On-access cannot work inside an unprivileged container.** `fanotify_init()` needs `CAP_SYS_ADMIN` in the *initial* user namespace, which an unprivileged LXC or Docker container never has however root-like the process looks; clamonacc exits with `fanotify_init failed: Operation not permitted`. The installer detects the container up front (`systemd-detect-virt --container`), says so, and — when the service still fails — explains that specific cause instead of a generic "check your kernel". Console-driven and scheduled scans are unaffected and work fine in a container. The remedies are a privileged LXC (`unprivileged=0`) or running the agent on the host.
+
+**Agent scripts must never hide curl's error.** `-s` plus `2>/dev/null` turns every connectivity problem into an indistinguishable "failed", which is precisely what made these installs impossible to debug. `clamav-onacc-report.sh --test` (installed at `/usr/local/bin/` regardless of which components were chosen) prints the curl exit code, the HTTP status and curl's own message, then names the cause: DNS, connection refused, timeout, TLS, rejected key, 404 through the proxy, or a 5xx from the proxy. For a console behind a reverse proxy with a private CA, set `DASHBOARD_CA_BUNDLE` in `/etc/clamav/console-report.conf` (`DASHBOARD_INSECURE=1` exists to confirm the diagnosis, not to be left on).
+
+**The closing summary reports measured state, not intent.** It reads `systemctl is-active` for each unit, so a service that failed to start is shown as not running. An installer that prints "realtime protection active" over a dead clamonacc hides a real gap in coverage.
+
 Coverage differs by OS, and this is a ClamAV limit, not a missing feature:
 
 | OS | clamd | Realtime (on-access) | Scheduled scan + report |
