@@ -79,7 +79,7 @@
                     <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
                   </td>
                   <td th:text="${j.target}" class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">target</td>
-                  <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}" style="font-size:13px;">ep</td>
+                  <td th:text="${j.endpoint != null ? j.endpoint.name : (j.sourceHost != null ? j.sourceHost : '—')}" style="font-size:13px;">ep</td>
                   <td th:text="${j.submittedBy}" style="font-size:13px;">user</td>
                   <td th:text="${j.submittedAt}" class="mono muted" style="font-size:11px;">time</td>
                 </tr>

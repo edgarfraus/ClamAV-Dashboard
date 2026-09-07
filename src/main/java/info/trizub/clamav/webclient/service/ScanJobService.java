@@ -27,12 +27,15 @@ public class ScanJobService {
     private final SettingsService settings;
     private final ObjectMapper mapper;
     private final ScanExecutionService executor;
+    private final NotificationService notificationService;
 
-    public ScanJobService(ScanJobRepository repo, SettingsService settings, ObjectMapper mapper, ScanExecutionService executor) {
+    public ScanJobService(ScanJobRepository repo, SettingsService settings, ObjectMapper mapper,
+                          ScanExecutionService executor, NotificationService notificationService) {
         this.repo = repo;
         this.settings = settings;
         this.mapper = mapper;
         this.executor = executor;
+        this.notificationService = notificationService;
     }
 
     @PostConstruct
@@ -207,7 +210,44 @@ public class ScanJobService {
                 return job;
     }
 
-    
+    /**
+     * Records the result of a scan that was executed elsewhere (e.g. a clamdscan cron job on a
+     * fleet machine) instead of by this app's own executor. The job is created already FINISHED
+     * — there is nothing to enqueue — and notifications (Telegram/webhook) fire immediately,
+     * same as a normal VIRUS_FOUND/ERROR job.
+     */
+    @Transactional
+    public ScanJob createExternalReport(String hostname, String path, ScanVerdict verdict,
+                                        Map<String, List<String>> foundViruses, String errorMessage,
+                                        String username) {
+        String id = UUID.randomUUID().toString().replace("-", "");
+        ScanJob job = new ScanJob();
+        job.setId(id);
+        job.setType(ScanJobType.EXTERNAL);
+        job.setStatus(ScanJobStatus.FINISHED);
+        job.setVerdict(verdict);
+        job.setTarget(path);
+        job.setSourceHost(hostname);
+        job.setSubmittedBy(username);
+        Instant now = Instant.now();
+        job.setSubmittedAt(now);
+        job.setStartedAt(now);
+        job.setFinishedAt(now);
+        if (verdict == ScanVerdict.VIRUS_FOUND) {
+            try {
+                job.setFoundVirusesJson(mapper.writeValueAsString(foundViruses));
+            } catch (Exception e) {
+                job.setFoundVirusesJson(String.valueOf(foundViruses));
+            }
+        } else if (verdict == ScanVerdict.ERROR) {
+            job.setErrorMessage(errorMessage);
+        }
+        repo.save(job);
+        notificationService.notifyIfNeeded(job);
+        return job;
+    }
+
+
 private void enqueueAfterCommit(String jobId) {
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

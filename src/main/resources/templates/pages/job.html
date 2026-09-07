@@ -51,7 +51,7 @@
         <div class="col-sm-3">
           <div class="panel"><div class="panel-body">
             <div class="section-title muted">Endpoint</div>
-            <div class="kpi-sm" th:text="${job.endpoint != null ? job.endpoint.name : '—'}">endpoint</div>
+            <div class="kpi-sm" th:text="${job.endpoint != null ? job.endpoint.name : (job.sourceHost != null ? job.sourceHost : '—')}">endpoint</div>
           </div></div>
         </div>
       </div>

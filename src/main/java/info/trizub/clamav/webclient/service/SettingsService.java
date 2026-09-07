@@ -28,6 +28,9 @@ public class SettingsService {
     private static final String QUARANTINE_ENABLED = "app.quarantine.enabled";
     private static final String WEBHOOK_ENABLED = "app.webhook.enabled";
     private static final String WEBHOOK_URL = "app.webhook.url";
+    private static final String TELEGRAM_ENABLED = "app.telegram.enabled";
+    private static final String TELEGRAM_BOT_TOKEN = "app.telegram.botToken";
+    private static final String TELEGRAM_CHAT_ID = "app.telegram.chatId";
     private static final String WATCH_ENABLED = "app.watch.enabled";
     private static final String WATCH_POLL_SECONDS = "app.watch.pollSeconds";
     private static final String SIGNATURE_RELOAD_ENABLED = "app.signatureReload.enabled";
@@ -53,6 +56,9 @@ public class SettingsService {
             props.putIfAbsent(QUARANTINE_ENABLED, "false");
             props.putIfAbsent(WEBHOOK_ENABLED, "false");
             props.putIfAbsent(WEBHOOK_URL, "");
+            props.putIfAbsent(TELEGRAM_ENABLED, "false");
+            props.putIfAbsent(TELEGRAM_BOT_TOKEN, "");
+            props.putIfAbsent(TELEGRAM_CHAT_ID, "");
             props.putIfAbsent(WATCH_ENABLED, "false");
             props.putIfAbsent(WATCH_POLL_SECONDS, "30");
             props.putIfAbsent(SIGNATURE_RELOAD_ENABLED, "false");
@@ -129,6 +135,18 @@ public class SettingsService {
 
     public String webhookUrl() {
         return props.getProperty(WEBHOOK_URL, "");
+    }
+
+    public boolean telegramEnabled() {
+        return Boolean.parseBoolean(props.getProperty(TELEGRAM_ENABLED, "false"));
+    }
+
+    public String telegramBotToken() {
+        return props.getProperty(TELEGRAM_BOT_TOKEN, "");
+    }
+
+    public String telegramChatId() {
+        return props.getProperty(TELEGRAM_CHAT_ID, "");
     }
 
     public boolean watchEnabled() {

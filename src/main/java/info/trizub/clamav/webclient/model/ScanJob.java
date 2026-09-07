@@ -41,6 +41,11 @@ public class ScanJob {
     @Column(length = 64)
     private String submittedBy;
 
+    // Hostname the scan actually ran on, for EXTERNAL jobs reported via /api/scan/report
+    // (the machine running clamdscan is not necessarily a registered ClamdEndpoint).
+    @Column(length = 255)
+    private String sourceHost;
+
     private Instant submittedAt = Instant.now();
     private Instant startedAt;
     private Instant finishedAt;
@@ -87,6 +92,8 @@ public class ScanJob {
     public void setEndpoint(ClamdEndpoint endpoint) { this.endpoint = endpoint; }
     public String getSubmittedBy() { return submittedBy; }
     public void setSubmittedBy(String submittedBy) { this.submittedBy = submittedBy; }
+    public String getSourceHost() { return sourceHost; }
+    public void setSourceHost(String sourceHost) { this.sourceHost = sourceHost; }
     public Instant getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }
     public Instant getStartedAt() { return startedAt; }

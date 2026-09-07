@@ -2,6 +2,7 @@ package info.trizub.clamav.webclient.api;
 
 import info.trizub.clamav.webclient.model.ClamdEndpoint;
 import info.trizub.clamav.webclient.model.ScanJob;
+import info.trizub.clamav.webclient.model.ScanVerdict;
 import info.trizub.clamav.webclient.service.ClamavClientProvider;
 import info.trizub.clamav.webclient.service.EndpointService;
 import info.trizub.clamav.webclient.service.ScanJobService;
@@ -12,6 +13,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -116,6 +118,47 @@ public class ApiController {
     public Map<String,Object> scanPath(@RequestBody PathScanRequest req, Authentication auth) {
         var ep = req.endpointId != null ? endpoints.get(req.endpointId) : endpoints.defaultEndpoint();
         var job = jobs.createPathJob(req.path, ep, auth.getName());
+        return Map.of("jobId", job.getId());
+    }
+
+    public static class ScanReportRequest {
+        @NotBlank public String hostname;
+        public String path;
+        @NotBlank public String verdict; // VIRUS_FOUND | ERROR
+        public List<String> findings; // raw "path: SIGNATURE FOUND" lines, VIRUS_FOUND only
+        public String errorMessage; // ERROR only
+    }
+
+    /**
+     * Ingests the result of a scan executed outside this app (e.g. a clamdscan cron job on a
+     * fleet machine talking to its local clamd directly). Only VIRUS_FOUND/ERROR are accepted —
+     * this endpoint exists to surface alerts in the dashboard/Telegram, not to log every clean run.
+     */
+    @PostMapping(value = "/scan/report", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String,Object> scanReport(@RequestBody ScanReportRequest req, Authentication auth) {
+        ScanVerdict verdict;
+        try {
+            verdict = ScanVerdict.valueOf(req.verdict.trim().toUpperCase());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("verdict must be VIRUS_FOUND or ERROR");
+        }
+        if (verdict != ScanVerdict.VIRUS_FOUND && verdict != ScanVerdict.ERROR) {
+            throw new IllegalArgumentException("verdict must be VIRUS_FOUND or ERROR");
+        }
+
+        Map<String, List<String>> found = new LinkedHashMap<>();
+        if (req.findings != null) {
+            for (String line : req.findings) {
+                if (line == null || line.isBlank()) continue;
+                int idx = line.indexOf(": ");
+                String path = idx >= 0 ? line.substring(0, idx) : line;
+                String sig = idx >= 0 ? line.substring(idx + 2) : "";
+                sig = sig.replaceAll("(?i)\\s+FOUND$", "").trim();
+                found.computeIfAbsent(path, k -> new ArrayList<>()).add(sig);
+            }
+        }
+
+        var job = jobs.createExternalReport(req.hostname, req.path, verdict, found, req.errorMessage, auth.getName());
         return Map.of("jobId", job.getId());
     }
 }

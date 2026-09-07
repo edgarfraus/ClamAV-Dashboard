@@ -101,6 +101,31 @@
 
         <div class="panel mb-3">
           <div class="panel-body">
+            <div class="card-title mb-3">Telegram notifications</div>
+            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+              <label class="switch">
+                <input type="checkbox" name="app.telegram.enabled" value="true"
+                       th:checked="${settings['app.telegram.enabled'] == 'true'}"/>
+                <span class="slider"></span>
+              </label>
+              <span>Enable Telegram alerts</span>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Bot token</label>
+              <input type="text" class="form-control" name="app.telegram.botToken"
+                     th:value="${settings['app.telegram.botToken']}"/>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Chat ID</label>
+              <input type="text" class="form-control" name="app.telegram.chatId"
+                     th:value="${settings['app.telegram.chatId']}"/>
+            </div>
+            <div class="muted" style="font-size:12px;">Sent for VIRUS_FOUND and ERROR jobs only (including external reports via /api/scan/report).</div>
+          </div>
+        </div>
+
+        <div class="panel mb-3">
+          <div class="panel-body">
             <div class="card-title mb-3">Watch directories</div>
             <div class="mb-3 d-flex align-items-center" style="gap:10px;">
               <label class="switch">

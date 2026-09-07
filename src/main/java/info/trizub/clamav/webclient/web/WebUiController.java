@@ -238,6 +238,11 @@ public class WebUiController {
         try {
             ClamdEndpoint ep = endpoints.get(endpointId);
             List<String> targets = resolveFullDiskTargets(ep);
+            if (targets.isEmpty()) {
+                throw new IllegalArgumentException("No safe targets to scan for this endpoint " +
+                        "(configured targets resolved to none after excluding critical paths). " +
+                        "Check Full disk targets in Admin > Endpoints.");
+            }
             String firstJobId = null;
             for (String target : targets) {
                 ScanJob job = jobs.createFullDiskScanJob(target, ep, auth.getName());
@@ -253,10 +258,39 @@ public class WebUiController {
         }
     }
 
+    // "Complete" here means every real directory under root — everything except the virtual/
+    // pseudo filesystems below, which are never safe to hand to clamd as a scan target (see
+    // CRITICAL_UNIX_PREFIXES).
     private static final List<String> DEFAULT_UNIX_TARGETS =
-            List.of("/etc", "/home", "/var", "/usr", "/opt", "/tmp", "/srv", "/root", "/data");
+            List.of("/bin", "/boot", "/etc", "/home", "/lib", "/lib64", "/media", "/mnt",
+                    "/opt", "/root", "/sbin", "/srv", "/tmp", "/usr", "/var", "/data");
     private static final List<String> DEFAULT_WINDOWS_TARGETS =
             List.of("C:\\Users", "C:\\Program Files", "C:\\Program Files (x86)");
+
+    // Paths that must NEVER be scanned, even if an admin explicitly configures them (or "/")
+    // as a full-disk target. Reason: xyz.capybara:clamav-client's parallelScan(Path) has no
+    // exclude/filter parameter — clamd walks the given target to the end with no way for this
+    // app to prune subpaths. Handing it "/" or a virtual filesystem means it recurses into
+    // /proc, /sys, etc., which can hang the scan (and, since the shared executor has a fixed
+    // thread pool, block every other scan behind it) or blow up on files that lie about their
+    // size. So instead of trying to exclude subpaths, this app only ever targets a curated list
+    // of real directories (DEFAULT_UNIX_TARGETS) and hard-blocks anything that could expand
+    // into a virtual mount.
+    private static final List<String> CRITICAL_UNIX_PREFIXES =
+            List.of("/proc", "/sys", "/dev", "/run");
+    private static final java.util.regex.Pattern WINDOWS_DRIVE_ROOT =
+            java.util.regex.Pattern.compile("^[A-Za-z]:\\\\?$");
+
+    private boolean isCriticalPath(String target, Platform platform) {
+        if (target == null || target.isBlank()) return true;
+        String t = target.trim();
+        if (platform == Platform.WINDOWS) {
+            return WINDOWS_DRIVE_ROOT.matcher(t).matches();
+        }
+        if (t.equals("/")) return true;
+        return CRITICAL_UNIX_PREFIXES.stream()
+                .anyMatch(p -> t.equals(p) || t.startsWith(p + "/"));
+    }
 
     private List<String> resolveFullDiskTargets(ClamdEndpoint ep) {
         String cfg = ep.getFullDiskTargets();
@@ -270,6 +304,11 @@ public class WebUiController {
             base = new ArrayList<>(ep.getPlatform() == Platform.WINDOWS
                     ? DEFAULT_WINDOWS_TARGETS : DEFAULT_UNIX_TARGETS);
         }
+
+        // Hard safety net: applies even to a custom fullDiskTargets list, so a critical path can
+        // never reach clamd through this button regardless of what's configured on the endpoint.
+        base = base.stream().filter(t -> !isCriticalPath(t, ep.getPlatform())).collect(Collectors.toList());
+
         List<String> excluded = exclusionRepo.findApplicableTo(ep)
                 .stream().map(ScanExclusion::getPath).collect(Collectors.toList());
         if (excluded.isEmpty()) return base;
@@ -480,6 +519,9 @@ public class WebUiController {
                 "app.quarantine.enabled",
                 "app.webhook.enabled",
                 "app.webhook.url",
+                "app.telegram.enabled",
+                "app.telegram.botToken",
+                "app.telegram.chatId",
                 "app.watch.enabled",
                 "app.watch.pollSeconds",
                 "app.signatureReload.enabled",
