@@ -7,11 +7,20 @@
 # (Admin > Endpoints > Rotate) e reinstalla.
 #
 # USO (PowerShell come Amministratore):
-#   irm '@@CONSOLE_URL@@/agent/install.ps1?key=@@AGENT_KEY@@' | iex
+#   .\install-agent.ps1            # ti chiede cosa installare
+#   .\install-agent.ps1 -All       # installa tutto senza chiedere
 #
 # NOTA: su Windows la protezione realtime di ClamAV non esiste (l'on-access usa
 # fanotify, che e' solo Linux). Qui viene installata una scansione programmata
 # che invia i risultati alla console.
+
+param(
+    # Installa tutto senza fare domande (usato anche quando lo script arriva da
+    # una pipe, dove non c'e' un terminale da cui leggere le risposte).
+    [switch]$All,
+    [switch]$Central,
+    [switch]$Scheduled
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -39,6 +48,44 @@ $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Err "Esegui questo script in una PowerShell aperta come Amministratore."
+    exit 1
+}
+
+# --- 1b) Cosa installare ----------------------------------------------------
+# Su Windows la protezione realtime di ClamAV non esiste (l'on-access usa
+# fanotify, che e' solo Linux), quindi le opzioni sono due.
+$wantCentral   = $false
+$wantScheduled = $false
+
+if ($All) {
+    $wantCentral = $true; $wantScheduled = $true
+} elseif ($Central -or $Scheduled) {
+    $wantCentral = [bool]$Central; $wantScheduled = [bool]$Scheduled
+} elseif ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+    Write-Host ''
+    Write-Host "  Agent ClaimAV - endpoint '$EndpointName'"
+    Write-Host "  Console: $ConsoleUrl"
+    Write-Host ''
+    Write-Host '  Scegli cosa attivare su questa macchina:'
+    Write-Host ''
+    Write-Host '  1) Scansioni centralizzate'
+    Write-Host "     Il pulsante 'Scan' della console fa partire la scansione qui, in locale."
+    $a = Read-Host '  Attivare le scansioni dalla console? [S/n]'
+    $wantCentral = ($a -eq '' -or $a -match '^[SsYy]')
+    Write-Host ''
+    Write-Host '  2) Scansione programmata'
+    Write-Host '     Una scansione completa ogni notte alle 02:30, con esito in console.'
+    $a = Read-Host '  Attivare la scansione programmata? [S/n]'
+    $wantScheduled = ($a -eq '' -or $a -match '^[SsYy]')
+    Write-Host ''
+    Write-Warn 'Nota: su Windows la protezione realtime di ClamAV non e'' disponibile.'
+} else {
+    Write-Info 'Nessun terminale interattivo: installo tutto.'
+    $wantCentral = $true; $wantScheduled = $true
+}
+
+if (-not $wantCentral -and -not $wantScheduled) {
+    Write-Err 'Non hai selezionato nulla da installare.'
     exit 1
 }
 
@@ -136,16 +183,18 @@ Set-Content -Path $ScanScript -Value $scanScriptBody -Encoding UTF8
 Write-Ok "Script di scansione installato in $ScanScript"
 
 # --- 5) Task programmato ----------------------------------------------------
-$action    = New-ScheduledTaskAction -Execute 'powershell.exe' `
-                -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ScanScript`""
-$trigger   = New-ScheduledTaskTrigger -Daily -At 2:30AM
 $principalTask = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
 
-Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-    -Principal $principalTask -Settings $settings | Out-Null
-Write-Ok "Task programmato '$TaskName' registrato (ogni notte alle 02:30)."
+if ($wantScheduled) {
+    $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
+                  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ScanScript`""
+    $trigger = New-ScheduledTaskTrigger -Daily -At 2:30AM
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+        -Principal $principalTask -Settings $settings | Out-Null
+    Write-Ok "Task programmato '$TaskName' registrato (ogni notte alle 02:30)."
+}
 
 # --- 5b) Agent: esegue le scansioni richieste dalla console -----------------
 # E' quello che fa funzionare il pulsante "Scan" della console per questa
@@ -206,15 +255,17 @@ foreach ($cmd in $resp.commands) {
 Set-Content -Path $PollScript -Value $pollScriptBody -Encoding UTF8
 Write-Ok "Agent installato in $PollScript"
 
-$pollAction  = New-ScheduledTaskAction -Execute 'powershell.exe' `
-                  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PollScript`""
-$pollTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-                  -RepetitionInterval (New-TimeSpan -Minutes 5) `
-                  -RepetitionDuration (New-TimeSpan -Days 3650)
-Unregister-ScheduledTask -TaskName $PollTask -Confirm:$false -ErrorAction SilentlyContinue
-Register-ScheduledTask -TaskName $PollTask -Action $pollAction -Trigger $pollTrigger `
-    -Principal $principalTask -Settings $settings | Out-Null
-Write-Ok "Task '$PollTask' registrato (controlla la console ogni 5 minuti)."
+if ($wantCentral) {
+    $pollAction  = New-ScheduledTaskAction -Execute 'powershell.exe' `
+                      -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PollScript`""
+    $pollTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+                      -RepetitionInterval (New-TimeSpan -Minutes 5) `
+                      -RepetitionDuration (New-TimeSpan -Days 3650)
+    Unregister-ScheduledTask -TaskName $PollTask -Confirm:$false -ErrorAction SilentlyContinue
+    Register-ScheduledTask -TaskName $PollTask -Action $pollAction -Trigger $pollTrigger `
+        -Principal $principalTask -Settings $settings | Out-Null
+    Write-Ok "Task '$PollTask' registrato (controlla la console ogni 5 minuti)."
+}
 
 # --- 6) Verifica della connessione alla console -----------------------------
 Write-Info "Verifico che la console accetti i report da questa macchina..."
@@ -237,5 +288,6 @@ try {
 
 Write-Host ''
 Write-Ok "Agent '$EndpointName' installato."
-Write-Warn "Ricorda: su Windows non c'e' protezione realtime ClamAV."
-Write-Host "Le scansioni lanciate dalla console vengono ritirate entro 5 minuti." -ForegroundColor Cyan
+Write-Host ("    Scansioni dalla console: " + $(if ($wantCentral)   { 'attive (poll ogni 5 min)' } else { 'non installate' }))
+Write-Host ("    Scansione programmata:   " + $(if ($wantScheduled) { 'attiva (02:30)' }           else { 'non installata' }))
+Write-Warn "Su Windows la protezione realtime di ClamAV non e' disponibile."

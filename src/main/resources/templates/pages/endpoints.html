@@ -222,39 +222,53 @@
             </button>
           </div>
 
-          <div class="muted" style="font-size:12px;margin-bottom:4px;">Linux — clamd + protezione realtime (on-access)</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">1. Scarica l'installer</div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px;">
+            Il file contiene gia' la chiave e tutti gli script dell'agent: si scarica e si esegue,
+            non serve altro. All'avvio ti chiede cosa attivare (realtime, scansioni dalla console,
+            scansione programmata).
+          </div>
+          <div class="d-flex gap-2 mb-3 flex-wrap">
+            <a id="agent-dl-sh" href="#" class="btn btn-primary btn-sm">
+              <i class="fa-brands fa-linux"></i> <i class="fa-brands fa-apple"></i>
+              Linux / macOS — install-agent.sh
+            </a>
+            <a id="agent-dl-ps1" href="#" class="btn btn-primary btn-sm">
+              <i class="fa-brands fa-windows"></i> Windows — install-agent.ps1
+            </a>
+          </div>
+
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">2. Eseguilo sulla macchina</div>
           <div class="d-flex gap-2 mb-3">
-            <input type="text" id="agent-cmd-linux" class="form-control form-control-sm mono" readonly="readonly"/>
-            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-linux')">
+            <input type="text" id="agent-cmd-run" class="form-control form-control-sm mono" readonly="readonly"/>
+            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-run')">
               <i class="fa-solid fa-copy"></i>
             </button>
           </div>
 
-          <div class="muted" style="font-size:12px;margin-bottom:4px;">
-            macOS — scansione programmata (ClamAV richiesto: <code>brew install clamav</code>; nessun realtime)
-          </div>
-          <div class="d-flex gap-2 mb-3">
-            <input type="text" id="agent-cmd-macos" class="form-control form-control-sm mono" readonly="readonly"/>
-            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-macos')">
-              <i class="fa-solid fa-copy"></i>
-            </button>
-          </div>
-
-          <div class="muted" style="font-size:12px;margin-bottom:4px;">
-            Windows — PowerShell come Amministratore (nessun realtime)
-          </div>
-          <div class="d-flex gap-2 mb-3">
-            <input type="text" id="agent-cmd-windows" class="form-control form-control-sm mono" readonly="readonly"/>
-            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-windows')">
-              <i class="fa-solid fa-copy"></i>
-            </button>
-          </div>
-
-          <div class="muted" style="font-size:12px;">
-            Puoi anche scaricare gli script:
-            <a id="agent-dl-sh" href="#" class="mono">install.sh</a> ·
-            <a id="agent-dl-ps1" href="#" class="mono">install.ps1</a>
-          </div>
+          <details>
+            <summary class="muted" style="font-size:12px;cursor:pointer;">
+              In alternativa: installazione in un comando solo (installa tutto senza chiedere)
+            </summary>
+            <div class="muted" style="font-size:12px;margin:8px 0 4px;">Linux / macOS</div>
+            <div class="d-flex gap-2 mb-2">
+              <input type="text" id="agent-cmd-linux" class="form-control form-control-sm mono" readonly="readonly"/>
+              <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-linux')">
+                <i class="fa-solid fa-copy"></i>
+              </button>
+            </div>
+            <div class="muted" style="font-size:12px;margin-bottom:4px;">Windows (PowerShell come Amministratore)</div>
+            <div class="d-flex gap-2">
+              <input type="text" id="agent-cmd-windows" class="form-control form-control-sm mono" readonly="readonly"/>
+              <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-windows')">
+                <i class="fa-solid fa-copy"></i>
+              </button>
+            </div>
+            <div class="muted" style="font-size:11px;margin-top:8px;">
+              In pipe non c'e' un terminale da cui leggere le risposte, quindi l'installer
+              attiva tutto. Su macOS il realtime viene comunque saltato: non esiste.
+            </div>
+          </details>
         </div>
 
         <div class="d-flex gap-2 mt-4 justify-content-end">
@@ -298,9 +312,8 @@
       var base = window.location.origin;
       var enc = encodeURIComponent(key);
       document.getElementById('agent-key-value').value = key;
+      document.getElementById('agent-cmd-run').value = 'sudo bash install-agent.sh';
       document.getElementById('agent-cmd-linux').value =
-        "curl -fsSL '" + base + "/agent/install.sh?key=" + enc + "' | sudo bash";
-      document.getElementById('agent-cmd-macos').value =
         "curl -fsSL '" + base + "/agent/install.sh?key=" + enc + "' | sudo bash";
       document.getElementById('agent-cmd-windows').value =
         "irm '" + base + "/agent/install.ps1?key=" + enc + "' | iex";

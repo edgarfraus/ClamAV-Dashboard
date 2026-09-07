@@ -125,7 +125,11 @@ Each `ClamdEndpoint` can hold an **agent key** (`agentKey`, generated under Admi
 
 The key is stored **in plaintext** so the console can re-generate an installer for an existing endpoint at any time; it is only reachable under `/admin/**`, and "Rotate" invalidates the old one. Reports authenticated by a key are bound to that endpoint, so they stop being orphan hosts.
 
-`AgentInstallController` serves the generated installers, substituting `@@CONSOLE_URL@@` / `@@AGENT_KEY@@` / `@@ENDPOINT_NAME@@` into `resources/agent/install.sh.tpl` and `install.ps1.tpl`, and serves the agent scripts themselves at `/agent/files/<name>` (allow-list, no traversal). Those `.sh` files live at the repo root and are copied into the jar by a `maven-resources-plugin` execution — one canonical copy, not two.
+`AgentInstallController` serves the generated installers, substituting `@@CONSOLE_URL@@` / `@@AGENT_KEY@@` / `@@ENDPOINT_NAME@@` into `resources/agent/install.sh.tpl` and `install.ps1.tpl`. The `.sh` installer is **self-contained**: `@@EMBED_*@@` placeholders are replaced with the full text of the agent scripts, written out at run time from quoted heredocs (`__CLAIMAV_EMBED_*__` delimiters; the controller refuses to render if a script contains the delimiter). Download it, run it, done — a bootstrap that fetches more pieces breaks whenever the machine cannot reach the console mid-install. The scripts live at the repo root and are copied into the jar by a `maven-resources-plugin` execution (`copy-agent-scripts`) — one canonical copy, not two. `/agent/files/<name>` still serves them individually (allow-list, no traversal).
+
+Both installers **ask what to install** (realtime / console-dispatched scans / scheduled scan) when they have a terminal, and install everything when they do not — `curl … | bash` has the pipe on stdin, so there is nothing to read answers from. Flags (`--all`, `--realtime`, `--central`, `--scheduled`; `-All`, `-Central`, `-Scheduled` on Windows) skip the prompts.
+
+**`AgentInstallController` must stay out of the `web` package.** `GlobalExceptionHandler` is a `@ControllerAdvice(basePackages = "…webclient.web")` whose `@ExceptionHandler(Exception.class)` returns `redirect:/dashboard`; a download controller under `web` answers every failure with a silent redirect instead of the file, which is exactly what "the installer won't download" looks like.
 
 Coverage differs by OS, and this is a ClamAV limit, not a missing feature:
 
