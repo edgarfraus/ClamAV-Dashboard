@@ -366,7 +366,36 @@ ok "TCPSocket = $PORT, TCPAddr = $BIND_ADDR set (a backup was saved next to the 
 # own contexts fail with "Permission denied".
 if [[ "$SCAN_SYSTEM" -eq 1 ]]; then
   log "--scan-system mode: configuring clamd to read the whole filesystem..."
-  set_conf_value "User" "root" "$CLAMD_CONF"
+
+  # Running clamd as root is only needed when clamd has to OPEN the files itself,
+  # which is the case for PATH scans arriving over TCP. With an agent everything
+  # goes through fd-passing: clamonacc and clamdscan run as root, open the file
+  # and hand clamd the descriptor - verified, a clamd running as "clamav" detects
+  # EICAR inside a 0600 root-only file this way, and fails with "Permission
+  # denied" without --fdpass.
+  #
+  # Keeping clamd non-root here matters for realtime coverage: clamonacc refuses
+  # to start unless an exclusion is configured, and with clamd as root the only
+  # one available is OnAccessExcludeRootUID, which would blind realtime scanning
+  # to every root-owned process.
+  if [[ "$AGENT_MODE" -eq 1 && "$ON_ACCESS" -eq 1 ]] \
+     && grep -qE '^[[:space:]]*LocalSocket[[:space:]]+' "$CLAMD_CONF"; then
+    # A previous run may already have written "User root", so it is not enough to
+    # skip the assignment: the packaged user has to be put back. The owner of the
+    # signature directory is that user on every distro that ships clamd.
+    PACKAGED_USER="$(stat -c %U /var/lib/clamav 2>/dev/null || true)"
+    if [[ -n "$PACKAGED_USER" && "$PACKAGED_USER" != "root" && "$PACKAGED_USER" != "UNKNOWN" ]]; then
+      set_conf_value "User" "$PACKAGED_USER" "$CLAMD_CONF"
+      log "Agent mode with fd-passing available: clamd runs as '$PACKAGED_USER', not root"
+      log "(it never opens files itself, so root would buy nothing and would cost"
+      log "realtime coverage of root-owned processes)."
+    else
+      set_conf_value "User" "root" "$CLAMD_CONF"
+      warn "Could not determine the packaged clamd user: leaving clamd as root."
+    fi
+  else
+    set_conf_value "User" "root" "$CLAMD_CONF"
+  fi
   if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
     if command -v setsebool >/dev/null 2>&1; then
       if setsebool -P antivirus_can_scan_system 1 2>/dev/null; then
@@ -449,17 +478,28 @@ if [[ "$ON_ACCESS" -eq 1 ]]; then
   fi
 
   # Scan loop: when clamd opens the file to check it, fanotify fires again.
-  # With --fdpass the file is not reopened by path so the problem does not arise;
-  # with --stream we exclude clamd's user, unless it is root (excluding root
-  # would wipe out coverage on a server).
+  # clamonacc REFUSES TO START unless one of OnAccessExcludeUID,
+  # OnAccessExcludeUname or OnAccessExcludeRootUID is set - it is a hard startup
+  # check, not advice, so one of them must always be written. Which one depends
+  # on who clamd runs as.
+  #
+  # Any stale directive from an earlier run is dropped first, otherwise a machine
+  # that once ran clamd as root would keep the root exclusion after switching.
+  sed -i -E "/^[#[:space:]]*OnAccessExclude(UID|Uname|RootUID)[[:space:]]/d" "$CLAMD_CONF"
+
   CLAMD_USER=$(grep -E '^[[:space:]]*User[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1)
   if [[ -n "$CLAMD_USER" && "$CLAMD_USER" != "root" ]]; then
     set_conf_value "OnAccessExcludeUname" "$CLAMD_USER" "$CLAMD_CONF"
-    ok "OnAccessExcludeUname = $CLAMD_USER (avoids the scan loop)."
-  elif [[ "$CLAMONACC_MODE" == "--stream" ]]; then
-    warn "clamd runs as root and --fdpass is unavailable: the clamd user cannot be"
-    warn "excluded without wiping out coverage. Watch the logs: if you see the same"
-    warn "files rescanned over and over, enable LocalSocket in $CLAMD_CONF."
+    ok "OnAccessExcludeUname = $CLAMD_USER (prevents the scan loop; every other"
+    ok "  process still triggers realtime scans, so coverage is complete)."
+  else
+    # clamd runs as root, so excluding "the clamd user" means excluding root.
+    set_conf_value "OnAccessExcludeRootUID" "yes" "$CLAMD_CONF"
+    warn "clamd runs as root, so the only exclusion clamonacc accepts is"
+    warn "OnAccessExcludeRootUID: file access by ROOT-OWNED processes will NOT"
+    warn "trigger realtime scans. Access by ordinary users and services still does."
+    warn "To get full coverage, let clamd run as its packaged user (drop"
+    warn "--scan-system): with --fdpass it can still scan root-only files."
   fi
 
   ok "clamd.conf configured for on-access on: ${EXISTING_WATCH[*]}"
