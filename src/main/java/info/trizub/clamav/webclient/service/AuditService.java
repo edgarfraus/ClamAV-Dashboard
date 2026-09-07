@@ -19,6 +19,14 @@ public class AuditService {
         String user = auth != null ? auth.getName() : null;
         String ip = req != null ? req.getRemoteAddr() : null;
         String ua = req != null ? req.getHeader("User-Agent") : null;
-        repo.save(new AuditEvent(user, action, details, outcome, jobId, ip, ua));
+        // details e' VARCHAR(1024): un messaggio d'errore lungo (uno stack SQL, per
+        // esempio) farebbe fallire l'INSERT, e l'audit di un errore trasformerebbe
+        // un errore gestito in un 500 che ne nasconde la causa. Meglio troncare.
+        repo.save(new AuditEvent(user, action, truncate(details, 1024), outcome, jobId, ip, ua));
+    }
+
+    private static String truncate(String value, int max) {
+        if (value == null || value.length() <= max) return value;
+        return value.substring(0, max - 3) + "...";
     }
 }
