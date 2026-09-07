@@ -119,7 +119,7 @@
                     <input type="text" class="form-control form-control-sm" style="min-width:130px;"
                            th:form="${'ep-form-' + e.id}" name="host" th:value="${e.host}"
                            th:placeholder="${e.agentEnrolled} ? 'non serve (agent)' : 'host o IP'"
-                           th:title="${e.agentEnrolled} ? 'Endpoint gestito dall&apos;agent: e&apos; la macchina a contattare la console, nessun indirizzo necessario' : 'Indirizzo di clamd'"/>
+                           th:title="${e.agentEnrolled} ? 'Endpoint con agent: la macchina contatta la console, nessun indirizzo necessario' : 'Indirizzo di clamd'"/>
                   </td>
                   <td style="width:90px;">
                     <input type="number" class="form-control form-control-sm"

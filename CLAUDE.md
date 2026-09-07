@@ -113,6 +113,7 @@ The equivalent UI form endpoints (`POST /scan/upload`, `POST /scan/path`) are CS
 - **Path/watch invisibility in Docker** — if the scan root isn't bind-mounted into the *web-client* container, `PathPolicy` may still pass but the file isn't there to scan.
 - **INSTREAM loses filenames** — upload scans stream bytes, so clamd logs `instream(...): OK/FOUND` without the original name. Use path scans if server-side filenames in clamd logs matter.
 - **Duplicated finish/mark helpers** — `finishOk/finishFound/finishError/markRunning` exist in both `ScanJobService` and `ScanExecutionService`; the executor path uses its own. Update the right copy.
+- **No `&apos;` inside a Thymeleaf expression.** The HTML parser decodes entities *before* Thymeleaf parses the attribute, so `th:title="... 'dall&apos;agent' ..."` reaches SpringEL as a bare apostrophe closing the string literal early: `Could not parse as expression`, at render time only. Either double it (`''`, the SpringEL escape) or word the text without apostrophes — the second is harder to get wrong.
 - **New DB entities need no manual DDL** — `spring.jpa.hibernate.ddl-auto=update` auto-creates/updates tables. Adding a `@Lob String` on Postgres can resurrect the OID problem `PostgresLobMigration` fixes; prefer `columnDefinition = "text"`.
 
 ## Deployment
