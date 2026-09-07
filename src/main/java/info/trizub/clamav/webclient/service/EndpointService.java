@@ -48,9 +48,19 @@ public class EndpointService {
         return repo.findById(id).orElseThrow();
     }
 
+    /** Un endpoint e' "gestito dall'agent" quando ha una chiave: li' il verso e' invertito. */
+    public boolean isAgentManaged(ClamdEndpoint ep) {
+        return ep != null && ep.isAgentEnrolled();
+    }
+
+    /** Host vuoto = endpoint gestito dall'agent: non c'e' niente da contattare. */
+    private static String normalizeHost(String host) {
+        return (host == null || host.isBlank()) ? null : host.trim();
+    }
+
     @Transactional
     public ClamdEndpoint create(String name, String host, int port, Platform platform, boolean enabled) {
-        ClamdEndpoint ep = new ClamdEndpoint(name, host, port, platform);
+        ClamdEndpoint ep = new ClamdEndpoint(name, normalizeHost(host), port, platform);
         ep.setEnabled(enabled);
         return repo.save(ep);
     }
@@ -59,7 +69,7 @@ public class EndpointService {
     public ClamdEndpoint update(Long id, String name, String host, int port, Platform platform, boolean enabled) {
         ClamdEndpoint ep = repo.findById(id).orElseThrow();
         ep.setName(name);
-        ep.setHost(host);
+        ep.setHost(normalizeHost(host));
         ep.setPort(port);
         ep.setPlatform(platform);
         ep.setEnabled(enabled);
@@ -102,12 +112,19 @@ public class EndpointService {
         return repo.findByAgentKey(key.trim());
     }
 
-    /** Aggiorna il "last seen" dell'agent. Best-effort: non deve mai far fallire la richiesta. */
+    /**
+     * Aggiorna "last seen" e, se l'agent l'ha inviata, la versione di clamd.
+     * Best-effort: non deve mai far fallire la richiesta dell'agent.
+     */
     @Transactional
-    public void touchAgentSeen(Long id) {
+    public void touchAgentSeen(Long id, String clamdVersion) {
         try {
             repo.findById(id).ifPresent(ep -> {
                 ep.setAgentLastSeenAt(Instant.now());
+                if (clamdVersion != null && !clamdVersion.isBlank()) {
+                    String v = clamdVersion.trim();
+                    ep.setAgentClamdVersion(v.length() > 255 ? v.substring(0, 255) : v);
+                }
                 repo.save(ep);
             });
         } catch (Exception ignored) {

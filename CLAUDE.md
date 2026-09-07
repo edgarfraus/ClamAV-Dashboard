@@ -119,6 +119,18 @@ The equivalent UI form endpoints (`POST /scan/upload`, `POST /scan/path`) are CS
 
 `docker-compose.yml` runs two containers: `clamav` (the clamd server, port 3310) and `clamav-web-client` (this app, port 8080, `build: .`). PATH/WATCH scans require the scan roots to be mounted into the web-client container. `install-clamd-remote.sh` provisions clamd on a remote host.
 
+## Direction of the connection
+
+With an agent installed the direction is **inverted**: the machine calls the console, the console never calls the machine. Consequences, all of them already reflected in the code:
+
+- `ClamdEndpoint.host` is **nullable**. For an agent-managed endpoint there is nothing to dial, so host/port stay empty and the Endpoints form does not require them.
+- The agent's installer binds clamd to `127.0.0.1` and opens **no** firewall port. clamd is reached only by local `clamdscan`/`clamonacc`.
+- `ApiController.endpointStatus` does not ping an agent endpoint. Status comes from `agentLastSeenAt` (alive within `AGENT_ALIVE_WINDOW`, 15 min — the Windows agent polls every 5), and the signature version from `agentClamdVersion`, which the agent attaches as the `X-Agent-Clamav` header on **every** request. `AgentAuthenticationFilter` stores both in one write, so there is no separate heartbeat round trip.
+- `SignatureReloadService.sendReload` skips endpoints with no host: freshclam on the machine keeps signatures current there.
+- The `/main` page reports the endpoint as agent-managed instead of failing to connect.
+
+What still uses a direct TCP connection, and therefore still needs host/port: **upload scans** (the console streams the file to a clamd via INSTREAM), **watch** jobs (same), and any endpoint with no agent. A console with only agent endpoints can still run upload scans by keeping one reachable clamd — typically the one in `docker-compose.yml`.
+
 ## Agent enrollment (per-endpoint keys)
 
 Each `ClamdEndpoint` can hold an **agent key** (`agentKey`, generated under Admin > Endpoints > the robot button). It replaces the per-machine OPERATOR user: `AgentAuthenticationFilter` maps the key to `ROLE_AGENT`, which `SecurityConfig` allows **only** on `/agent/**` and `POST /api/scan/report` — a stolen key cannot read other hosts' jobs or launch scans, which an OPERATOR account could. The key is accepted as `X-Agent-Key`, `Authorization: Bearer`, or `?key=` (the query form exists for `curl … | sudo bash`, so it lands in proxy logs — it is fine for installer download, not a reason to prefer it).
@@ -128,6 +140,8 @@ The key is stored **in plaintext** so the console can re-generate an installer f
 `AgentInstallController` serves the generated installers, substituting `@@CONSOLE_URL@@` / `@@AGENT_KEY@@` / `@@ENDPOINT_NAME@@` into `resources/agent/install.sh.tpl` and `install.ps1.tpl`. The `.sh` installer is **self-contained**: `@@EMBED_*@@` placeholders are replaced with the full text of the agent scripts, written out at run time from quoted heredocs (`__CLAIMAV_EMBED_*__` delimiters; the controller refuses to render if a script contains the delimiter). Download it, run it, done — a bootstrap that fetches more pieces breaks whenever the machine cannot reach the console mid-install. The scripts live at the repo root and are copied into the jar by a `maven-resources-plugin` execution (`copy-agent-scripts`) — one canonical copy, not two. `/agent/files/<name>` still serves them individually (allow-list, no traversal).
 
 Both installers **ask what to install** (realtime / console-dispatched scans / scheduled scan) when they have a terminal, and install everything when they do not — `curl … | bash` has the pipe on stdin, so there is nothing to read answers from. Flags (`--all`, `--realtime`, `--central`, `--scheduled`; `-All`, `-Central`, `-Scheduled` on Windows) skip the prompts.
+
+**The Dockerfile must copy the root-level agent scripts.** They are packaged into the jar by `maven-resources-plugin` reading `${basedir}`, so a build context without them (the Dockerfile used to copy only `pom.xml` and `src`) still succeeds — an `<include>` that matches nothing is not an error — but produces a jar with no `agent/*.sh`, and the console can no longer generate the agent installer. `mvn package` on the host works, so the failure only shows up in Docker, which is how this project actually runs. `AgentInstallController.verifyPackagedScripts()` logs an explicit error at startup if any of them is missing, rather than leaving it to be discovered from a failed download.
 
 **`AgentInstallController` must stay out of the `web` package.** `GlobalExceptionHandler` is a `@ControllerAdvice(basePackages = "…webclient.web")` whose `@ExceptionHandler(Exception.class)` returns `redirect:/dashboard`; a download controller under `web` answers every failure with a silent redirect instead of the file, which is exactly what "the installer won't download" looks like.
 

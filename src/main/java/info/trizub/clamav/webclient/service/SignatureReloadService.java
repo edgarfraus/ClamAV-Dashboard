@@ -80,6 +80,13 @@ public class SignatureReloadService {
         String host = ep.getHost();
         int port = ep.getPort();
 
+        // Endpoint gestito da un agent: la console non lo raggiunge, e non deve.
+        // Li' e' freshclam sulla macchina a tenere aggiornate le firme.
+        if (host == null || host.isBlank()) {
+            log.debug("Skipping RELOAD for agent-managed endpoint '{}'", ep.getName());
+            return "SKIPPED (endpoint con agent — freshclam aggiorna in locale)";
+        }
+
         // Unix socket endpoints: host is a file path — skip raw TCP reload
         if (host.startsWith("/") || host.startsWith(".")) {
             log.info("Skipping RELOAD for Unix socket endpoint '{}' ({})", ep.getName(), host);

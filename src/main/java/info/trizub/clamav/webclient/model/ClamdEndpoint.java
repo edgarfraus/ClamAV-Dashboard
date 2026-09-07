@@ -16,7 +16,9 @@ public class ClamdEndpoint {
     @Column(nullable = false, unique = true, length = 64)
     private String name;
 
-    @Column(nullable = false, length = 255)
+    // Host/porta servono solo quando e' la console a contattare clamd. Su un
+    // endpoint con agent e' l'agent a contattare la console, quindi restano vuoti.
+    @Column(length = 255)
     private String host;
 
     @Column(nullable = false)
@@ -45,8 +47,14 @@ public class ClamdEndpoint {
     @Column(length = 100, unique = true)
     private String agentKey;
 
-    // Ultima volta che l'agent si e' fatto vivo (download installer o report).
+    // Ultima volta che l'agent si e' fatto vivo (poll dei comandi o report).
     private Instant agentLastSeenAt;
+
+    // Stringa VERSION di clamd riportata dall'agent (stesso formato del comando
+    // VERSION su socket), cosi' la pagina Endpoints mostra versione ed eta' del
+    // database anche senza potersi collegare alla macchina.
+    @Column(length = 255)
+    private String agentClamdVersion;
 
     public ClamdEndpoint() {}
 
@@ -76,5 +84,7 @@ public class ClamdEndpoint {
     public void setAgentKey(String agentKey) { this.agentKey = agentKey; }
     public Instant getAgentLastSeenAt() { return agentLastSeenAt; }
     public void setAgentLastSeenAt(Instant agentLastSeenAt) { this.agentLastSeenAt = agentLastSeenAt; }
+    public String getAgentClamdVersion() { return agentClamdVersion; }
+    public void setAgentClamdVersion(String agentClamdVersion) { this.agentClamdVersion = agentClamdVersion; }
     public boolean isAgentEnrolled() { return agentKey != null && !agentKey.isBlank(); }
 }

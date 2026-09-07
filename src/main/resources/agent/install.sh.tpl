@@ -179,15 +179,6 @@ write_agent_config() {
   ok "Configurazione salvata in $CONFIG_FILE (permessi 600, solo root)."
 }
 
-# L'IP della console serve per aprire il firewall solo verso di lei. Se la console
-# e' raggiunta per nome DNS non passiamo --console-ip: ufw e firewalld vogliono un
-# indirizzo, e una regola sbagliata e' peggio di nessuna regola.
-CONSOLE_HOST=$(printf '%s' "$CONSOLE_URL" | sed -E 's#^[a-zA-Z]+://##; s#[:/].*$##')
-CONSOLE_IP_ARGS=()
-if [[ "$CONSOLE_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  CONSOLE_IP_ARGS=(--console-ip "$CONSOLE_HOST")
-fi
-
 install_poller_service_linux() {
   install -m 700 "$WORKDIR/clamav-agent-poll.sh" /usr/local/bin/clamav-agent-poll.sh
   cat > /etc/systemd/system/clamav-agent-poll.service << EOF
@@ -252,16 +243,16 @@ install_linux() {
 
   # clamd serve a tutti i componenti (il poller preferisce clamdscan, che e'
   # molto piu' veloce di clamscan perche' le firme sono gia' in RAM nel demone).
-  local installer_args=(--scan-system "${CONSOLE_IP_ARGS[@]}")
+  #
+  # --bind 127.0.0.1: con l'agent e' la macchina a contattare la console, non il
+  # contrario. clamd non ha quindi motivo di ascoltare sulla rete: lo teniamo su
+  # localhost, dove lo usano solo clamdscan e clamonacc. Nessuna porta esposta,
+  # nessuna regola di firewall da aggiungere.
+  local installer_args=(--scan-system --bind 127.0.0.1)
   if [[ "$WANT_REALTIME" == "1" ]]; then
     installer_args+=(--on-access --console-url "$CONSOLE_URL" --console-key "$AGENT_KEY")
   fi
-  if [[ ${#CONSOLE_IP_ARGS[@]} -eq 0 ]]; then
-    warn "Console raggiunta per nome ($CONSOLE_HOST): non tocco il firewall."
-    warn "Se ne usi uno, apri la porta 3310 verso l'IP della console a mano."
-  fi
-
-  log "Installo e configuro clamd..."
+  log "Installo e configuro clamd (in ascolto solo su 127.0.0.1)..."
   "$WORKDIR/install-clamd-remote.sh" "${installer_args[@]}" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
   # L'installer riscrive la config quando usa --on-access: la riallineiamo
@@ -375,3 +366,6 @@ echo "    Realtime (on-access):       $([[ "$WANT_REALTIME"  == "1" ]] && echo '
 echo "    Scansioni dalla console:    $([[ "$WANT_CENTRAL"   == "1" ]] && echo 'attive' || echo 'non installate')"
 echo "    Scansione programmata:      $([[ "$WANT_SCHEDULED" == "1" ]] && echo 'attiva (02:30)' || echo 'non installata')"
 echo "    Configurazione:             $CONFIG_FILE"
+echo
+echo "    E' questa macchina a contattare la console: nella console lascia"
+echo "    host e porta vuoti. Nessuna porta in ingresso da aprire qui."

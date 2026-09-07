@@ -18,6 +18,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,9 +53,26 @@ public class ApiController {
         );
     }
 
+    /** Un agent visto entro questa finestra e' considerato vivo (il poll Windows e' ogni 5 min). */
+    private static final Duration AGENT_ALIVE_WINDOW = Duration.ofMinutes(15);
+
     @GetMapping("/endpoints/{id}/status")
     public Map<String, Object> endpointStatus(@PathVariable Long id) {
         ClamdEndpoint ep = endpoints.get(id);
+
+        // Endpoint con agent: la console non lo contatta piu'. Lo stato lo
+        // deduciamo da quando l'agent si e' fatto vivo l'ultima volta, e la
+        // versione delle firme da quella che ci ha riportato.
+        if (ep.isAgentEnrolled()) {
+            return agentStatus(ep);
+        }
+
+        // Senza agent e senza host non c'e' proprio niente da contattare.
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            return Map.of("online", false,
+                    "error", "Nessun host configurato e nessun agent installato su questo endpoint");
+        }
+
         try {
             CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
                 var client = clientProvider.clientFor(ep);
@@ -103,6 +122,29 @@ public class ApiController {
                     org.springframework.http.HttpStatus.NOT_FOUND, "job not found");
         }
         return job;
+    }
+
+    private Map<String, Object> agentStatus(ClamdEndpoint ep) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        Instant seen = ep.getAgentLastSeenAt();
+        boolean alive = seen != null && seen.isAfter(Instant.now().minus(AGENT_ALIVE_WINDOW));
+
+        out.put("online", alive);
+        out.put("agent", true);
+        out.put("lastSeen", seen != null ? seen.toString() : "");
+        if (!alive) {
+            out.put("error", seen == null
+                    ? "Agent mai visto: installa l'agent su questa macchina"
+                    : "Agent non risponde da " + seen);
+        }
+
+        ClamVersionInfo info = ClamVersionInfo.parse(ep.getAgentClamdVersion());
+        out.put("clamVersion", info.clamVersion != null ? info.clamVersion : "");
+        out.put("dbVersion", info.dbVersion != null ? info.dbVersion : "");
+        out.put("dbDate", info.dbDate != null ? info.dbDate : "");
+        out.put("dbAgeDays", info.dbAgeDays);
+        out.put("stale", info.stale);
+        return out;
     }
 
     @PostMapping(value = "/scan/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

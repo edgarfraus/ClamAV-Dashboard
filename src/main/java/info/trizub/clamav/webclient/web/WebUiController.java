@@ -165,6 +165,15 @@ public class WebUiController {
             return PAGE_MAIN;
         }
 
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            model.addAttribute("pingOk", false);
+            model.addAttribute("error", ep.isAgentEnrolled()
+                    ? "Endpoint gestito dall'agent: la console non si collega a clamd. "
+                      + "Stato e versione firme sono in Admin > Endpoints."
+                    : "Nessun host configurato per questo endpoint.");
+            return PAGE_MAIN;
+        }
+
         try {
             ClamavClient c = clientProvider.clientFor(ep);
             c.ping();
@@ -584,8 +593,8 @@ public class WebUiController {
 
     @PostMapping("/admin/endpoints/create")
     public String adminEndpointsCreate(@RequestParam String name,
-                                       @RequestParam String host,
-                                       @RequestParam int port,
+                                       @RequestParam(required = false, defaultValue = "") String host,
+                                       @RequestParam(required = false, defaultValue = "3310") int port,
                                        @RequestParam String platform,
                                        @RequestParam(defaultValue = "true") boolean enabled,
                                        @RequestParam(required = false) Long groupId,
@@ -602,8 +611,8 @@ public class WebUiController {
     @PostMapping("/admin/endpoints/{id}/update")
     public String adminEndpointsUpdate(@PathVariable Long id,
                                        @RequestParam String name,
-                                       @RequestParam String host,
-                                       @RequestParam int port,
+                                       @RequestParam(required = false, defaultValue = "") String host,
+                                       @RequestParam(required = false, defaultValue = "3310") int port,
                                        @RequestParam String platform,
                                        @RequestParam(defaultValue = "true") boolean enabled,
                                        @RequestParam(required = false) Long groupId,

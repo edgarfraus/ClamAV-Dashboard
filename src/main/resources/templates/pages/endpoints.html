@@ -34,15 +34,20 @@
 
       <div class="panel mb-3">
         <div class="panel-body">
-          <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> Add endpoint</div>
+          <div class="card-title mb-1"><i class="fa-solid fa-plus"></i> Add endpoint</div>
+          <div class="muted mb-3" style="font-size:12px;">
+            Host e porta servono solo se vuoi che sia la <strong>console a collegarsi a clamd</strong>.
+            Se installi l'agent lasciali vuoti: e' la macchina a contattare la console, quindi non
+            serve conoscerne l'indirizzo ne' aprire porte.
+          </div>
           <form th:action="@{/admin/endpoints/create}" method="post" class="row g-2 align-items-end">
             <div class="col-md-2">
               <label class="form-label">Name</label>
               <input type="text" class="form-control" name="name" required="required"/>
             </div>
             <div class="col-md-2">
-              <label class="form-label">Host</label>
-              <input type="text" class="form-control" name="host" placeholder="clamav-server or IP" required="required"/>
+              <label class="form-label">Host <span class="muted" style="font-weight:400;">(opzionale)</span></label>
+              <input type="text" class="form-control" name="host" placeholder="vuoto se usi l'agent"/>
             </div>
             <div class="col-md-1">
               <label class="form-label">Port</label>
@@ -83,12 +88,18 @@
           <div class="table-responsive" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
             <table class="table table-hover align-middle">
               <thead>
-                <tr>
-                  <th>Status</th><th>Name</th><th>Host</th><th>Port</th>
-                  <th>Platform</th><th>Group</th><th>Enabled</th>
-                  <th>DB version</th><th>DB age</th>
-                  <th>Agent</th>
-                  <th style="width:300px;">Actions</th>
+                <tr style="white-space:nowrap;">
+                  <th style="width:60px;">Status</th>
+                  <th style="min-width:180px;">Name</th>
+                  <th style="min-width:150px;">Host</th>
+                  <th style="width:90px;">Port</th>
+                  <th style="width:130px;">Platform</th>
+                  <th style="width:130px;">Group</th>
+                  <th style="width:70px;">Enabled</th>
+                  <th style="min-width:120px;">DB version</th>
+                  <th style="min-width:90px;">DB age</th>
+                  <th style="min-width:110px;">Agent</th>
+                  <th style="min-width:210px;">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,9 +109,22 @@
                       <i class="fa-solid fa-circle-notch fa-spin" style="font-size:10px;"></i>
                     </span>
                   </td>
-                  <td><input type="text" class="form-control form-control-sm" th:form="${'ep-form-' + e.id}" name="name" th:value="${e.name}" required="required"/></td>
-                  <td><input type="text" class="form-control form-control-sm" th:form="${'ep-form-' + e.id}" name="host" th:value="${e.host}" required="required"/></td>
-                  <td style="width:90px;"><input type="number" class="form-control form-control-sm" th:form="${'ep-form-' + e.id}" name="port" th:value="${e.port}" required="required"/></td>
+                  <td style="min-width:180px;">
+                    <input type="text" class="form-control form-control-sm" style="min-width:160px;"
+                           th:form="${'ep-form-' + e.id}" name="name" th:value="${e.name}" required="required"/>
+                  </td>
+                  <!-- Host e porta servono solo quando e' la console a contattare clamd.
+                       Con un agent installato il verso e' opposto: restano vuoti. -->
+                  <td style="min-width:150px;">
+                    <input type="text" class="form-control form-control-sm" style="min-width:130px;"
+                           th:form="${'ep-form-' + e.id}" name="host" th:value="${e.host}"
+                           th:placeholder="${e.agentEnrolled} ? 'non serve (agent)' : 'host o IP'"
+                           th:title="${e.agentEnrolled} ? 'Endpoint gestito dall&apos;agent: e&apos; la macchina a contattare la console, nessun indirizzo necessario' : 'Indirizzo di clamd'"/>
+                  </td>
+                  <td style="width:90px;">
+                    <input type="number" class="form-control form-control-sm"
+                           th:form="${'ep-form-' + e.id}" name="port" th:value="${e.port}"/>
+                  </td>
                   <td style="width:140px;">
                     <select class="form-select form-select-sm" th:form="${'ep-form-' + e.id}" name="platform">
                       <option value="UNIX" th:selected="${e.platform.name() == 'UNIX'}">UNIX</option>
@@ -379,9 +403,12 @@ document.addEventListener('DOMContentLoaded', function () {
         var badge = document.getElementById('status-' + id);
         var dbver = document.getElementById('dbver-' + id);
         var dbage = document.getElementById('dbage-' + id);
+        // Su un endpoint con agent lo stato non viene da un ping: dice se la
+        // macchina si e' fatta viva, non se noi riusciamo a raggiungerla.
         if (data.online) {
           badge.className = 'badge-status badge-ok';
-          badge.innerHTML = 'Online';
+          badge.innerHTML = data.agent ? 'Agent&nbsp;attivo' : 'Online';
+          if (data.agent && data.lastSeen) badge.title = 'Ultimo contatto: ' + data.lastSeen;
           if (dbver) dbver.textContent = data.dbVersion || '—';
           if (dbage && data.dbAgeDays >= 0) {
             var stale = data.stale;
@@ -390,7 +417,7 @@ document.addEventListener('DOMContentLoaded', function () {
           }
         } else {
           badge.className = 'badge-status badge-danger';
-          badge.innerHTML = 'Offline';
+          badge.innerHTML = data.agent ? 'Agent&nbsp;muto' : 'Offline';
           badge.title = data.error || '';
         }
       })

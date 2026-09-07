@@ -55,7 +55,10 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
                             List.of(new SimpleGrantedAuthority("ROLE_AGENT")));
                     SecurityContextHolder.getContext().setAuthentication(auth);
                     request.setAttribute(ENDPOINT_ID_ATTRIBUTE, ep.getId());
-                    endpoints.touchAgentSeen(ep.getId());
+                    // L'agent allega la versione di clamd a ogni richiesta: cosi' la
+                    // console la conosce senza doversi collegare alla macchina, e non
+                    // serve un giro HTTP in piu' solo per il heartbeat.
+                    endpoints.touchAgentSeen(ep.getId(), request.getHeader("X-Agent-Clamav"));
                 }
             }
         }

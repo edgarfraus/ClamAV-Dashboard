@@ -3,7 +3,10 @@ package info.trizub.clamav.webclient.api;
 import info.trizub.clamav.webclient.config.AgentAuthenticationFilter;
 import info.trizub.clamav.webclient.model.ClamdEndpoint;
 import info.trizub.clamav.webclient.service.EndpointService;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -18,6 +21,8 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -40,6 +45,8 @@ import java.util.Set;
 @RestController
 @RequestMapping("/agent")
 public class AgentInstallController {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentInstallController.class);
 
     /** Solo questi file possono essere scaricati: niente path traversal. */
     private static final Set<String> ALLOWED_FILES = Set.of(
@@ -67,6 +74,33 @@ public class AgentInstallController {
 
     public AgentInstallController(EndpointService endpoints) {
         this.endpoints = endpoints;
+    }
+
+    /**
+     * Verifica all'avvio che tutto il necessario per generare l'installer sia
+     * davvero dentro il jar. Gli script vivono nella root del repo e ci finiscono
+     * tramite maven-resources-plugin: se non entrano nel build context (e' successo
+     * col Dockerfile, che copiava solo pom.xml e src) il build riesce lo stesso,
+     * perche' un <include> che non trova file non e' un errore. Meglio accorgersene
+     * qui, nei log all'avvio, che dal browser quando il download non parte.
+     */
+    @PostConstruct
+    void verifyPackagedScripts() {
+        List<String> missing = new ArrayList<>();
+        for (String resource : List.of("agent/install.sh.tpl", "agent/install.ps1.tpl")) {
+            if (!new ClassPathResource(resource).exists()) missing.add(resource);
+        }
+        for (String script : SH_EMBEDS.values()) {
+            if (!new ClassPathResource("agent/" + script).exists()) missing.add("agent/" + script);
+        }
+        if (missing.isEmpty()) {
+            log.info("Agent installer: tutte le risorse presenti nel jar.");
+        } else {
+            log.error("Agent installer NON funzionante: risorse mancanti nel jar: {}. "
+                    + "Gli script dell'agent stanno nella root del repo e vengono copiati da "
+                    + "maven-resources-plugin (copy-agent-scripts); controlla che il build li abbia "
+                    + "a disposizione (nel Dockerfile serve la COPY degli *.sh).", missing);
+        }
     }
 
     @GetMapping(value = "/install.sh", produces = "text/x-shellscript; charset=utf-8")

@@ -40,6 +40,21 @@ if [[ -z "$DASHBOARD_URL" || -z "$DASHBOARD_AGENT_KEY" ]]; then
   exit 1
 fi
 
+# Versione di clamd/ClamAV su questa macchina, nel formato
+# "ClamAV 1.0.3/27263/Tue Sep  2 ...". La alleghiamo a ogni richiesta: cosi' la
+# console mostra versione ed eta' del database delle firme senza doversi
+# collegare alla macchina, che con l'agent non fa piu'.
+clamav_version() {
+  local v=""
+  if command -v clamdscan >/dev/null 2>&1; then
+    v="$(clamdscan --version 2>/dev/null | head -1)"
+  fi
+  if [[ -z "$v" ]] && command -v clamscan >/dev/null 2>&1; then
+    v="$(clamscan --version 2>/dev/null | head -1)"
+  fi
+  printf '%s' "$v"
+}
+
 json_escape() {
   local s="$1"
   s="${s//\\/\\\\}"
@@ -75,6 +90,7 @@ report_result() {
 
   if curl -sS -f --max-time "$CURL_TIMEOUT" \
        -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
+       -H "X-Agent-Clamav: $(clamav_version)" \
        -X POST "${DASHBOARD_URL%/}/api/scan/report" \
        -H 'Content-Type: application/json' \
        -d "$payload" > /dev/null; then
@@ -142,6 +158,7 @@ poll_once() {
   local response
   response="$(curl -sS -f --max-time "$CURL_TIMEOUT" \
       -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
+      -H "X-Agent-Clamav: $(clamav_version)" \
       "${DASHBOARD_URL%/}/api/agent/commands?format=text" 2>/dev/null)" || {
     log "console non raggiungibile, riprovo al prossimo giro"
     return 0
