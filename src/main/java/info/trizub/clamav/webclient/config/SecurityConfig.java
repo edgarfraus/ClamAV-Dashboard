@@ -1,5 +1,6 @@
 package info.trizub.clamav.webclient.config;
 
+import info.trizub.clamav.webclient.service.EndpointService;
 import info.trizub.clamav.webclient.service.UserService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,6 +13,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -30,11 +32,18 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, AuthenticationSuccessHandler successHandler) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http, AuthenticationSuccessHandler successHandler,
+                                    EndpointService endpointService) throws Exception {
         http
+            .addFilterBefore(new AgentAuthenticationFilter(endpointService), UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/css/**", "/js/**", "/images/**", "/icons/**", "/webfonts/**", "/flags/**").permitAll()
                 .requestMatchers("/h2/**").hasRole("ADMIN")
+                // Enrollment agent: la chiave dell'endpoint basta a scaricare il proprio
+                // installer e a inviare i report, e non da' accesso a nient'altro.
+                .requestMatchers("/agent/**").hasAnyRole("AGENT","ADMIN")
+                .requestMatchers("/api/agent/**").hasAnyRole("AGENT","ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/scan/report").hasAnyRole("AGENT","OPERATOR","ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/health").hasAnyRole("VIEWER","OPERATOR","ADMIN")
                 .requestMatchers("/api/**").hasAnyRole("OPERATOR","ADMIN")
                 .requestMatchers("/admin/**").hasRole("ADMIN")
@@ -51,7 +60,7 @@ public class SecurityConfig {
             )
             .httpBasic(Customizer.withDefaults())
             .logout(logout -> logout.logoutUrl("/logout").logoutSuccessUrl("/login?logout").permitAll())
-            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**", "/h2/**"))
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**", "/agent/**", "/h2/**"))
             .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin())); // H2 console
 
         return http.build();

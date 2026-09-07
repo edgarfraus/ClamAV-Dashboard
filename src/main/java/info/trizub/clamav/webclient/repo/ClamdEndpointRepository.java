@@ -12,4 +12,5 @@ public interface ClamdEndpointRepository extends JpaRepository<ClamdEndpoint, Lo
     List<ClamdEndpoint> findByGroup(EndpointGroup group);
     List<ClamdEndpoint> findByGroupAndEnabled(EndpointGroup group, boolean enabled);
     List<ClamdEndpoint> findByEnabledTrue();
+    Optional<ClamdEndpoint> findByAgentKey(String agentKey);
 }

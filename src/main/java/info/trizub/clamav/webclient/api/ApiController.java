@@ -2,11 +2,16 @@ package info.trizub.clamav.webclient.api;
 
 import info.trizub.clamav.webclient.model.ClamdEndpoint;
 import info.trizub.clamav.webclient.model.ScanJob;
+import info.trizub.clamav.webclient.model.ScanJobType;
 import info.trizub.clamav.webclient.model.ScanVerdict;
+import info.trizub.clamav.webclient.model.AgentCommand;
+import info.trizub.clamav.webclient.service.AgentCommandService;
 import info.trizub.clamav.webclient.service.ClamavClientProvider;
 import info.trizub.clamav.webclient.service.EndpointService;
 import info.trizub.clamav.webclient.service.ScanJobService;
+import info.trizub.clamav.webclient.config.AgentAuthenticationFilter;
 import info.trizub.clamav.webclient.util.ClamVersionInfo;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
@@ -27,12 +32,15 @@ public class ApiController {
     private final EndpointService endpoints;
     private final ScanJobService jobs;
     private final ClamavClientProvider clientProvider;
+    private final AgentCommandService agentCommands;
 
     public ApiController(EndpointService endpoints, ScanJobService jobs,
-                         ClamavClientProvider clientProvider) {
+                         ClamavClientProvider clientProvider,
+                         AgentCommandService agentCommands) {
         this.endpoints = endpoints;
         this.jobs = jobs;
         this.clientProvider = clientProvider;
+        this.agentCommands = agentCommands;
     }
 
     @GetMapping("/health")
@@ -127,23 +135,37 @@ public class ApiController {
         @NotBlank public String verdict; // VIRUS_FOUND | ERROR
         public List<String> findings; // raw "path: SIGNATURE FOUND" lines, VIRUS_FOUND only
         public String errorMessage; // ERROR only
+        public String source; // "realtime" for clamonacc on-access events; anything else = batch scan
+        public Long commandId; // set when this is the result of a scan the console asked for
     }
 
     /**
      * Ingests the result of a scan executed outside this app (e.g. a clamdscan cron job on a
      * fleet machine talking to its local clamd directly). Only VIRUS_FOUND/ERROR are accepted —
      * this endpoint exists to surface alerts in the dashboard/Telegram, not to log every clean run.
+     *
+     * With a {@code commandId} the report closes a scan this console asked the agent to run:
+     * that job already exists (created QUEUED at dispatch), so it is finished rather than
+     * duplicated, and OK is accepted too — a clean result is what the user is waiting for.
      */
     @PostMapping(value = "/scan/report", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String,Object> scanReport(@RequestBody ScanReportRequest req, Authentication auth) {
+    public Map<String,Object> scanReport(@RequestBody ScanReportRequest req, Authentication auth,
+                                        HttpServletRequest httpRequest) {
         ScanVerdict verdict;
         try {
             verdict = ScanVerdict.valueOf(req.verdict.trim().toUpperCase());
         } catch (Exception e) {
-            throw new IllegalArgumentException("verdict must be VIRUS_FOUND or ERROR");
+            throw new IllegalArgumentException("verdict must be OK, VIRUS_FOUND or ERROR");
         }
-        if (verdict != ScanVerdict.VIRUS_FOUND && verdict != ScanVerdict.ERROR) {
-            throw new IllegalArgumentException("verdict must be VIRUS_FOUND or ERROR");
+        // OK e' accettato solo per una scansione che la console ha chiesto: li'
+        // "nessun virus" e' l'esito che l'utente sta aspettando. Per i report
+        // spontanei (cron, on-access) resta escluso, altrimenti ogni run pulito
+        // riempirebbe la lista dei job.
+        boolean commandResult = req.commandId != null;
+        if (verdict != ScanVerdict.VIRUS_FOUND && verdict != ScanVerdict.ERROR
+                && !(commandResult && verdict == ScanVerdict.OK)) {
+            throw new IllegalArgumentException("verdict must be VIRUS_FOUND or ERROR"
+                    + " (OK is accepted only together with commandId)");
         }
 
         Map<String, List<String>> found = new LinkedHashMap<>();
@@ -158,7 +180,44 @@ public class ApiController {
             }
         }
 
-        var job = jobs.createExternalReport(req.hostname, req.path, verdict, found, req.errorMessage, auth.getName());
+        ScanJobType type = req.source != null && "realtime".equalsIgnoreCase(req.source.trim())
+                ? ScanJobType.REALTIME : ScanJobType.EXTERNAL;
+
+        // Report inviato da un agent: lo leghiamo all'endpoint della sua chiave.
+        // Con l'autenticazione OPERATOR classica l'attributo non c'e' e resta null.
+        ClamdEndpoint reportingEndpoint = null;
+        Object endpointId = httpRequest.getAttribute(AgentAuthenticationFilter.ENDPOINT_ID_ATTRIBUTE);
+        if (endpointId instanceof Long) {
+            try {
+                reportingEndpoint = endpoints.get((Long) endpointId);
+            } catch (Exception ignored) {
+            }
+        }
+
+        // Esito di una scansione chiesta dalla console: il job esiste gia' (creato
+        // QUEUED quando l'hai lanciata), quindi lo chiudiamo invece di crearne uno nuovo.
+        if (commandResult) {
+            AgentCommand cmd = agentCommands.findForEndpoint(req.commandId, reportingEndpoint).orElse(null);
+            if (cmd == null) {
+                throw new IllegalArgumentException("commandId sconosciuto per questo agent: " + req.commandId);
+            }
+            String jobId = cmd.getJobId();
+            if (jobId != null) {
+                if (verdict == ScanVerdict.VIRUS_FOUND) {
+                    jobs.finishFound(jobId, found);
+                } else if (verdict == ScanVerdict.ERROR) {
+                    jobs.finishError(jobId, req.errorMessage);
+                } else {
+                    jobs.finishOk(jobId);
+                }
+                jobs.notifyIfNeeded(jobId);
+            }
+            agentCommands.markDone(cmd.getId());
+            return Map.of("jobId", jobId == null ? "" : jobId);
+        }
+
+        var job = jobs.createExternalReport(req.hostname, req.path, verdict, found, req.errorMessage,
+                type, reportingEndpoint, auth.getName());
         return Map.of("jobId", job.getId());
     }
 }

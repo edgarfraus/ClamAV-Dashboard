@@ -2,6 +2,7 @@ package info.trizub.clamav.webclient.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import info.trizub.clamav.webclient.model.ScanJob;
+import info.trizub.clamav.webclient.model.ScanJobType;
 import info.trizub.clamav.webclient.model.ScanVerdict;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,11 +66,12 @@ public class NotificationService {
         String host = job.getSourceHost() != null ? job.getSourceHost()
                 : (job.getEndpoint() != null ? job.getEndpoint().getName() : "unknown");
         String text;
+        boolean realtime = job.getType() == ScanJobType.REALTIME;
         if (job.getVerdict() == ScanVerdict.VIRUS_FOUND) {
             StringBuilder findings = new StringBuilder();
             job.getFoundVirusesMap().forEach((path, sigs) ->
                     findings.append(path).append(": ").append(String.join(", ", sigs)).append(" FOUND\n"));
-            text = "🚨 *ClamAV Alert* 🚨\n" +
+            text = (realtime ? "🚨 *ClamAV Realtime Alert* (on-access) 🚨\n" : "🚨 *ClamAV Alert* 🚨\n") +
                     "Host: `" + escapeMarkdown(host) + "`\n" +
                     "Job: `" + job.getId() + "`\n" +
                     "Target: `" + escapeMarkdown(job.getTarget()) + "`\n" +

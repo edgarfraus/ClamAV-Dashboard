@@ -3,6 +3,8 @@ package info.trizub.clamav.webclient.model;
 import jakarta.persistence.*;
 import xyz.capybara.clamav.Platform;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "clamd_endpoints")
 public class ClamdEndpoint {
@@ -34,6 +36,18 @@ public class ClamdEndpoint {
     @JoinColumn(name = "group_id")
     private EndpointGroup group;
 
+    // Chiave di enrollment dell'agent installato su questa macchina. Sostituisce
+    // l'utente OPERATOR per-macchina: vale solo per questo endpoint e puo' fare
+    // solo /agent/** e POST /api/scan/report, non tutta la /api.
+    // E' salvata in chiaro di proposito: la console deve poter rigenerare lo
+    // script di installazione per un endpoint gia' creato. Visibile solo ad ADMIN
+    // (sta sotto /admin/**); se trapela, usa "Rotate" per invalidarla.
+    @Column(length = 100, unique = true)
+    private String agentKey;
+
+    // Ultima volta che l'agent si e' fatto vivo (download installer o report).
+    private Instant agentLastSeenAt;
+
     public ClamdEndpoint() {}
 
     public ClamdEndpoint(String name, String host, int port, Platform platform) {
@@ -58,4 +72,9 @@ public class ClamdEndpoint {
     public void setFullDiskTargets(String fullDiskTargets) { this.fullDiskTargets = fullDiskTargets; }
     public EndpointGroup getGroup() { return group; }
     public void setGroup(EndpointGroup group) { this.group = group; }
+    public String getAgentKey() { return agentKey; }
+    public void setAgentKey(String agentKey) { this.agentKey = agentKey; }
+    public Instant getAgentLastSeenAt() { return agentLastSeenAt; }
+    public void setAgentLastSeenAt(Instant agentLastSeenAt) { this.agentLastSeenAt = agentLastSeenAt; }
+    public boolean isAgentEnrolled() { return agentKey != null && !agentKey.isBlank(); }
 }

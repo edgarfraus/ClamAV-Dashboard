@@ -145,6 +145,31 @@
 							</resources>
 						</configuration>
 					</execution>
+					<!-- Gli script dell'agent vivono nella root del repo (sono anche
+					     eseguibili a mano); li copiamo nel jar cosi' la console puo'
+					     servirli agli agent senza tenerne una seconda copia. -->
+					<execution>
+						<id>copy-agent-scripts</id>
+						<phase>process-resources</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/agent</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${basedir}</directory>
+									<includes>
+										<include>install-clamd-remote.sh</include>
+										<include>clamav-onacc-report.sh</include>
+										<include>clamav-telegram-alert.sh</include>
+										<include>clamav-agent-poll.sh</include>
+									</includes>
+									<filtering>false</filtering>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
 				</executions>
 			</plugin>
 		</plugins>

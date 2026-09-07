@@ -17,6 +17,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import info.trizub.clamav.webclient.util.ClamVersionInfo;
 import xyz.capybara.clamav.ClamavClient;
 import xyz.capybara.clamav.Platform;
@@ -84,6 +85,7 @@ public class WebUiController {
     private final SignatureReloadService signatureReloadService;
     private final ObjectMapper objectMapper;
     private final ScanExclusionRepository exclusionRepo;
+    private final AgentCommandService agentCommands;
 
     public WebUiController(SettingsService settings,
                            EndpointService endpoints,
@@ -99,7 +101,8 @@ public class WebUiController {
                            ScheduledScanService scheduledScanService,
                            SignatureReloadService signatureReloadService,
                            ObjectMapper objectMapper,
-                           ScanExclusionRepository exclusionRepo) {
+                           ScanExclusionRepository exclusionRepo,
+                           AgentCommandService agentCommands) {
         this.settings = settings;
         this.endpoints = endpoints;
         this.jobs = jobs;
@@ -115,6 +118,7 @@ public class WebUiController {
         this.signatureReloadService = signatureReloadService;
         this.objectMapper = objectMapper;
         this.exclusionRepo = exclusionRepo;
+        this.agentCommands = agentCommands;
     }
 
     // ---- Auth ----
@@ -243,6 +247,15 @@ public class WebUiController {
                         "(configured targets resolved to none after excluding critical paths). " +
                         "Check Full disk targets in Admin > Endpoints.");
             }
+            // Con l'agent basta un comando solo: clamdscan accetta piu' path in
+            // una volta e li scansiona in un unico passaggio, invece di aprire un
+            // job per directory come serve fare via TCP.
+            if (ep.isAgentEnrolled()) {
+                var cmd = agentCommands.enqueue(ep, String.join("\n", targets), auth.getName());
+                audit.record(auth, req, "SCAN_FULLDISK_AGENT",
+                        "targets=" + targets.size() + " endpoint=" + ep.getName(), "SUCCESS", cmd.getJobId());
+                return "redirect:/scan";
+            }
             String firstJobId = null;
             for (String target : targets) {
                 ScanJob job = jobs.createFullDiskScanJob(target, ep, auth.getName());
@@ -324,6 +337,15 @@ public class WebUiController {
                            Authentication auth, HttpServletRequest req, Model model) {
         try {
             ClamdEndpoint ep = endpoints.get(endpointId);
+            // Con un agent installato la scansione la fa la macchina stessa, in
+            // locale: niente TCP, quindi niente errori di permessi o di path che
+            // esiste qui ma non su clamd. Senza agent si usa la via diretta.
+            if (ep.isAgentEnrolled()) {
+                var cmd = agentCommands.enqueue(ep, path, auth.getName());
+                audit.record(auth, req, "SCAN_PATH_AGENT", "path=" + path + " endpoint=" + ep.getName(),
+                        "SUCCESS", cmd.getJobId());
+                return "redirect:/scan";
+            }
             ScanJob job = jobs.createPathJob(path, ep, auth.getName());
             audit.record(auth, req, "SCAN_PATH", "path=" + path, "SUCCESS", job.getId());
             return "redirect:/scan";
@@ -596,6 +618,25 @@ public class WebUiController {
     public String adminEndpointsDelete(@PathVariable Long id, Authentication auth, HttpServletRequest req) {
         endpoints.delete(id);
         audit.record(auth, req, "ENDPOINT_DELETE", "id=" + id, "SUCCESS", null);
+        return "redirect:/admin/endpoints";
+    }
+
+    @PostMapping("/admin/endpoints/{id}/agent-key")
+    public String adminEndpointAgentKey(@PathVariable Long id,
+                                        @RequestParam(defaultValue = "generate") String action,
+                                        Authentication auth, HttpServletRequest req,
+                                        RedirectAttributes redirect) {
+        if ("revoke".equals(action)) {
+            endpoints.revokeAgentKey(id);
+            audit.record(auth, req, "ENDPOINT_AGENT_KEY_REVOKE", "id=" + id, "SUCCESS", null);
+            redirect.addFlashAttribute("agentKeyMessage",
+                    "Chiave revocata: l'agent installato su quella macchina non e' piu' accettato.");
+        } else {
+            endpoints.generateAgentKey(id);
+            audit.record(auth, req, "ENDPOINT_AGENT_KEY_GENERATE", "id=" + id, "SUCCESS", null);
+            redirect.addFlashAttribute("agentKeyMessage",
+                    "Nuova chiave generata. Gli agent installati con la chiave precedente vanno reinstallati.");
+        }
         return "redirect:/admin/endpoints";
     }
 

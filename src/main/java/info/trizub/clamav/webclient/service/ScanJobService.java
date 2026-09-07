@@ -40,9 +40,14 @@ public class ScanJobService {
 
     @PostConstruct
     public void resumeQueued() {
-        // If app restarts, re-enqueue queued/running jobs as queued
+        // If app restarts, re-enqueue queued/running jobs as queued.
+        // I job AGENT sono esclusi: li esegue l'agent sulla sua macchina, darli
+        // al nostro executor significherebbe rifarli via TCP (che e' proprio
+        // quello che l'agent serve a evitare). Restano dove sono: se l'agent non
+        // risponde ci pensa il timeout di AgentCommandService.
         repo.findAll().stream()
                 .filter(j -> j.getStatus() != ScanJobStatus.FINISHED)
+                .filter(j -> j.getType() != ScanJobType.AGENT)
                 .forEach(j -> {
                     j.setStatus(ScanJobStatus.QUEUED);
                     repo.save(j);
@@ -155,6 +160,25 @@ public class ScanJobService {
         return job;
     }
 
+    /**
+     * Job per una scansione che verra' eseguita dall'agent sulla macchina.
+     * Creato QUEUED e volutamente NON passato all'executor: il lavoro lo fa
+     * l'agent, che poi chiude il job via /api/scan/report con il commandId.
+     */
+    @Transactional
+    public ScanJob createAgentJob(String target, ClamdEndpoint endpoint, String username) {
+        String id = UUID.randomUUID().toString().replace("-", "");
+        ScanJob job = new ScanJob();
+        job.setId(id);
+        job.setType(ScanJobType.AGENT);
+        job.setStatus(ScanJobStatus.QUEUED);
+        job.setTarget(target);
+        job.setEndpoint(endpoint);
+        job.setSubmittedBy(username);
+        job.setSubmittedAt(Instant.now());
+        return repo.save(job);
+    }
+
     @Transactional
     public ScanJob createScheduledPathJob(String path, ClamdEndpoint endpoint, String submittedBy) {
         // Scheduled scans bypass allowedRoots check — admin configured the path
@@ -219,15 +243,18 @@ public class ScanJobService {
     @Transactional
     public ScanJob createExternalReport(String hostname, String path, ScanVerdict verdict,
                                         Map<String, List<String>> foundViruses, String errorMessage,
-                                        String username) {
+                                        ScanJobType type, ClamdEndpoint endpoint, String username) {
         String id = UUID.randomUUID().toString().replace("-", "");
         ScanJob job = new ScanJob();
         job.setId(id);
-        job.setType(ScanJobType.EXTERNAL);
+        job.setType(type != null ? type : ScanJobType.EXTERNAL);
         job.setStatus(ScanJobStatus.FINISHED);
         job.setVerdict(verdict);
         job.setTarget(path);
         job.setSourceHost(hostname);
+        // Se il report arriva da un agent autenticato con la chiave dell'endpoint,
+        // il job viene legato a quell'endpoint e non resta un host "orfano".
+        job.setEndpoint(endpoint);
         job.setSubmittedBy(username);
         Instant now = Instant.now();
         job.setSubmittedAt(now);
@@ -261,7 +288,20 @@ private void enqueueAfterCommit(String jobId) {
     }
 }
 
-@Transactional
+/**
+     * Manda webhook/Telegram per un job gia' concluso. Serve ai job chiusi
+     * dall'agent: li' non si passa da ScanExecutionService, che e' il punto in
+     * cui normalmente scattano le notifiche.
+     */
+    public void notifyIfNeeded(String jobId) {
+        try {
+            repo.findById(jobId).ifPresent(notificationService::notifyIfNeeded);
+        } catch (Exception e) {
+            log.warn("Notifica non inviata per il job {}: {}", jobId, e.getMessage());
+        }
+    }
+
+    @Transactional
     public void finishOk(String id) {
         ScanJob job = repo.findById(id).orElseThrow();
         job.setStatus(ScanJobStatus.FINISHED);

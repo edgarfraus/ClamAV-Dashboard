@@ -8,10 +8,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import xyz.capybara.clamav.Platform;
 
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class EndpointService {
+
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ClamdEndpointRepository repo;
     private final SettingsService settings;
@@ -63,6 +69,49 @@ public class EndpointService {
     @Transactional
     public void delete(Long id) {
         repo.deleteById(id);
+    }
+
+    /**
+     * Genera (o rigenera) la chiave di enrollment dell'agent per un endpoint.
+     * Rigenerare invalida immediatamente la chiave precedente: gli agent gia'
+     * installati con quella vecchia smettono di essere accettati finche' non
+     * vengono reinstallati con la nuova.
+     */
+    @Transactional
+    public String generateAgentKey(Long id) {
+        ClamdEndpoint ep = repo.findById(id).orElseThrow();
+        byte[] raw = new byte[32];
+        RANDOM.nextBytes(raw);
+        String key = "cav_" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+        ep.setAgentKey(key);
+        ep.setAgentLastSeenAt(null);
+        repo.save(ep);
+        return key;
+    }
+
+    @Transactional
+    public void revokeAgentKey(Long id) {
+        ClamdEndpoint ep = repo.findById(id).orElseThrow();
+        ep.setAgentKey(null);
+        ep.setAgentLastSeenAt(null);
+        repo.save(ep);
+    }
+
+    public Optional<ClamdEndpoint> findByAgentKey(String key) {
+        if (key == null || key.isBlank()) return Optional.empty();
+        return repo.findByAgentKey(key.trim());
+    }
+
+    /** Aggiorna il "last seen" dell'agent. Best-effort: non deve mai far fallire la richiesta. */
+    @Transactional
+    public void touchAgentSeen(Long id) {
+        try {
+            repo.findById(id).ifPresent(ep -> {
+                ep.setAgentLastSeenAt(Instant.now());
+                repo.save(ep);
+            });
+        } catch (Exception ignored) {
+        }
     }
 
     @Transactional

@@ -21,17 +21,39 @@ set -euo pipefail
 
 # URL base della ClaimAV Dashboard e credenziali (utente OPERATOR dedicato,
 # non l'admin di default: vedi /admin/users).
-DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:8080}"
-DASHBOARD_API_USER="${DASHBOARD_API_USER:-INSERISCI_UTENTE_OPERATOR}"
-DASHBOARD_API_PASSWORD="${DASHBOARD_API_PASSWORD:-INSERISCI_PASSWORD}"
+# Se esiste, la configurazione scritta dall'installer ha la precedenza: cosi'
+# questo script e quello on-access condividono URL e credenziali.
+CONFIG_FILE="${CONFIG_FILE:-/etc/clamav/console-report.conf}"
+[[ -r "$CONFIG_FILE" ]] && . "$CONFIG_FILE"
 
-# Percorsi da scansionare (spazio-separati). Evita /proc /sys e mount di rete lenti.
-SCAN_PATHS=(
-  "/home"
-  "/tmp"
-  "/var/www"
-  "/opt"
-)
+DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:8080}"
+DASHBOARD_AGENT_KEY="${DASHBOARD_AGENT_KEY:-}"
+DASHBOARD_API_USER="${DASHBOARD_API_USER:-}"
+DASHBOARD_API_PASSWORD="${DASHBOARD_API_PASSWORD:-}"
+
+# Chiave dell'endpoint (consigliata) o, in alternativa, utente OPERATOR.
+if [[ -n "$DASHBOARD_AGENT_KEY" ]]; then
+  AUTH_ARGS=(-H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}")
+elif [[ -n "$DASHBOARD_API_USER" && -n "$DASHBOARD_API_PASSWORD" ]]; then
+  AUTH_ARGS=(-u "${DASHBOARD_API_USER}:${DASHBOARD_API_PASSWORD}")
+else
+  echo "ERRORE: serve DASHBOARD_AGENT_KEY (o DASHBOARD_API_USER + DASHBOARD_API_PASSWORD)." >&2
+  exit 1
+fi
+
+# Percorsi da scansionare. L'installer puo' imporli scrivendo SCAN_PATHS_LIST
+# nel file di configurazione (su macOS, per esempio, i path Linux non esistono).
+if [[ -n "${SCAN_PATHS_LIST:-}" ]]; then
+  read -r -a SCAN_PATHS <<< "$SCAN_PATHS_LIST"
+else
+  # Evita /proc /sys e mount di rete lenti.
+  SCAN_PATHS=(
+    "/home"
+    "/tmp"
+    "/var/www"
+    "/opt"
+  )
+fi
 
 # Percorsi da escludere (regex compatibili con clamdscan --exclude-dir)
 EXCLUDE_DIRS=(
@@ -61,18 +83,36 @@ echo "[$TIMESTAMP] Avvio scan su: ${SCAN_PATHS[*]}" >> "$LOG_FILE"
 # --multiscan --fdpass abilita scan multithreaded passando i file descriptor
 # -i mostra solo i file infetti nell'output (piu' facile da parsare)
 #
+# clamdscan ha bisogno che clamd sia in esecuzione. Dove non lo e' (tipicamente
+# macOS con ClamAV da Homebrew, dove il demone non parte da solo) si ripiega su
+# clamscan, che e' autonomo: piu' lento, ma la scansione avviene comunque.
+NO_SCANNER=0
+if command -v clamdscan >/dev/null 2>&1 && clamdscan --ping 1 >/dev/null 2>&1; then
+  SCANNER=(clamdscan --multiscan --fdpass --infected)
+elif command -v clamscan >/dev/null 2>&1; then
+  SCANNER=(clamscan --recursive --infected)
+  echo "[$TIMESTAMP] clamd non raggiungibile: uso clamscan (piu' lento)" >> "$LOG_FILE"
+else
+  echo "[$TIMESTAMP] ne clamdscan ne clamscan disponibili" >> "$LOG_FILE"
+  NO_SCANNER=1
+fi
+
 # set +e/-e attorno alla chiamata: con "set -e" attivo, un exit code diverso
 # da 0 (1 = infetti trovati, 2 = errore) farebbe terminare subito lo script
 # PRIMA di leggere $?, quindi va disattivato solo per questo comando.
-set +e
-SCAN_OUTPUT="$(clamdscan \
-  --multiscan \
-  --fdpass \
-  --infected \
-  "${EXCLUDE_ARGS[@]}" \
-  "${SCAN_PATHS[@]}" 2>&1)"
-EXIT_CODE=$?
-set -e
+if [ "$NO_SCANNER" -eq 0 ]; then
+  set +e
+  SCAN_OUTPUT="$("${SCANNER[@]}" \
+    "${EXCLUDE_ARGS[@]}" \
+    "${SCAN_PATHS[@]}" 2>&1)"
+  EXIT_CODE=$?
+  set -e
+else
+  # Nessuno scanner: lo segnaliamo come errore di scan, cosi' la console lo vede
+  # invece di limitarsi a non ricevere piu' nulla da questa macchina.
+  SCAN_OUTPUT="Ne' clamdscan ne' clamscan sono installati su questa macchina."
+  EXIT_CODE=2
+fi
 
 echo "$SCAN_OUTPUT" >> "$LOG_FILE"
 echo "[$TIMESTAMP] Scan completato con exit code $EXIT_CODE" >> "$LOG_FILE"
@@ -107,7 +147,7 @@ send_report() {
   local payload
   payload="{\"hostname\":\"$(json_escape "$HOSTNAME")\",\"path\":\"$(json_escape "${SCAN_PATHS[*]}")\",\"verdict\":\"${verdict}\",\"findings\":${FINDINGS_JSON},\"errorMessage\":\"$(json_escape "$error_message")\"}"
 
-  curl -s -u "${DASHBOARD_API_USER}:${DASHBOARD_API_PASSWORD}" \
+  curl -s "${AUTH_ARGS[@]}" \
     -X POST "${DASHBOARD_URL%/}/api/scan/report" \
     -H 'Content-Type: application/json' \
     -d "$payload" \
@@ -122,7 +162,7 @@ if [ -n "$INFECTED_LINES" ]; then
 
 elif [ "$EXIT_CODE" -eq 2 ]; then
   # Errore di scan (es. clamd non raggiungibile) - avvisa comunque
-  send_report "ERROR" "clamd non raggiungibile o errore durante lo scan (exit code ${EXIT_CODE}). Controlla ${LOG_FILE}"
+  send_report "ERROR" "Scan fallito (exit code ${EXIT_CODE}) su ${SCAN_PATHS[*]}. Output: $(echo "$SCAN_OUTPUT" | tail -5)"
   echo "[$TIMESTAMP] Errore di scan, report di warning inviato alla dashboard" >> "$LOG_FILE"
 
 else

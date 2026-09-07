@@ -48,7 +48,7 @@ The core flow spans several classes — read them together:
 4. **Result** (`ScanExecutionService.handleResult`): sets verdict OK / VIRUS_FOUND / ERROR. On virus: quarantine (`QuarantineService`) + webhook (`NotificationService.notifyIfNeeded`).
 5. **Restart recovery** (`ScanJobService.resumeQueued` `@PostConstruct`): any non-`FINISHED` job is reset to `QUEUED` and re-enqueued on startup.
 
-Status enum: `QUEUED → RUNNING → FINISHED`. Verdict enum: `OK | VIRUS_FOUND | ERROR`. Type enum: `UPLOAD | PATH | WATCH`. Note `finish*`/`markRunning` helpers are duplicated in both `ScanJobService` and `ScanExecutionService`; the executor uses its own copies.
+Status enum: `QUEUED → RUNNING → FINISHED`. Verdict enum: `OK | VIRUS_FOUND | ERROR | SKIPPED`. Type enum: `UPLOAD | PATH | WATCH | EXTERNAL | REALTIME` (the last two are created already-FINISHED by `/api/scan/report`, never enqueued). Note `finish*`/`markRunning` helpers are duplicated in both `ScanJobService` and `ScanExecutionService`; the executor uses its own copies.
 
 ## Path safety
 
@@ -118,6 +118,55 @@ The equivalent UI form endpoints (`POST /scan/upload`, `POST /scan/path`) are CS
 ## Deployment
 
 `docker-compose.yml` runs two containers: `clamav` (the clamd server, port 3310) and `clamav-web-client` (this app, port 8080, `build: .`). PATH/WATCH scans require the scan roots to be mounted into the web-client container. `install-clamd-remote.sh` provisions clamd on a remote host.
+
+## Agent enrollment (per-endpoint keys)
+
+Each `ClamdEndpoint` can hold an **agent key** (`agentKey`, generated under Admin > Endpoints > the robot button). It replaces the per-machine OPERATOR user: `AgentAuthenticationFilter` maps the key to `ROLE_AGENT`, which `SecurityConfig` allows **only** on `/agent/**` and `POST /api/scan/report` — a stolen key cannot read other hosts' jobs or launch scans, which an OPERATOR account could. The key is accepted as `X-Agent-Key`, `Authorization: Bearer`, or `?key=` (the query form exists for `curl … | sudo bash`, so it lands in proxy logs — it is fine for installer download, not a reason to prefer it).
+
+The key is stored **in plaintext** so the console can re-generate an installer for an existing endpoint at any time; it is only reachable under `/admin/**`, and "Rotate" invalidates the old one. Reports authenticated by a key are bound to that endpoint, so they stop being orphan hosts.
+
+`AgentInstallController` serves the generated installers, substituting `@@CONSOLE_URL@@` / `@@AGENT_KEY@@` / `@@ENDPOINT_NAME@@` into `resources/agent/install.sh.tpl` and `install.ps1.tpl`, and serves the agent scripts themselves at `/agent/files/<name>` (allow-list, no traversal). Those `.sh` files live at the repo root and are copied into the jar by a `maven-resources-plugin` execution — one canonical copy, not two.
+
+Coverage differs by OS, and this is a ClamAV limit, not a missing feature:
+
+| OS | clamd | Realtime (on-access) | Scheduled scan + report |
+|---|---|---|---|
+| Linux | yes | **yes** (`clamonacc`, fanotify) | yes |
+| macOS | via Homebrew | **no** — fanotify is Linux-only | yes (LaunchDaemon) |
+| Windows | manual install | **no** | yes (Scheduled Task) |
+
+`server.forward-headers-strategy=framework` is set so the console URL baked into a generated installer is the public one when running behind a reverse proxy (the proxy must send `X-Forwarded-Proto`/`-Host`).
+
+## Agent command queue (console-dispatched scans)
+
+This is what makes "Scan" in the UI work for a machine whose clamd cannot read the target: **the agent scans locally**, so there is no TCP, no root/SELinux requirement, and no "path exists here but not on the clamd host".
+
+Flow, spanning `AgentCommandService` / `AgentApiController` / `ApiController.scanReport`:
+
+1. `WebUiController.scanPath` / `scanFullDisk` — when `endpoint.isAgentEnrolled()`, they call `agentCommands.enqueue(...)` instead of the direct clamd path. Full-disk sends **one** command with every target (clamdscan takes several paths at once) rather than one job per directory.
+2. `enqueue` creates a `ScanJob` of type **`AGENT`**, status QUEUED, and links it to the `AgentCommand`. The job is visible in Jobs immediately, before the agent has seen it.
+3. The agent polls `GET /api/agent/commands` (`?format=text` returns `<id> <base64 target>` per line, so the bash agent needs no `jq`). Returning a command **claims** it: status DISPATCHED, job RUNNING.
+4. The agent scans and POSTs to `/api/scan/report` with `commandId`; the existing job is finished (OK / VIRUS_FOUND / ERROR) instead of a new one being created, and notifications fire.
+
+Two rules worth knowing before touching this:
+
+- **`ScanJobService.resumeQueued()` skips type `AGENT`.** It re-enqueues unfinished jobs into the local executor on startup; an agent job sent there would be re-run over TCP — exactly what the agent exists to avoid.
+- **`OK` is accepted by `/api/scan/report` only together with a `commandId`.** For a scan the user launched, "nothing found" is the answer they are waiting for; for spontaneous reports (cron, on-access) accepting OK would fill Jobs with clean runs.
+
+`AgentCommandService.expireStale()` (`@Scheduled`, every 5 min) closes commands that were claimed but never answered (6h) or never claimed at all (24h), failing their job with a readable reason — so an agent that is off does not leave jobs stuck in RUNNING.
+
+Agent side: `clamav-agent-poll.sh --loop` (systemd `clamav-agent-poll.service` on Linux, a LaunchDaemon on macOS, a 5-minute Scheduled Task on Windows). It prefers `clamdscan --fdpass` and falls back to `clamscan` when clamd is not answering.
+
+## Reported scans: batch and realtime
+
+Two scripts let a machine push results *into* the console instead of the console reaching out to clamd. Both POST to `/api/scan/report` (OPERATOR Basic auth) and create an already-FINISHED job, so Telegram/webhook fire immediately:
+
+- `clamav-telegram-alert.sh` — cron-style batch `clamdscan`; job type `EXTERNAL`.
+- `clamav-onacc-report.sh` — follows the `clamonacc` log and forwards each detection as it happens; job type `REALTIME` (payload field `source: "realtime"`). Installed and wired up by `install-clamd-remote.sh --on-access`.
+
+**Why the realtime path parses a log instead of using clamd's `VirusEvent`:** `VirusEvent` does not fire for on-access scans — it is deliberately disabled in ClamAV since 0.100 (`virusaction()` is commented out in `onaccess_fan.c` over fork/deadlock concerns) and also does not fire for `clamdscan --fdpass`. The only place the **real path** of the infected file appears is clamonacc's own output, which logs `<path>: <SIG> FOUND` (`clamonacc/client/protocol.c`, for scantype `>= STREAM`, i.e. both `--fdpass` and `--stream`). That line format is exactly what the `findings` field expects.
+
+On-access needs `clamonacc` running as root (fanotify wants CAP_SYS_ADMIN) and `OnAccessIncludePath` set to real directories — **never `/`**, which loops. Traffic is outbound-only, so no port has to be opened on the scanned machine.
 
 ## Project context & working notes
 

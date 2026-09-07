@@ -62,6 +62,14 @@
           <div class="panel">
             <div class="panel-body">
               <div class="card-title mb-3"><i class="fa-solid fa-folder-open"></i> Path scan</div>
+              <div class="muted mb-2" style="font-size:12px;"
+                   th:if="${endpoints != null and #lists.size(endpoints) > 0}">
+                <i class="fa-solid fa-robot"></i>
+                Sugli endpoint con un agent installato la scansione viene eseguita
+                <strong>dalla macchina stessa</strong> (job di tipo <code>AGENT</code>): non passa da
+                clamd via TCP, quindi non fallisce per permessi o per path non presenti sull'host di clamd.
+                Sugli altri endpoint vale il comportamento diretto di sempre.
+              </div>
               <form th:action="@{/scan/path}" method="post">
                 <div class="mb-3">
                   <label class="form-label">Endpoint</label>

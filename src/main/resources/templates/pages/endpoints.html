@@ -26,6 +26,12 @@
     </div>
 
     <div class="app-content">
+      <div class="panel mb-3" th:if="${agentKeyMessage}">
+        <div class="panel-body" style="border-left:3px solid var(--accent, #4c8dff);">
+          <i class="fa-solid fa-key"></i> <span th:text="${agentKeyMessage}">messaggio</span>
+        </div>
+      </div>
+
       <div class="panel mb-3">
         <div class="panel-body">
           <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> Add endpoint</div>
@@ -81,7 +87,8 @@
                   <th>Status</th><th>Name</th><th>Host</th><th>Port</th>
                   <th>Platform</th><th>Group</th><th>Enabled</th>
                   <th>DB version</th><th>DB age</th>
-                  <th style="width:260px;">Actions</th>
+                  <th>Agent</th>
+                  <th style="width:300px;">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -114,6 +121,12 @@
                   </td>
                   <td style="font-size:12px;" class="mono muted" th:id="${'dbver-' + e.id}">—</td>
                   <td style="font-size:12px;" th:id="${'dbage-' + e.id}">—</td>
+                  <td style="font-size:12px;">
+                    <span th:if="${!e.agentEnrolled}" class="muted">—</span>
+                    <span th:if="${e.agentEnrolled}" class="badge-status badge-neutral"
+                          th:title="${e.agentLastSeenAt != null ? 'Last seen: ' + e.agentLastSeenAt : 'Chiave generata, agent mai visto'}"
+                          th:text="${e.agentLastSeenAt != null ? 'enrolled' : 'key ready'}">enrolled</span>
+                  </td>
                   <td>
                     <button type="submit" th:form="${'ep-form-' + e.id}" class="btn btn-outline-light btn-sm">
                       <i class="fa-solid fa-floppy-disk"></i> Save
@@ -130,6 +143,12 @@
                             onclick="openTargetsModal(this)">
                       <i class="fa-solid fa-bullseye"></i>
                     </button>
+                    <button type="button" class="btn btn-outline-light btn-sm"
+                            title="Agent: chiave di enrollment e comandi di installazione"
+                            th:attr="data-ep-id=${e.id}, data-ep-name=${e.name}, data-ep-key=${e.agentKey}"
+                            onclick="openAgentModal(this)">
+                      <i class="fa-solid fa-robot"></i>
+                    </button>
                     <form th:action="@{'/admin/endpoints/' + ${e.id} + '/delete'}" method="post" style="display:inline;"
                           onsubmit="return confirm('Delete this endpoint?');">
                       <button type="submit" class="btn btn-outline-light btn-sm text-danger">
@@ -143,6 +162,17 @@
 
             <form th:each="e : ${endpoints}" th:id="${'ep-form-' + e.id}"
                   th:action="@{'/admin/endpoints/' + ${e.id} + '/update'}" method="post"></form>
+
+            <!-- Form separati per la chiave agent: renderizzati da Thymeleaf cosi'
+                 portano il token CSRF; i bottoni del modale li inviano via JS. -->
+            <form th:each="e : ${endpoints}" th:id="${'agent-gen-' + e.id}"
+                  th:action="@{'/admin/endpoints/' + ${e.id} + '/agent-key'}" method="post">
+              <input type="hidden" name="action" value="generate"/>
+            </form>
+            <form th:each="e : ${endpoints}" th:id="${'agent-rev-' + e.id}"
+                  th:action="@{'/admin/endpoints/' + ${e.id} + '/agent-key'}" method="post">
+              <input type="hidden" name="action" value="revoke"/>
+            </form>
           </div>
         </div>
       </div>
@@ -169,10 +199,145 @@
       </div>
     </div>
 
+    <!-- Agent modal -->
+    <div id="agentModal" style="display:none;position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.6);align-items:center;justify-content:center;">
+      <div style="background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:24px;width:min(760px,92vw);max-height:85vh;overflow:auto;">
+        <div style="font-size:15px;font-weight:600;margin-bottom:4px;">Agent</div>
+        <div class="muted" style="font-size:13px;margin-bottom:16px;" id="agent-ep-name">endpoint</div>
+
+        <div id="agent-nokey">
+          <div class="muted" style="font-size:13px;margin-bottom:12px;">
+            Questo endpoint non ha ancora una chiave. Generandola potrai installare l'agent
+            sulla macchina con un solo comando: la chiave vale solo per questo endpoint e
+            permette unicamente di scaricare l'agent e inviare i report.
+          </div>
+        </div>
+
+        <div id="agent-haskey" style="display:none;">
+          <div class="muted" style="font-size:12px;margin-bottom:4px;">Chiave di enrollment</div>
+          <div class="d-flex gap-2 mb-3">
+            <input type="text" id="agent-key-value" class="form-control form-control-sm mono" readonly="readonly"/>
+            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-key-value')">
+              <i class="fa-solid fa-copy"></i>
+            </button>
+          </div>
+
+          <div class="muted" style="font-size:12px;margin-bottom:4px;">Linux — clamd + protezione realtime (on-access)</div>
+          <div class="d-flex gap-2 mb-3">
+            <input type="text" id="agent-cmd-linux" class="form-control form-control-sm mono" readonly="readonly"/>
+            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-linux')">
+              <i class="fa-solid fa-copy"></i>
+            </button>
+          </div>
+
+          <div class="muted" style="font-size:12px;margin-bottom:4px;">
+            macOS — scansione programmata (ClamAV richiesto: <code>brew install clamav</code>; nessun realtime)
+          </div>
+          <div class="d-flex gap-2 mb-3">
+            <input type="text" id="agent-cmd-macos" class="form-control form-control-sm mono" readonly="readonly"/>
+            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-macos')">
+              <i class="fa-solid fa-copy"></i>
+            </button>
+          </div>
+
+          <div class="muted" style="font-size:12px;margin-bottom:4px;">
+            Windows — PowerShell come Amministratore (nessun realtime)
+          </div>
+          <div class="d-flex gap-2 mb-3">
+            <input type="text" id="agent-cmd-windows" class="form-control form-control-sm mono" readonly="readonly"/>
+            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-windows')">
+              <i class="fa-solid fa-copy"></i>
+            </button>
+          </div>
+
+          <div class="muted" style="font-size:12px;">
+            Puoi anche scaricare gli script:
+            <a id="agent-dl-sh" href="#" class="mono">install.sh</a> ·
+            <a id="agent-dl-ps1" href="#" class="mono">install.ps1</a>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-4 justify-content-end">
+          <button type="button" class="btn btn-outline-light btn-sm" onclick="closeAgentModal()">Chiudi</button>
+          <button type="button" class="btn btn-outline-light btn-sm text-danger" id="agent-revoke-btn"
+                  onclick="submitAgentForm('agent-rev-')">
+            <i class="fa-solid fa-ban"></i> Revoca
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" id="agent-generate-btn"
+                  onclick="submitAgentForm('agent-gen-')">
+            <i class="fa-solid fa-key"></i> <span id="agent-generate-label">Genera chiave</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="app-footer muted">ClamAV Web Client</div>
   </main>
 </div>
 <script src="/js/script.js"></script>
+<script>
+  // Endpoint attualmente aperto nel modale Agent.
+  var agentModalEpId = null;
+
+  function openAgentModal(btn) {
+    agentModalEpId = btn.getAttribute('data-ep-id');
+    var name = btn.getAttribute('data-ep-name') || '';
+    var key = btn.getAttribute('data-ep-key') || '';
+
+    document.getElementById('agent-ep-name').textContent = name;
+
+    var hasKey = key.length > 0;
+    document.getElementById('agent-haskey').style.display = hasKey ? 'block' : 'none';
+    document.getElementById('agent-nokey').style.display = hasKey ? 'none' : 'block';
+    document.getElementById('agent-revoke-btn').style.display = hasKey ? 'inline-block' : 'none';
+    document.getElementById('agent-generate-label').textContent = hasKey ? 'Rigenera chiave' : 'Genera chiave';
+
+    if (hasKey) {
+      // L'URL mostrato e' quello con cui stai raggiungendo la console adesso:
+      // dietro reverse proxy e' automaticamente quello pubblico corretto.
+      var base = window.location.origin;
+      var enc = encodeURIComponent(key);
+      document.getElementById('agent-key-value').value = key;
+      document.getElementById('agent-cmd-linux').value =
+        "curl -fsSL '" + base + "/agent/install.sh?key=" + enc + "' | sudo bash";
+      document.getElementById('agent-cmd-macos').value =
+        "curl -fsSL '" + base + "/agent/install.sh?key=" + enc + "' | sudo bash";
+      document.getElementById('agent-cmd-windows').value =
+        "irm '" + base + "/agent/install.ps1?key=" + enc + "' | iex";
+      document.getElementById('agent-dl-sh').href = base + '/agent/install.sh?key=' + enc;
+      document.getElementById('agent-dl-ps1').href = base + '/agent/install.ps1?key=' + enc;
+    }
+
+    var modal = document.getElementById('agentModal');
+    modal.style.display = 'flex';
+  }
+
+  function closeAgentModal() {
+    document.getElementById('agentModal').style.display = 'none';
+    agentModalEpId = null;
+  }
+
+  function copyAgentText(id) {
+    var el = document.getElementById(id);
+    el.select();
+    el.setSelectionRange(0, 99999);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(el.value);
+    } else {
+      document.execCommand('copy');
+    }
+  }
+
+  // I form sono renderizzati da Thymeleaf (portano il token CSRF): qui li inviamo.
+  function submitAgentForm(prefix) {
+    if (!agentModalEpId) return;
+    if (prefix === 'agent-rev-' && !confirm('Revocare la chiave? L\'agent installato smettera\' di essere accettato.')) return;
+    if (prefix === 'agent-gen-' && document.getElementById('agent-key-value').value &&
+        !confirm('Rigenerare la chiave? Gli agent installati con quella attuale andranno reinstallati.')) return;
+    var form = document.getElementById(prefix + agentModalEpId);
+    if (form) form.submit();
+  }
+</script>
 <script>
 function openTargetsModal(btn) {
   var id = btn.getAttribute('data-ep-id');
