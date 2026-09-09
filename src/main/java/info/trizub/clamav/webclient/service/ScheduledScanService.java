@@ -28,6 +28,7 @@ public class ScheduledScanService {
     private final ClamdEndpointRepository endpointRepo;
     private final EndpointGroupRepository groupRepo;
     private final ThreadPoolTaskScheduler taskScheduler;
+    private final AgentCommandService agentCommands;
 
     private final Map<Long, ScheduledFuture<?>> activeFutures = new ConcurrentHashMap<>();
 
@@ -35,12 +36,14 @@ public class ScheduledScanService {
                                 ScanJobService scanJobService,
                                 ClamdEndpointRepository endpointRepo,
                                 EndpointGroupRepository groupRepo,
-                                ThreadPoolTaskScheduler taskScheduler) {
+                                ThreadPoolTaskScheduler taskScheduler,
+                                AgentCommandService agentCommands) {
         this.repo = repo;
         this.scanJobService = scanJobService;
         this.endpointRepo = endpointRepo;
         this.groupRepo = groupRepo;
         this.taskScheduler = taskScheduler;
+        this.agentCommands = agentCommands;
     }
 
     @PostConstruct
@@ -88,7 +91,14 @@ public class ScheduledScanService {
 
     private void createJob(String path, ClamdEndpoint ep, String scheduleName) {
         try {
-            scanJobService.createScheduledPathJob(path, ep, "scheduler:" + scheduleName);
+            // Con un agent la scansione la fa la macchina stessa: un endpoint
+            // agent-managed non ha host da contattare via TCP, quindi il job
+            // diretto fallirebbe sempre. Stessa scelta di WebUiController.scanPath.
+            if (ep.isAgentEnrolled()) {
+                agentCommands.enqueue(ep, path, "scheduler:" + scheduleName);
+            } else {
+                scanJobService.createScheduledPathJob(path, ep, "scheduler:" + scheduleName);
+            }
         } catch (Exception e) {
             log.warn("Scheduled scan job creation failed for path '{}' on endpoint '{}': {}", path, ep.getName(), e.getMessage());
         }

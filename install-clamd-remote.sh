@@ -497,7 +497,7 @@ if [[ "$ON_ACCESS" -eq 1 ]]; then
   # clamonacc hands clamd the already-open file descriptor (--fdpass): that needs
   # a local UNIX socket. Without fd-pass it falls back to --stream, which sends
   # the bytes over the socket (slower, but the path in the log stays correct).
-  LOCAL_SOCKET=$(grep -E '^[[:space:]]*LocalSocket[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1)
+  LOCAL_SOCKET=$(grep -E '^[[:space:]]*LocalSocket[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1 || true)
   if [[ -n "$LOCAL_SOCKET" ]]; then
     CLAMONACC_MODE="--fdpass"
     ok "LocalSocket presente ($LOCAL_SOCKET): uso --fdpass."
@@ -517,7 +517,7 @@ if [[ "$ON_ACCESS" -eq 1 ]]; then
   # that once ran clamd as root would keep the root exclusion after switching.
   sed -i -E "/^[#[:space:]]*OnAccessExclude(UID|Uname|RootUID)[[:space:]]/d" "$CLAMD_CONF"
 
-  CLAMD_USER=$(grep -E '^[[:space:]]*User[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1)
+  CLAMD_USER=$(grep -E '^[[:space:]]*User[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1 || true)
   if [[ -n "$CLAMD_USER" && "$CLAMD_USER" != "root" ]]; then
     set_conf_value "OnAccessExcludeUname" "$CLAMD_USER" "$CLAMD_CONF"
     ok "OnAccessExcludeUname = $CLAMD_USER (prevents the scan loop; every other"
@@ -590,7 +590,7 @@ fi
 # puts it back on its packaged user). If the signature database is still owned by
 # whoever ran freshclam last - typically root - the daemon then cannot read it and
 # fails to start for a reason that has nothing to do with the change itself.
-CLAMD_RUN_USER=$(grep -E '^[[:space:]]*User[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1)
+CLAMD_RUN_USER=$(grep -E '^[[:space:]]*User[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1 || true)
 if [[ -n "$CLAMD_RUN_USER" && "$CLAMD_RUN_USER" != "root" ]] && id "$CLAMD_RUN_USER" >/dev/null 2>&1; then
   DB_OWNER="$(stat -c %U /var/lib/clamav 2>/dev/null || true)"
   if [[ "$DB_OWNER" != "$CLAMD_RUN_USER" ]]; then

@@ -133,15 +133,34 @@ run_command() {
     return
   fi
 
-  if ! pick_scanner; then
+  # Drop targets that don't exist on THIS machine before handing them to the
+  # scanner: clamdscan/clamscan given several paths at once return a nonzero
+  # exit code as soon as ANY of them is missing, which would otherwise mark an
+  # entire full-disk/custom-target scan as ERROR even though every real
+  # directory scanned clean (full disk targets and scheduled scan paths are
+  # configured once for a whole fleet, so not every machine has every path).
+  local existing=() missing=()
+  for t in "${targets[@]}"; do
+    if [[ -e "$t" ]]; then existing+=("$t"); else missing+=("$t"); fi
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    log "command ${command_id}: skipping missing target(s): ${missing[*]}"
+  fi
+  if [[ ${#existing[@]} -eq 0 ]]; then
     report_result "$command_id" "ERROR" "${targets[*]}" "[]" \
+      "None of the requested paths exist on this machine: ${targets[*]}"
+    return
+  fi
+
+  if ! pick_scanner; then
+    report_result "$command_id" "ERROR" "${existing[*]}" "[]" \
       "Neither clamdscan nor clamscan is installed on this machine."
     return
   fi
 
-  log "command ${command_id}: scanning ${targets[*]}"
+  log "command ${command_id}: scanning ${existing[*]}"
   local output exit_code
-  output="$("${SCANNER[@]}" "${targets[@]}" 2>&1)"
+  output="$("${SCANNER[@]}" "${existing[@]}" 2>&1)"
   exit_code=$?
 
   # Lines shaped "<path>: <SIGNATURE> FOUND": the same format the console
@@ -161,13 +180,13 @@ run_command() {
   fi
 
   if [[ -n "$infected" ]]; then
-    report_result "$command_id" "VIRUS_FOUND" "${targets[*]}" "$findings_json" ""
+    report_result "$command_id" "VIRUS_FOUND" "${existing[*]}" "$findings_json" ""
   elif [[ "$exit_code" -eq 0 ]]; then
     # No virus: a clean result still has to be reported, because somebody
     # started this scan from the console and is waiting for the answer.
-    report_result "$command_id" "OK" "${targets[*]}" "[]" ""
+    report_result "$command_id" "OK" "${existing[*]}" "[]" ""
   else
-    report_result "$command_id" "ERROR" "${targets[*]}" "[]" \
+    report_result "$command_id" "ERROR" "${existing[*]}" "[]" \
       "Scan failed (exit code ${exit_code}): $(scan_error_detail "$output")"
   fi
 }

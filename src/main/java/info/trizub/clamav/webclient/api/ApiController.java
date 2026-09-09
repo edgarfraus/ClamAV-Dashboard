@@ -168,6 +168,12 @@ public class ApiController {
     @PostMapping(value = "/scan/path", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Map<String,Object> scanPath(@RequestBody PathScanRequest req, Authentication auth) {
         var ep = req.endpointId != null ? endpoints.get(req.endpointId) : endpoints.defaultEndpoint();
+        // Stessa scelta di WebUiController.scanPath: un endpoint con agent non ha
+        // host da contattare via TCP, la scansione la deve fare l'agent.
+        if (ep.isAgentEnrolled()) {
+            var cmd = agentCommands.enqueue(ep, req.path, auth.getName());
+            return Map.of("jobId", cmd.getJobId());
+        }
         var job = jobs.createPathJob(req.path, ep, auth.getName());
         return Map.of("jobId", job.getId());
     }

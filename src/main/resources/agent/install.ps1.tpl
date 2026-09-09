@@ -151,8 +151,12 @@ if (-not $clamScan) {
 
     if (Get-Command winget.exe -ErrorAction SilentlyContinue) {
         Write-Info "Installing via winget (Cisco.ClamAV)..."
+        # --silent only suppresses the underlying installer's own UI; winget's own
+        # progress/resolution output is left to stream to the console instead of
+        # being discarded, so a failure here is diagnosable instead of a bare exit
+        # code with no context.
         & winget.exe install --id Cisco.ClamAV -e --silent `
-            --accept-source-agreements --accept-package-agreements | Out-Null
+            --accept-source-agreements --accept-package-agreements
         if ($LASTEXITCODE -eq 0) {
             $installed = $true
         } else {
@@ -289,8 +293,17 @@ $errorMsg = ''
 try {
     # --infected: print detected files only. The output is "<path>: <SIG> FOUND",
     # the very format /api/scan/report already knows how to parse.
+    #
+    # clamscan writes non-fatal WARNINGs to stderr; with 2>&1 those lines become
+    # PowerShell ErrorRecords, and under $ErrorActionPreference = 'Stop' that
+    # promotes them to terminating exceptions - a scan that found nothing wrong
+    # would still land in the catch block and get reported as ERROR. Relaxing it
+    # to 'Continue' for just this call keeps stderr readable without treating it
+    # as fatal; $LASTEXITCODE is still the authority on success/failure.
+    $ErrorActionPreference = 'Continue'
     $output = & $cfg.ClamScan --infected $cfg.ScanPaths 2>&1
     $exit = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
     foreach ($line in $output) {
         if ($line -match ' FOUND$') { $findings.Add([string]$line) }
     }
@@ -362,8 +375,14 @@ foreach ($cmd in $resp.commands) {
     $findings = New-Object System.Collections.Generic.List[string]
 
     try {
-        $output = & $cfg.ClamScan --recursive --infected $targets 2>&1
+        # No --recursive: this clamscan.exe build rejects it ("Ignoring unsupported
+        # option --recursive (-r)") and scans subdirectories by default anyway.
+        # As in the scheduled scan script above, stderr must not be promoted to a
+        # terminating error or a clean/warned scan would be reported as ERROR.
+        $ErrorActionPreference = 'Continue'
+        $output = & $cfg.ClamScan --infected $targets 2>&1
         $exit = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
         foreach ($line in $output) {
             if ($line -match ' FOUND$') { $findings.Add([string]$line) }
         }

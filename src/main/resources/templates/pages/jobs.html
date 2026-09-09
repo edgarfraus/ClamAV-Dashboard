@@ -56,6 +56,21 @@
         </a>
       </div>
 
+      <div class="panel mb-3">
+        <div class="panel-body">
+          <div class="d-flex align-items-center gap-2 mb-3" style="flex-wrap:wrap;">
+            <div class="card-title mb-0">
+              <i class="fa-solid fa-circle-notch" id="active-spinner" style="font-size:14px;"></i> Running scans
+            </div>
+            <span id="active-count" class="badge-status badge-neutral" style="display:none;"></span>
+            <span class="muted" style="font-size:12px;margin-left:auto;" id="active-last-updated"></span>
+          </div>
+          <div id="active-jobs-body">
+            <p class="muted">Checking for scans in progress...</p>
+          </div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-body">
           <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">
@@ -94,5 +109,74 @@
   </main>
 </div>
 <script src="/js/script.js"></script>
+<script>
+(function () {
+  var spinner = document.getElementById('active-spinner');
+  var countBadge = document.getElementById('active-count');
+  var body = document.getElementById('active-jobs-body');
+  var lastUpdated = document.getElementById('active-last-updated');
+  var pollTimer = null;
+  var seenIds = null;
+
+  function fmt(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleTimeString(); } catch (e) { return ts; }
+  }
+
+  function pollActive() {
+    fetch('/api/jobs/active')
+      .then(function (r) { return r.json(); })
+      .then(function (jobs) {
+        lastUpdated.textContent = 'updated ' + new Date().toLocaleTimeString();
+
+        var ids = (jobs || []).map(function (j) { return j.id; });
+        // A job that was active on the previous poll and no longer is has just
+        // finished: reload so the filtered table below picks up its verdict.
+        if (seenIds && seenIds.some(function (id) { return ids.indexOf(id) === -1; })) {
+          location.reload();
+          return;
+        }
+        seenIds = ids;
+
+        if (!jobs || jobs.length === 0) {
+          spinner.classList.remove('fa-spin');
+          countBadge.style.display = 'none';
+          body.innerHTML = '<p class="muted">No scans currently running or queued.</p>';
+          pollTimer = setTimeout(pollActive, 8000);
+          return;
+        }
+
+        spinner.classList.add('fa-spin');
+        countBadge.style.display = '';
+        countBadge.textContent = jobs.length + ' active';
+
+        var rows = jobs.map(function (j) {
+          var sc = 'badge-' + (j.status || '').toLowerCase();
+          var target = (j.target || '').replace(/</g, '&lt;');
+          return '<tr>' +
+            '<td><a href="/jobs/' + j.id + '" class="mono">' + (j.idShort || '') + '</a></td>' +
+            '<td class="mono" style="font-size:11px;">' + (j.type || '') + '</td>' +
+            '<td><span class="badge-status ' + sc + '">' + (j.status || '') + '</span></td>' +
+            '<td class="mono" style="font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + target + '</td>' +
+            '<td style="font-size:13px;">' + (j.endpointName || '—') + '</td>' +
+            '<td class="mono muted" style="font-size:11px;">' + fmt(j.submittedAt) + '</td>' +
+            '</tr>';
+        }).join('');
+
+        body.innerHTML = '<div class="table-responsive"><table class="table table-striped align-middle">' +
+          '<thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Target</th><th>Endpoint</th><th>Submitted</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table></div>';
+
+        pollTimer = setTimeout(pollActive, 3000);
+      })
+      .catch(function () {
+        lastUpdated.textContent = 'poll error';
+        pollTimer = setTimeout(pollActive, 10000);
+      });
+  }
+
+  pollActive();
+})();
+</script>
 </body>
 </html>
