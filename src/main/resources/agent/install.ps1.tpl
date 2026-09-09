@@ -14,6 +14,11 @@
 # NOTE: ClamAV has no realtime protection on Windows (on-access uses fanotify,
 # which is Linux-only). What gets installed here is a scheduled scan plus the
 # agent that runs scans requested by the console.
+#
+# If ClamAV itself is missing, this script installs it: winget (Cisco.ClamAV)
+# first, falling back to a direct download of the latest GitHub release MSI
+# when winget is unavailable or fails. No version is hardcoded either way, so
+# the install path does not go stale the way a fixed download URL would.
 
 param(
     # Install everything without asking (also used when the script arrives from
@@ -123,29 +128,118 @@ if ($wantScheduled) {
     }
 }
 
-# --- 2) Check that ClamAV is present ---------------------------------------
-# We do not try to download an MSI with a fixed version in the URL: that link
-# breaks on every release. If ClamAV is missing, say so and stop.
-$clamScan = $null
-foreach ($candidate in @(
-    "$env:ProgramFiles\ClamAV\clamdscan.exe",
-    "$env:ProgramFiles\ClamAV\clamscan.exe",
-    "${env:ProgramFiles(x86)}\ClamAV\clamdscan.exe",
-    "${env:ProgramFiles(x86)}\ClamAV\clamscan.exe"
-)) {
-    if (Test-Path $candidate) { $clamScan = $candidate; break }
-}
-if (-not $clamScan) {
+# --- 2) Check that ClamAV is present, installing it if necessary -----------
+function Find-ClamScan {
+    foreach ($candidate in @(
+        "$env:ProgramFiles\ClamAV\clamdscan.exe",
+        "$env:ProgramFiles\ClamAV\clamscan.exe",
+        "${env:ProgramFiles(x86)}\ClamAV\clamdscan.exe",
+        "${env:ProgramFiles(x86)}\ClamAV\clamscan.exe"
+    )) {
+        if (Test-Path $candidate) { return $candidate }
+    }
     $cmd = Get-Command clamdscan.exe, clamscan.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($cmd) { $clamScan = $cmd.Source }
+    if ($cmd) { return $cmd.Source }
+    return $null
 }
+
+$clamScan = Find-ClamScan
+
 if (-not $clamScan) {
-    Write-Err "ClamAV does not appear to be installed on this machine."
-    Write-Err "Download the Windows package from https://www.clamav.net/downloads ,"
-    Write-Err "install it, run 'freshclam' at least once, then re-run this script."
-    exit 1
+    Write-Warn "ClamAV not found - installing it automatically."
+    $installed = $false
+
+    if (Get-Command winget.exe -ErrorAction SilentlyContinue) {
+        Write-Info "Installing via winget (Cisco.ClamAV)..."
+        & winget.exe install --id Cisco.ClamAV -e --silent `
+            --accept-source-agreements --accept-package-agreements | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $installed = $true
+        } else {
+            Write-Warn "winget install exited with code $LASTEXITCODE - falling back to a direct download."
+        }
+    } else {
+        Write-Info "winget not available on this machine - falling back to a direct download."
+    }
+
+    if (-not $installed) {
+        # No fixed version in the URL: ask GitHub for the latest release so this
+        # never goes stale the way a hardcoded MSI link would.
+        try {
+            $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+                'ARM64' { 'arm64' }
+                'AMD64' { 'x64' }
+                default { 'win32' }
+            }
+            Write-Info "Looking up the latest ClamAV release for Windows ($arch)..."
+            $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/Cisco-Talos/clamav/releases/latest' -TimeoutSec 30
+            $asset = $release.assets | Where-Object { $_.name -like "*.win.$arch.msi" } | Select-Object -First 1
+            if (-not $asset) { throw "No Windows $arch MSI found in release $($release.tag_name)." }
+
+            $msiPath = Join-Path $env:TEMP $asset.name
+            Write-Info "Downloading $($asset.name)..."
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $msiPath -TimeoutSec 300
+
+            Write-Info "Installing $($asset.name) (msiexec /quiet)..."
+            $msiLog = Join-Path $env:TEMP 'clamav-install.log'
+            $p = Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart /l*v `"$msiLog`"" -Wait -PassThru
+            Remove-Item $msiPath -ErrorAction SilentlyContinue
+            if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
+                throw "msiexec exited with code $($p.ExitCode) (log: $msiLog)."
+            }
+            $installed = $true
+        } catch {
+            Write-Err "Automatic ClamAV install failed: $($_.Exception.Message)"
+            Write-Err "Download the Windows package yourself from https://www.clamav.net/downloads ,"
+            Write-Err "install it, run 'freshclam' at least once, then re-run this script."
+            exit 1
+        }
+    }
+
+    $clamScan = Find-ClamScan
+    if (-not $clamScan) {
+        Write-Err "ClamAV was installed but clamscan.exe/clamdscan.exe could not be found afterwards."
+        Write-Err "Open a new PowerShell window (so PATH is refreshed) and re-run this script."
+        exit 1
+    }
+    Write-Ok "ClamAV installed: $clamScan"
+} else {
+    Write-Ok "ClamAV trovato: $clamScan"
 }
-Write-Ok "ClamAV trovato: $clamScan"
+
+# --- 2b) Make sure the virus database exists --------------------------------
+# A fresh install ships no database, and freshclam refuses to run until the
+# "Example" placeholder line is removed from freshclam.conf.
+$clamDir  = Split-Path $clamScan -Parent
+$dbDir    = Join-Path $clamDir 'database'
+$hasMain  = (Test-Path (Join-Path $dbDir 'main.cvd'))  -or (Test-Path (Join-Path $dbDir 'main.cld'))
+$hasDaily = (Test-Path (Join-Path $dbDir 'daily.cvd')) -or (Test-Path (Join-Path $dbDir 'daily.cld'))
+
+if (-not ($hasMain -and $hasDaily)) {
+    $freshclamExe    = Join-Path $clamDir 'freshclam.exe'
+    $freshclamConf   = Join-Path $clamDir 'freshclam.conf'
+    $freshclamSample = Join-Path $clamDir 'freshclam.conf.sample'
+
+    if (-not (Test-Path $freshclamConf) -and (Test-Path $freshclamSample)) {
+        Get-Content $freshclamSample | Where-Object { $_.Trim() -ne 'Example' } |
+            Set-Content $freshclamConf -Encoding ASCII
+        if (-not (Select-String -Path $freshclamConf -Pattern '^\s*DatabaseDirectory' -Quiet)) {
+            Add-Content -Path $freshclamConf -Value "DatabaseDirectory $dbDir"
+        }
+    }
+
+    if (Test-Path $freshclamExe) {
+        New-Item -ItemType Directory -Force -Path $dbDir | Out-Null
+        Write-Info "Downloading the virus database (freshclam, first run - can take a minute)..."
+        & $freshclamExe --config-file="$freshclamConf" 2>&1 | ForEach-Object { Write-Host "    $_" }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "freshclam exited with code $LASTEXITCODE - check network/proxy, then run it manually:"
+            Write-Warn "  & `"$freshclamExe`" --config-file=`"$freshclamConf`""
+        }
+    } else {
+        Write-Warn "freshclam.exe not found next to $clamScan - update the virus database manually."
+    }
+}
 
 # --- 3) Configuration (URL + key) ------------------------------------------
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
