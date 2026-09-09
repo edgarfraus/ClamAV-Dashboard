@@ -66,10 +66,12 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
                             List.of(new SimpleGrantedAuthority("ROLE_AGENT")));
                     SecurityContextHolder.getContext().setAuthentication(auth);
                     request.setAttribute(ENDPOINT_ID_ATTRIBUTE, ep.getId());
-                    // L'agent allega la versione di clamd a ogni richiesta: cosi' la
-                    // console la conosce senza doversi collegare alla macchina, e non
-                    // serve un giro HTTP in piu' solo per il heartbeat.
-                    endpoints.touchAgentSeen(ep.getId(), request.getHeader("X-Agent-Clamav"));
+                    // L'agent allega la versione di clamd e, se gestisce il realtime,
+                    // la modalita' on-access che ha davvero in vigore a ogni richiesta:
+                    // cosi' la console le conosce senza doversi collegare alla macchina,
+                    // e non serve un giro HTTP in piu' solo per il heartbeat.
+                    endpoints.touchAgentSeen(ep.getId(), request.getHeader("X-Agent-Clamav"),
+                            request.getHeader("X-Agent-OnAccess-Mode"));
                 }
             }
         }

@@ -56,6 +56,16 @@ public class ClamdEndpoint {
     @Column(length = 255)
     private String agentClamdVersion;
 
+    // Modalita' on-access ("prevent"/"detect") che l'agent ha riportato di avere
+    // REALMENTE applicata sul disco, letta dal suo clamd.conf a ogni poll - non
+    // e' quella richiesta dal gruppo, e' la conferma che la richiesta e' stata
+    // eseguita (o null se l'agent non gestisce ancora questa impostazione: nessun
+    // realtime installato, oppure versione dell'agent precedente a questa funzione).
+    @Column(length = 16)
+    private String agentOnAccessMode;
+
+    private Instant agentOnAccessAppliedAt;
+
     public ClamdEndpoint() {}
 
     public ClamdEndpoint(String name, String host, int port, Platform platform) {
@@ -86,5 +96,9 @@ public class ClamdEndpoint {
     public void setAgentLastSeenAt(Instant agentLastSeenAt) { this.agentLastSeenAt = agentLastSeenAt; }
     public String getAgentClamdVersion() { return agentClamdVersion; }
     public void setAgentClamdVersion(String agentClamdVersion) { this.agentClamdVersion = agentClamdVersion; }
+    public String getAgentOnAccessMode() { return agentOnAccessMode; }
+    public void setAgentOnAccessMode(String agentOnAccessMode) { this.agentOnAccessMode = agentOnAccessMode; }
+    public Instant getAgentOnAccessAppliedAt() { return agentOnAccessAppliedAt; }
+    public void setAgentOnAccessAppliedAt(Instant agentOnAccessAppliedAt) { this.agentOnAccessAppliedAt = agentOnAccessAppliedAt; }
     public boolean isAgentEnrolled() { return agentKey != null && !agentKey.isBlank(); }
 }

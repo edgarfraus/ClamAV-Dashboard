@@ -37,6 +37,20 @@ public class EndpointGroupService {
         return repo.save(g);
     }
 
+    /**
+     * Modalita' realtime desiderata per tutti gli endpoint del gruppo. La
+     * console non la applica direttamente: l'agent la legge al prossimo poll
+     * (GET /api/agent/commands) e la applica in locale sul proprio clamd.conf,
+     * quindi il cambio non e' immediato e riguarda solo endpoint Linux con
+     * on-access gia' installato.
+     */
+    @Transactional
+    public void setOnAccessPrevent(Long id, boolean prevent) {
+        EndpointGroup g = repo.findById(id).orElseThrow();
+        g.setOnAccessPrevent(prevent);
+        repo.save(g);
+    }
+
     @Transactional
     public void delete(Long id) {
         EndpointGroup g = repo.findById(id).orElseThrow();

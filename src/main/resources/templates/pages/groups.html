@@ -74,21 +74,41 @@
 
       <div class="panel mb-3" th:each="g : ${groups}">
         <div class="panel-body">
-          <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="d-flex align-items-center gap-3 mb-3" style="flex-wrap:wrap;">
             <div>
               <div class="card-title mb-0" th:text="${g.name}">group</div>
               <div class="muted" style="font-size:12px;" th:text="${g.description}"></div>
             </div>
-            <form th:action="@{'/admin/groups/' + ${g.id} + '/delete'}" method="post" class="ms-auto"
-                  onsubmit="return confirm('Delete group? Endpoints will be unassigned.');">
-              <button type="submit" class="btn btn-outline-light btn-sm text-danger">
-                <i class="fa-solid fa-trash"></i> Delete group
-              </button>
-            </form>
+
+            <div class="ms-auto d-flex align-items-center gap-2" style="flex-wrap:wrap;">
+              <span class="muted" style="font-size:12px;" title="Riguarda solo gli endpoint Linux con realtime (on-access) gia' installato; l'agent applica il cambio al prossimo poll, non subito.">
+                Realtime:
+              </span>
+              <form th:action="@{'/admin/groups/' + ${g.id} + '/onaccess-mode'}" method="post" style="display:inline;">
+                <input type="hidden" name="prevent" value="false"/>
+                <button type="submit" class="btn btn-sm"
+                        th:classappend="${!g.onAccessPrevent} ? 'btn-primary' : 'btn-outline-light'">
+                  <i class="fa-solid fa-eye"></i> Detection
+                </button>
+              </form>
+              <form th:action="@{'/admin/groups/' + ${g.id} + '/onaccess-mode'}" method="post" style="display:inline;">
+                <input type="hidden" name="prevent" value="true"/>
+                <button type="submit" class="btn btn-sm"
+                        th:classappend="${g.onAccessPrevent} ? 'btn-primary' : 'btn-outline-light'">
+                  <i class="fa-solid fa-shield-halved"></i> Prevention
+                </button>
+              </form>
+              <form th:action="@{'/admin/groups/' + ${g.id} + '/delete'}" method="post"
+                    onsubmit="return confirm('Delete group? Endpoints will be unassigned.');">
+                <button type="submit" class="btn btn-outline-light btn-sm text-danger">
+                  <i class="fa-solid fa-trash"></i> Delete group
+                </button>
+              </form>
+            </div>
           </div>
           <div class="table-responsive">
             <table class="table table-sm table-striped">
-              <thead><tr><th>Endpoint</th><th>Host</th><th>Port</th><th>Enabled</th></tr></thead>
+              <thead><tr><th>Endpoint</th><th>Host</th><th>Port</th><th>Enabled</th><th>Realtime applicato</th></tr></thead>
               <tbody>
                 <tr th:each="ep : ${endpoints}" th:if="${ep.group != null and ep.group.id == g.id}">
                   <td th:text="${ep.name}">name</td>
@@ -97,6 +117,22 @@
                   <td>
                     <span th:if="${ep.enabled}" class="badge-status badge-ok">Enabled</span>
                     <span th:unless="${ep.enabled}" class="badge-status badge-neutral">Disabled</span>
+                  </td>
+                  <td>
+                    <span th:if="${ep.agentOnAccessMode == null}" class="muted" style="font-size:12px;">
+                      <span th:if="${!ep.agentEnrolled}">n/a</span>
+                      <span th:if="${ep.agentEnrolled}">non ancora riportato</span>
+                    </span>
+                    <span th:if="${ep.agentOnAccessMode != null}"
+                          class="badge-status"
+                          th:classappend="${ep.agentOnAccessMode == 'prevent'} ? 'badge-virus_found' : 'badge-ok'"
+                          th:title="${'Ultimo report agent: ' + ep.agentOnAccessAppliedAt}"
+                          th:text="${ep.agentOnAccessMode}">detect</span>
+                    <span th:if="${ep.agentOnAccessMode != null
+                                   and ((ep.agentOnAccessMode == 'prevent') != g.onAccessPrevent)}"
+                          class="muted" style="font-size:11px;" title="In attesa che l'agent applichi il cambio al prossimo poll">
+                      (pending)
+                    </span>
                   </td>
                 </tr>
               </tbody>

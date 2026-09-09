@@ -693,6 +693,16 @@ public class WebUiController {
         return "redirect:/admin/groups";
     }
 
+    // Applicata dall'agent al prossimo poll (GET /api/agent/commands), non subito:
+    // vedi EndpointGroupService.setOnAccessPrevent.
+    @PostMapping("/admin/groups/{id}/onaccess-mode")
+    public String adminGroupsOnAccessMode(@PathVariable Long id, @RequestParam boolean prevent,
+                                          Authentication auth, HttpServletRequest req) {
+        groupService.setOnAccessPrevent(id, prevent);
+        audit.record(auth, req, "GROUP_ONACCESS_MODE", "id=" + id + " prevent=" + prevent, "SUCCESS", null);
+        return "redirect:/admin/groups";
+    }
+
     // ---- Admin: Scheduled Scans ----
 
     @GetMapping("/admin/schedules")

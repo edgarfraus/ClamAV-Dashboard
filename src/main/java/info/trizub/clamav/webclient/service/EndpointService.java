@@ -174,17 +174,23 @@ public class EndpointService {
     }
 
     /**
-     * Aggiorna "last seen" e, se l'agent l'ha inviata, la versione di clamd.
+     * Aggiorna "last seen" e, se l'agent le ha inviate, la versione di clamd e
+     * la modalita' on-access che ha davvero applicato in locale (non quella
+     * richiesta dal gruppo: e' la conferma che la richiesta e' stata eseguita).
      * Best-effort: non deve mai far fallire la richiesta dell'agent.
      */
     @Transactional
-    public void touchAgentSeen(Long id, String clamdVersion) {
+    public void touchAgentSeen(Long id, String clamdVersion, String onAccessMode) {
         try {
             repo.findById(id).ifPresent(ep -> {
                 ep.setAgentLastSeenAt(Instant.now());
                 if (clamdVersion != null && !clamdVersion.isBlank()) {
                     String v = clamdVersion.trim();
                     ep.setAgentClamdVersion(v.length() > 255 ? v.substring(0, 255) : v);
+                }
+                if ("prevent".equals(onAccessMode) || "detect".equals(onAccessMode)) {
+                    ep.setAgentOnAccessMode(onAccessMode);
+                    ep.setAgentOnAccessAppliedAt(Instant.now());
                 }
                 repo.save(ep);
             });

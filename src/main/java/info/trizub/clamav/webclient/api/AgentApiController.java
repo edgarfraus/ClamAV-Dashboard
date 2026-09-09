@@ -62,7 +62,20 @@ public class AgentApiController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("endpoint", endpoint.getName());
         body.put("commands", payload);
+        String mode = desiredOnAccessMode(endpoint);
+        if (mode != null) body.put("onAccessMode", mode);
         return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Modalita' on-access desiderata (detect/prevent), decisa a livello di
+     * gruppo: un endpoint senza gruppo non e' gestito da remoto e mantiene
+     * quella impostata al momento dell'installazione. null = "non toccare
+     * nulla", cosi' un agent senza realtime installato non fa niente con essa.
+     */
+    private String desiredOnAccessMode(ClamdEndpoint endpoint) {
+        if (endpoint.getGroup() == null) return null;
+        return endpoint.getGroup().isOnAccessPrevent() ? "prevent" : "detect";
     }
 
     /**
@@ -70,6 +83,11 @@ public class AgentApiController {
      * L'agent e' uno script bash e su una macchina minimale jq puo' non esserci,
      * mentre base64 fa parte di coreutils. La codifica evita anche ogni problema
      * di quoting: i path possono contenere spazi e a capo.
+     *
+     * Quando il gruppo dell'endpoint ha una modalita' on-access impostata, una
+     * riga "MODE detect|prevent" precede i comandi: l'id "MODE" non e' mai un
+     * id di comando valido (sono numerici), quindi il parser bash la riconosce
+     * senza ambiguita' e non tenta di decodificarla come base64.
      */
     @GetMapping(value = "/commands", params = "format=text", produces = "text/plain; charset=utf-8")
     public ResponseEntity<String> commandsText(HttpServletRequest request) {
@@ -79,6 +97,10 @@ public class AgentApiController {
                     .body("chiave agent non valida\n");
         }
         StringBuilder out = new StringBuilder();
+        String mode = desiredOnAccessMode(endpoint);
+        if (mode != null) {
+            out.append("MODE ").append(mode).append('\n');
+        }
         for (AgentCommand cmd : commands.claimPending(endpoint)) {
             String encoded = Base64.getEncoder().encodeToString(
                     cmd.getTarget().getBytes(StandardCharsets.UTF_8));

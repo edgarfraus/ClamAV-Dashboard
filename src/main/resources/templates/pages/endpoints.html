@@ -99,6 +99,7 @@
                   <th style="min-width:120px;">DB version</th>
                   <th style="min-width:90px;">DB age</th>
                   <th style="min-width:110px;">Agent</th>
+                  <th style="min-width:100px;">Realtime</th>
                   <th style="min-width:210px;">Actions</th>
                 </tr>
               </thead>
@@ -150,6 +151,13 @@
                     <span th:if="${e.agentEnrolled}" class="badge-status badge-neutral"
                           th:title="${e.agentLastSeenAt != null ? 'Last seen: ' + e.agentLastSeenAt : 'Chiave generata, agent mai visto'}"
                           th:text="${e.agentLastSeenAt != null ? 'enrolled' : 'key ready'}">enrolled</span>
+                  </td>
+                  <td style="font-size:12px;">
+                    <span th:if="${e.agentOnAccessMode == null}" class="muted">—</span>
+                    <span th:if="${e.agentOnAccessMode != null}" class="badge-status"
+                          th:classappend="${e.agentOnAccessMode == 'prevent'} ? 'badge-virus_found' : 'badge-ok'"
+                          th:title="${'Gestita dal gruppo ' + (e.group != null ? e.group.name : '—')}"
+                          th:text="${e.agentOnAccessMode}">detect</span>
                   </td>
                   <td>
                     <button type="submit" th:form="${'ep-form-' + e.id}" class="btn btn-outline-light btn-sm">

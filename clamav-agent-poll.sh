@@ -30,6 +30,17 @@ set -uo pipefail
 CONFIG_FILE="${CONFIG_FILE:-/etc/clamav/console-report.conf}"
 [[ -r "$CONFIG_FILE" ]] && . "$CONFIG_FILE"
 
+# Written by install-clamd-remote.sh only when --on-access was used: where
+# clamd's own config lives and which systemd unit runs it, so the on-access
+# mode the console asks for (Admin > Groups > realtime mode) can be applied
+# here without re-detecting the distro layout on every poll. Absent on a
+# machine without realtime installed - every function below treats that as
+# "nothing to sync" rather than an error.
+ONACCESS_FACTS="${ONACCESS_FACTS:-/etc/clamav/onaccess.conf}"
+[[ -r "$ONACCESS_FACTS" ]] && . "$ONACCESS_FACTS"
+CLAMD_CONF_PATH="${CLAMD_CONF_PATH:-}"
+CLAMD_SERVICE_UNIT="${CLAMD_SERVICE_UNIT:-}"
+
 DASHBOARD_URL="${DASHBOARD_URL:-}"
 DASHBOARD_AGENT_KEY="${DASHBOARD_AGENT_KEY:-}"
 DASHBOARD_CA_BUNDLE="${DASHBOARD_CA_BUNDLE:-}"
@@ -72,6 +83,49 @@ clamav_version() {
   printf '%s' "$v"
 }
 
+# Reads OnAccessPrevention from THIS machine's own clamd.conf, when the
+# on-access installer left CLAMD_CONF_PATH behind. Attached to every request
+# (X-Agent-OnAccess-Mode) so the console shows what is REALLY in effect, not
+# just the mode it last asked for.
+current_onaccess_mode() {
+  [[ -n "$CLAMD_CONF_PATH" && -r "$CLAMD_CONF_PATH" ]] || return 0
+  local v
+  v="$(grep -E '^[[:space:]]*OnAccessPrevention[[:space:]]+' "$CLAMD_CONF_PATH" | awk '{print $2}' | tail -1 || true)"
+  case "$v" in
+    yes) printf 'prevent' ;;
+    no)  printf 'detect' ;;
+  esac
+}
+
+# Applies the mode the console asked for (Admin > Groups > realtime mode) to
+# this machine, when realtime is actually installed here. A restart is
+# required, not just the config edit: OnAccessPrevention decides which class
+# of fanotify event clamd requests (blocking vs notification), so it only
+# takes effect from clamd's next start.
+sync_onaccess_mode() {
+  local desired="$1"
+  [[ "$desired" == "prevent" || "$desired" == "detect" ]] || return 0
+  [[ -n "$CLAMD_CONF_PATH" && -w "$CLAMD_CONF_PATH" && -n "$CLAMD_SERVICE_UNIT" ]] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  systemctl cat clamav-onacc.service >/dev/null 2>&1 || return 0
+
+  local current
+  current="$(current_onaccess_mode)"
+  [[ "$current" == "$desired" ]] && return 0
+
+  local value="no"
+  [[ "$desired" == "prevent" ]] && value="yes"
+  if grep -qE '^[[:space:]]*OnAccessPrevention[[:space:]]+' "$CLAMD_CONF_PATH"; then
+    sed -i -E "s|^[#[:space:]]*OnAccessPrevention[[:space:]].*|OnAccessPrevention ${value}|" "$CLAMD_CONF_PATH"
+  else
+    echo "OnAccessPrevention ${value}" >> "$CLAMD_CONF_PATH"
+  fi
+
+  log "on-access mode: switching '${current:-unknown}' -> '${desired}' (restarting clamd + clamonacc)"
+  systemctl restart "$CLAMD_SERVICE_UNIT" 2>&1 | while IFS= read -r l; do log "  $l"; done
+  systemctl restart clamav-onacc.service 2>&1 | while IFS= read -r l; do log "  $l"; done
+}
+
 # Picks whichever scanner is available. clamdscan is much faster (signatures are
 # already in the daemon's memory); clamscan is the fallback when clamd is silent.
 pick_scanner() {
@@ -108,6 +162,7 @@ report_result() {
   if curl -sS -f --max-time "$CURL_TIMEOUT" \
        -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
        -H "X-Agent-Clamav: $(clamav_version)" \
+       -H "X-Agent-OnAccess-Mode: $(current_onaccess_mode)" \
        "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
        -X POST "${DASHBOARD_URL%/}/api/scan/report" \
        -H 'Content-Type: application/json' \
@@ -196,6 +251,7 @@ poll_once() {
   response="$(curl -sS -f --max-time "$CURL_TIMEOUT" \
       -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
       -H "X-Agent-Clamav: $(clamav_version)" \
+      -H "X-Agent-OnAccess-Mode: $(current_onaccess_mode)" \
       "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
       "${DASHBOARD_URL%/}/api/agent/commands?format=text" 2>/dev/null)" || {
     log "console unreachable, retrying on the next pass"
@@ -204,10 +260,16 @@ poll_once() {
 
   [[ -z "$response" ]] && return 0
 
-  # Each line: "<id> <base64-encoded targets>". Base64 avoids every quoting
-  # problem: paths may contain spaces and newlines.
+  # Each line is either "MODE detect|prevent" (the console's desired on-access
+  # mode for this endpoint's group, at most one such line) or
+  # "<id> <base64-encoded targets>" (a scan command). "MODE" is never a valid
+  # command id (those are numeric), so the two never collide.
   while IFS=' ' read -r command_id encoded; do
     [[ -z "$command_id" || -z "$encoded" ]] && continue
+    if [[ "$command_id" == "MODE" ]]; then
+      sync_onaccess_mode "$encoded"
+      continue
+    fi
     local targets_raw
     targets_raw="$(printf '%s' "$encoded" | base64 -d 2>/dev/null)" || {
       log "command ${command_id}: undecodable targets, skipping"
