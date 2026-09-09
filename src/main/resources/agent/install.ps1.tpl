@@ -218,26 +218,41 @@ $hasDaily = (Test-Path (Join-Path $dbDir 'daily.cvd')) -or (Test-Path (Join-Path
 if (-not ($hasMain -and $hasDaily)) {
     $freshclamExe    = Join-Path $clamDir 'freshclam.exe'
     $freshclamConf   = Join-Path $clamDir 'freshclam.conf'
-    $freshclamSample = Join-Path $clamDir 'freshclam.conf.sample'
+    # Recent ClamAV Windows packages moved the .sample files out of the install
+    # root into a conf_examples subfolder; older ones kept them next to the
+    # binaries. Check both so the install root layout does not matter.
+    $freshclamSample = @(
+        (Join-Path $clamDir 'freshclam.conf.sample'),
+        (Join-Path $clamDir 'conf_examples\freshclam.conf.sample')
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-    if (-not (Test-Path $freshclamConf) -and (Test-Path $freshclamSample)) {
+    if (-not (Test-Path $freshclamConf) -and $freshclamSample) {
         Get-Content $freshclamSample | Where-Object { $_.Trim() -ne 'Example' } |
             Set-Content $freshclamConf -Encoding ASCII
         if (-not (Select-String -Path $freshclamConf -Pattern '^\s*DatabaseDirectory' -Quiet)) {
             Add-Content -Path $freshclamConf -Value "DatabaseDirectory $dbDir"
         }
+    } elseif (-not (Test-Path $freshclamConf)) {
+        Write-Warn "No freshclam.conf.sample found next to $clamScan or in conf_examples - cannot generate freshclam.conf."
     }
 
-    if (Test-Path $freshclamExe) {
+    if ((Test-Path $freshclamExe) -and (Test-Path $freshclamConf)) {
         New-Item -ItemType Directory -Force -Path $dbDir | Out-Null
         Write-Info "Downloading the virus database (freshclam, first run - can take a minute)..."
-        & $freshclamExe --config-file="$freshclamConf" 2>&1 | ForEach-Object { Write-Host "    $_" }
+        # freshclam redraws its progress bar in place with '\r'; captured through
+        # a pipe each redraw becomes its own line, which would otherwise flood
+        # the console with thousands of near-identical "Time: ..." lines.
+        & $freshclamExe --config-file="$freshclamConf" 2>&1 |
+            Where-Object { $_ -notmatch '^\s*Time:\s' } |
+            ForEach-Object { Write-Host "    $_" }
         if ($LASTEXITCODE -ne 0) {
             Write-Warn "freshclam exited with code $LASTEXITCODE - check network/proxy, then run it manually:"
             Write-Warn "  & `"$freshclamExe`" --config-file=`"$freshclamConf`""
         }
-    } else {
+    } elseif (-not (Test-Path $freshclamExe)) {
         Write-Warn "freshclam.exe not found next to $clamScan - update the virus database manually."
+    } else {
+        Write-Warn "freshclam.conf could not be prepared - update the virus database manually."
     }
 }
 
