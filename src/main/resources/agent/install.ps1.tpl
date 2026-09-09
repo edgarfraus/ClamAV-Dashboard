@@ -7,8 +7,9 @@
 # (Admin > Endpoints > Rotate) e reinstalla.
 #
 # USAGE (PowerShell as Administrator):
-#   .\install-agent.ps1            # ti chiede cosa installare
-#   .\install-agent.ps1 -All       # installa tutto senza chiedere
+#   .\install-agent.ps1                        # ti chiede cosa installare
+#   .\install-agent.ps1 -All                   # installa tutto senza chiedere (default 02:30)
+#   .\install-agent.ps1 -All -ScanTime 03:15   # come sopra, con orario dello scan programmato
 #
 # NOTE: ClamAV has no realtime protection on Windows (on-access uses fanotify,
 # which is Linux-only). What gets installed here is a scheduled scan plus the
@@ -19,8 +20,23 @@ param(
     # a pipe, where there is no terminal to read answers from).
     [switch]$All,
     [switch]$Central,
-    [switch]$Scheduled
+    [switch]$Scheduled,
+    # 24h HH:mm. Used as-is for -All/-Scheduled/non-interactive; the interactive
+    # prompt below offers it as the default and lets the user override it.
+    [string]$ScanTime = '02:30'
 )
+
+function Get-ParsedScanTime {
+    param([string]$Value)
+    $result = [datetime]::MinValue
+    foreach ($fmt in @('HH:mm', 'H:mm', 'h:mm tt', 'hh:mm tt')) {
+        if ([datetime]::TryParseExact($Value, $fmt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$result)) {
+            return $result
+        }
+    }
+    if ([datetime]::TryParse($Value, [ref]$result)) { return $result }
+    return $null
+}
 
 $ErrorActionPreference = 'Stop'
 
@@ -74,9 +90,17 @@ if ($All) {
     $wantCentral = ($a -eq '' -or $a -match '^[SsYy]')
     Write-Host ''
     Write-Host '  2) Scheduled scan'
-    Write-Host '     A full scan every night at 02:30, with the result in the console.'
+    Write-Host '     A full scan every night, with the result in the console.'
     $a = Read-Host '  Enable the scheduled scan? [Y/n]'
     $wantScheduled = ($a -eq '' -or $a -match '^[SsYy]')
+    if ($wantScheduled) {
+        while ($true) {
+            $t = Read-Host "     At what time should it run, 24h HH:mm? [$ScanTime]"
+            if ($t.Trim() -eq '') { break }
+            if (Get-ParsedScanTime $t.Trim()) { $ScanTime = $t.Trim(); break }
+            Write-Warn "Invalid time '$t' - use 24h HH:mm, e.g. 02:30."
+        }
+    }
     Write-Host ''
     Write-Warn 'Note: ClamAV realtime protection is not available on Windows.'
 } else {
@@ -87,6 +111,16 @@ if ($All) {
 if (-not $wantCentral -and -not $wantScheduled) {
     Write-Err 'Nothing was selected for installation.'
     exit 1
+}
+
+$scanTimeParsed = $null
+if ($wantScheduled) {
+    $scanTimeParsed = Get-ParsedScanTime $ScanTime
+    if (-not $scanTimeParsed) {
+        Write-Warn "Invalid -ScanTime '$ScanTime', using default 02:30."
+        $ScanTime = '02:30'
+        $scanTimeParsed = Get-ParsedScanTime $ScanTime
+    }
 }
 
 # --- 2) Check that ClamAV is present ---------------------------------------
@@ -189,11 +223,11 @@ $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
 if ($wantScheduled) {
     $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
                   -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ScanScript`""
-    $trigger = New-ScheduledTaskTrigger -Daily -At 2:30AM
+    $trigger = New-ScheduledTaskTrigger -Daily -At $scanTimeParsed
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Principal $principalTask -Settings $settings | Out-Null
-    Write-Ok "Task programmato '$TaskName' registrato (ogni notte alle 02:30)."
+    Write-Ok "Task programmato '$TaskName' registrato (ogni notte alle $($scanTimeParsed.ToString('HH:mm')))."
 }
 
 # --- 5b) Agent: runs the scans requested by the console ---------------------
@@ -201,7 +235,7 @@ if ($wantScheduled) {
 # console queues, the agent picks up and runs locally.
 $pollScriptBody = @'
 $ErrorActionPreference = 'Stop'
-$cfg = Get-Content (Join-Path $env:ProgramData 'ClaimAVgent.conf.json') -Raw | ConvertFrom-Json
+$cfg = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
 $headers = @{ 'X-Agent-Key' = $cfg.AgentKey }
 
@@ -289,5 +323,5 @@ try {
 Write-Host ''
 Write-Ok "Agent '$EndpointName' installed."
 Write-Host ("    Console-driven scans: " + $(if ($wantCentral)   { 'enabled (polls every 5 min)' } else { 'not installed' }))
-Write-Host ("    Scheduled scan:       " + $(if ($wantScheduled) { 'enabled (02:30)' }            else { 'not installed' }))
+Write-Host ("    Scheduled scan:       " + $(if ($wantScheduled) { "enabled ($($scanTimeParsed.ToString('HH:mm')))" } else { 'not installed' }))
 Write-Warn "ClamAV realtime protection is not available on Windows."
