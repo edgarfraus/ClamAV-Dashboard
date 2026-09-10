@@ -102,6 +102,17 @@ current_onaccess_mode() {
 # required, not just the config edit: OnAccessPrevention decides which class
 # of fanotify event clamd requests (blocking vs notification), so it only
 # takes effect from clamd's next start.
+# Below this many seconds since the last actual switch, do nothing even if
+# asked again: a machine this poll loop runs on every 30s, so without a floor
+# any condition that kept "current" from ever reading back as "desired" (an
+# unparseable clamd.conf line, a restart that silently didn't take) would
+# restart clamd and clamonacc every single cycle forever - and clamd reloading
+# its full signature set on every start is exactly the kind of load that can
+# make the agent itself time out and look offline. This is a backstop on top
+# of the "current == desired" check below, not a replacement for it.
+ONACCESS_SYNC_COOLDOWN="${ONACCESS_SYNC_COOLDOWN:-300}"
+ONACCESS_SYNC_MARKER="/var/lib/clamav-console-report/onaccess-last-sync"
+
 sync_onaccess_mode() {
   local desired="$1"
   [[ "$desired" == "prevent" || "$desired" == "detect" ]] || return 0
@@ -111,7 +122,26 @@ sync_onaccess_mode() {
 
   local current
   current="$(current_onaccess_mode)"
+  # Empty means OnAccessPrevention could not be read back at all (missing
+  # line, unexpected format in that machine's clamd.conf). Rewriting blind
+  # here on every cycle, unable to ever confirm convergence, is exactly the
+  # thrashing risk described above - skip and let an admin look, instead.
+  if [[ -z "$current" ]]; then
+    log "on-access mode: could not read OnAccessPrevention from $CLAMD_CONF_PATH, skipping sync"
+    return 0
+  fi
   [[ "$current" == "$desired" ]] && return 0
+
+  local now last
+  now=$(date +%s)
+  last=$(cat "$ONACCESS_SYNC_MARKER" 2>/dev/null || echo 0)
+  [[ "$last" =~ ^[0-9]+$ ]] || last=0
+  if (( now - last < ONACCESS_SYNC_COOLDOWN )); then
+    log "on-access mode: '${current}' still differs from '${desired}' but last synced $((now - last))s ago, waiting out the cooldown"
+    return 0
+  fi
+  mkdir -p "$(dirname "$ONACCESS_SYNC_MARKER")" 2>/dev/null
+  printf '%s' "$now" > "$ONACCESS_SYNC_MARKER" 2>/dev/null
 
   local value="no"
   [[ "$desired" == "prevent" ]] && value="yes"
@@ -121,7 +151,7 @@ sync_onaccess_mode() {
     echo "OnAccessPrevention ${value}" >> "$CLAMD_CONF_PATH"
   fi
 
-  log "on-access mode: switching '${current:-unknown}' -> '${desired}' (restarting clamd + clamonacc)"
+  log "on-access mode: switching '${current}' -> '${desired}' (restarting clamd + clamonacc)"
   systemctl restart "$CLAMD_SERVICE_UNIT" 2>&1 | while IFS= read -r l; do log "  $l"; done
   systemctl restart clamav-onacc.service 2>&1 | while IFS= read -r l; do log "  $l"; done
 }
