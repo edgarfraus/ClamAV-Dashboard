@@ -129,16 +129,21 @@ if ($wantScheduled) {
 }
 
 # --- 2) Check that ClamAV is present, installing it if necessary -----------
+# clamscan.exe, not clamdscan.exe: this agent never installs or configures a
+# clamd service/daemon on Windows (no realtime here, see the note above), so
+# there is no clamd.conf and nothing listening. clamdscan.exe needs both -
+# picking it just because it happens to be present (the official MSI/winget
+# package ships both binaries side by side) fails every scan with "ERROR:
+# Can't parse clamd configuration file ...\clamd.conf" even though the
+# install itself succeeded.
 function Find-ClamScan {
     foreach ($candidate in @(
-        "$env:ProgramFiles\ClamAV\clamdscan.exe",
         "$env:ProgramFiles\ClamAV\clamscan.exe",
-        "${env:ProgramFiles(x86)}\ClamAV\clamdscan.exe",
         "${env:ProgramFiles(x86)}\ClamAV\clamscan.exe"
     )) {
         if (Test-Path $candidate) { return $candidate }
     }
-    $cmd = Get-Command clamdscan.exe, clamscan.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    $cmd = Get-Command clamscan.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($cmd) { return $cmd.Source }
     return $null
 }
