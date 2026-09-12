@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
@@ -35,17 +36,20 @@ public class NotificationService {
         if (url == null || url.isBlank()) return;
 
         try {
-            Map<String, Object> payload = Map.of(
-                    "jobId", job.getId(),
-                    "type", job.getType().name(),
-                    "target", job.getTarget(),
-                    "endpoint", job.getEndpoint() != null ? job.getEndpoint().getName() : null,
-                    "submittedBy", job.getSubmittedBy(),
-                    "verdict", job.getVerdict() != null ? job.getVerdict().name() : null,
-                    "foundViruses", job.getFoundVirusesJson(),
-                    "error", job.getErrorMessage(),
-                    "quarantinePath", job.getQuarantinePath()
-            );
+            // Map.of() throws NPE on a null value, and most of these legitimately
+            // are null (endpoint, error, quarantinePath...) - a LinkedHashMap tolerates
+            // them and keeps the previous key order for whoever reads the raw JSON.
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("jobId", job.getId());
+            payload.put("type", job.getType().name());
+            payload.put("target", job.getTarget());
+            payload.put("endpoint", job.getEndpoint() != null ? job.getEndpoint().getName() : null);
+            payload.put("submittedBy", job.getSubmittedBy());
+            payload.put("verdict", job.getVerdict() != null ? job.getVerdict().name() : null);
+            payload.put("foundViruses", job.getFoundVirusesJson());
+            payload.put("error", job.getErrorMessage());
+            payload.put("remediation", job.getRemediationStatus() != null ? job.getRemediationStatus().name() : null);
+            payload.put("quarantinePath", job.getQuarantinePath());
             RestClient.create().post().uri(url)
                     .header("Content-Type", "application/json")
                     .body(mapper.writeValueAsString(payload))
@@ -75,7 +79,8 @@ public class NotificationService {
                     "Host: `" + escapeMarkdown(host) + "`\n" +
                     "Job: `" + job.getId() + "`\n" +
                     "Target: `" + escapeMarkdown(job.getTarget()) + "`\n" +
-                    "File infetti trovati: *" + job.getInfectedFileCount() + "*\n\n" +
+                    "File infetti trovati: *" + job.getInfectedFileCount() + "*\n" +
+                    "Remediation: *" + remediationLabel(job) + "*\n\n" +
                     "```\n" + findings + "```";
         } else {
             text = "⚠️ *ClamAV Warning*\n" +
@@ -98,6 +103,17 @@ public class NotificationService {
                     .toBodilessEntity();
         } catch (Exception e) {
             log.warn("Telegram notification failed: {}", e.getMessage());
+        }
+    }
+
+    private String remediationLabel(ScanJob job) {
+        info.trizub.clamav.webclient.model.RemediationStatus r = job.getRemediationStatus();
+        if (r == null) return "non disponibile";
+        switch (r) {
+            case QUARANTINED: return "messo in quarantena";
+            case REMOVED: return "rimosso";
+            case FAILED: return "FALLITA - file ancora presente";
+            default: return "nessuna (modalita' Detection)";
         }
     }
 

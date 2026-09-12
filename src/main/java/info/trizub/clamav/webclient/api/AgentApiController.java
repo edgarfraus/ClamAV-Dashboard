@@ -79,6 +79,25 @@ public class AgentApiController {
     }
 
     /**
+     * Sola lettura della modalita' desiderata, senza toccare la coda comandi:
+     * serve alla scansione programmata di Windows, che gira come task
+     * indipendente e non deve reclamare (claimPending muta lo stato) i comandi
+     * che spettano al poll separato - un GET /commands da qui li ruberebbe.
+     */
+    @GetMapping("/mode")
+    public ResponseEntity<Map<String, Object>> mode(HttpServletRequest request) {
+        ClamdEndpoint endpoint = resolveEndpoint(request);
+        if (endpoint == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Chiave agent non valida o endpoint disabilitato"));
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        String mode = desiredOnAccessMode(endpoint);
+        if (mode != null) body.put("onAccessMode", mode);
+        return ResponseEntity.ok(body);
+    }
+
+    /**
      * Stessa coda, in formato riga per riga: "<id> <target in base64>".
      * L'agent e' uno script bash e su una macchina minimale jq puo' non esserci,
      * mentre base64 fa parte di coreutils. La codifica evita anche ogni problema

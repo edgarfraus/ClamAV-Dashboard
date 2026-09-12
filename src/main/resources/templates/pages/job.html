@@ -70,6 +70,13 @@
               <tr><th>Submitted at</th><td th:text="${job.submittedAt}">time</td></tr>
               <tr th:if="${job.startedAt}"><th>Started at</th><td th:text="${job.startedAt}">time</td></tr>
               <tr th:if="${job.finishedAt}"><th>Finished at</th><td th:text="${job.finishedAt}">time</td></tr>
+              <tr th:if="${job.remediationStatus != null}">
+                <th>Remediation</th>
+                <td>
+                  <span class="badge-status" th:classappend="${job.remediationStatus.name() == 'FAILED'} ? 'badge-error' : (${job.remediationStatus.name() == 'NOT_ATTEMPTED'} ? 'badge-neutral' : 'badge-ok')"
+                        th:text="${job.remediationStatus}">status</span>
+                </td>
+              </tr>
               <tr th:if="${job.quarantinePath}"><th>Quarantine path</th><td th:text="${job.quarantinePath}">path</td></tr>
             </tbody>
           </table>

@@ -1,6 +1,7 @@
 package info.trizub.clamav.webclient.api;
 
 import info.trizub.clamav.webclient.model.ClamdEndpoint;
+import info.trizub.clamav.webclient.model.RemediationStatus;
 import info.trizub.clamav.webclient.model.ScanJob;
 import info.trizub.clamav.webclient.model.ScanJobType;
 import info.trizub.clamav.webclient.model.ScanVerdict;
@@ -186,6 +187,22 @@ public class ApiController {
         public String errorMessage; // ERROR only
         public String source; // "realtime" for clamonacc on-access events; anything else = batch scan
         public Long commandId; // set when this is the result of a scan the console asked for
+        // What the reporting side did to the infected file, VIRUS_FOUND only:
+        // "quarantined" | "removed" | "failed" | absent/anything else = not_attempted.
+        // The console has no channel of its own into the machine, so this is the
+        // only way it ever learns what really happened to the file.
+        public String remediation;
+        public String remediationPath; // where it ended up, only for "quarantined"
+    }
+
+    private static RemediationStatus parseRemediation(String raw) {
+        if (raw == null) return RemediationStatus.NOT_ATTEMPTED;
+        switch (raw.trim().toLowerCase()) {
+            case "quarantined": return RemediationStatus.QUARANTINED;
+            case "removed": return RemediationStatus.REMOVED;
+            case "failed": return RemediationStatus.FAILED;
+            default: return RemediationStatus.NOT_ATTEMPTED;
+        }
     }
 
     /**
@@ -253,7 +270,7 @@ public class ApiController {
             String jobId = cmd.getJobId();
             if (jobId != null) {
                 if (verdict == ScanVerdict.VIRUS_FOUND) {
-                    jobs.finishFound(jobId, found);
+                    jobs.finishFound(jobId, found, parseRemediation(req.remediation), req.remediationPath);
                 } else if (verdict == ScanVerdict.ERROR) {
                     jobs.finishError(jobId, req.errorMessage);
                 } else {
@@ -266,7 +283,7 @@ public class ApiController {
         }
 
         var job = jobs.createExternalReport(req.hostname, req.path, verdict, found, req.errorMessage,
-                type, reportingEndpoint, auth.getName());
+                type, reportingEndpoint, auth.getName(), parseRemediation(req.remediation), req.remediationPath);
         return ResponseEntity.ok(Map.of("jobId", job.getId()));
     }
 

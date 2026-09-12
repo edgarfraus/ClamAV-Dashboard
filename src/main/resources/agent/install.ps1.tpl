@@ -289,11 +289,32 @@ Write-Ok "Configuration saved to $ConfigPath (readable only by Administrators/SY
 # --- 4) Scan script + result reporting -------------------------------------
 $scanScriptBody = @'
 $ErrorActionPreference = 'Stop'
-$cfg = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
+$cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
+$base = $cfg.ConsoleUrl.TrimEnd('/')
 
 $findings = New-Object System.Collections.Generic.List[string]
 $verdict  = 'OK'
 $errorMsg = ''
+$remediation     = 'not_attempted'
+$remediationPath = ''
+
+# Detection vs Prevention (Admin > Groups > realtime mode). Read-only and
+# side-effect-free on purpose: GET /api/agent/commands also CLAIMS any
+# pending console-dispatched scan (marks it DISPATCHED, the job RUNNING), and
+# this nightly task must not steal a command that belongs to poll-agent.ps1's
+# own Scheduled Task - hence the separate /api/agent/mode endpoint.
+$mode = $null
+try {
+    $modeResp = Invoke-RestMethod -Uri "$base/api/agent/mode" -Headers @{ 'X-Agent-Key' = $cfg.AgentKey } -TimeoutSec 15
+    $mode = $modeResp.onAccessMode
+} catch { }
+
+$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
+$scanArgs = @('--infected')
+if ($mode -eq 'prevent') {
+    New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null
+    $scanArgs += "--move=$quarantineDir"
+}
 
 try {
     # --infected: print detected files only. The output is "<path>: <SIG> FOUND",
@@ -306,7 +327,7 @@ try {
     # to 'Continue' for just this call keeps stderr readable without treating it
     # as fatal; $LASTEXITCODE is still the authority on success/failure.
     $ErrorActionPreference = 'Continue'
-    $output = & $cfg.ClamScan --infected $cfg.ScanPaths 2>&1
+    $output = & $cfg.ClamScan @scanArgs $cfg.ScanPaths 2>&1
     $exit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     foreach ($line in $output) {
@@ -314,6 +335,20 @@ try {
     }
     if ($exit -eq 1) {
         $verdict = 'VIRUS_FOUND'
+        if ($mode -eq 'prevent') {
+            # clamscan's own --move already did the work; verify against the
+            # original path rather than trusting the exit code alone, the same
+            # way the other agents confirm what really happened on disk.
+            $stillThere = $findings | Where-Object {
+                Test-Path -LiteralPath ($_ -replace '^(.*?): .*$', '$1')
+            }
+            if ($stillThere.Count -eq 0) {
+                $remediation     = 'quarantined'
+                $remediationPath = $quarantineDir
+            } else {
+                $remediation = 'failed'
+            }
+        }
     } elseif ($exit -ne 0) {
         $verdict  = 'ERROR'
         $errorMsg = "clamscan exit $exit`n" + ($output -join "`n")
@@ -328,15 +363,17 @@ try {
 if ($verdict -eq 'OK') { exit 0 }
 
 $payload = @{
-    hostname     = $env:COMPUTERNAME
-    path         = ($cfg.ScanPaths -join ' ')
-    verdict      = $verdict
-    source       = 'batch'
-    findings     = @($findings)
-    errorMessage = $errorMsg
+    hostname        = $env:COMPUTERNAME
+    path            = ($cfg.ScanPaths -join ' ')
+    verdict         = $verdict
+    source          = 'batch'
+    findings        = @($findings)
+    errorMessage    = $errorMsg
+    remediation     = $remediation
+    remediationPath = $remediationPath
 } | ConvertTo-Json -Depth 4
 
-Invoke-RestMethod -Method Post -Uri ($cfg.ConsoleUrl.TrimEnd('/') + '/api/scan/report') `
+Invoke-RestMethod -Method Post -Uri "$base/api/scan/report" `
     -Headers @{ 'X-Agent-Key' = $cfg.AgentKey } `
     -ContentType 'application/json' -Body $payload | Out-Null
 '@
@@ -373,11 +410,24 @@ try {
     exit 0
 }
 
+# Detection vs Prevention (Admin > Groups > realtime mode). $resp already
+# carries it (AgentApiController includes it in the same JSON as the
+# commands), so no extra round trip is needed here the way the standalone
+# nightly scan script needs one.
+$mode = $resp.onAccessMode
+$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
+if ($mode -eq 'prevent') { New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null }
+
 foreach ($cmd in $resp.commands) {
     $targets = @($cmd.target -split "`n" | Where-Object { $_.Trim() -ne '' })
     $verdict  = 'OK'
     $errorMsg = ''
     $findings = New-Object System.Collections.Generic.List[string]
+    $remediation     = 'not_attempted'
+    $remediationPath = ''
+
+    $scanArgs = @('--infected')
+    if ($mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
 
     try {
         # No --recursive: this clamscan.exe build rejects it ("Ignoring unsupported
@@ -385,7 +435,7 @@ foreach ($cmd in $resp.commands) {
         # As in the scheduled scan script above, stderr must not be promoted to a
         # terminating error or a clean/warned scan would be reported as ERROR.
         $ErrorActionPreference = 'Continue'
-        $output = & $cfg.ClamScan --infected $targets 2>&1
+        $output = & $cfg.ClamScan @scanArgs $targets 2>&1
         $exit = $LASTEXITCODE
         $ErrorActionPreference = 'Stop'
         foreach ($line in $output) {
@@ -393,6 +443,17 @@ foreach ($cmd in $resp.commands) {
         }
         if ($findings.Count -gt 0) {
             $verdict = 'VIRUS_FOUND'
+            if ($mode -eq 'prevent') {
+                $stillThere = $findings | Where-Object {
+                    Test-Path -LiteralPath ($_ -replace '^(.*?): .*$', '$1')
+                }
+                if ($stillThere.Count -eq 0) {
+                    $remediation     = 'quarantined'
+                    $remediationPath = $quarantineDir
+                } else {
+                    $remediation = 'failed'
+                }
+            }
         } elseif ($exit -ne 0) {
             $verdict  = 'ERROR'
             $errorMsg = "clamscan exit $exit`n" + ($output -join "`n")
@@ -403,12 +464,14 @@ foreach ($cmd in $resp.commands) {
     }
 
     $payload = @{
-        hostname     = $env:COMPUTERNAME
-        path         = ($targets -join ' ')
-        verdict      = $verdict
-        commandId    = $cmd.id
-        findings     = @($findings)
-        errorMessage = $errorMsg
+        hostname        = $env:COMPUTERNAME
+        path            = ($targets -join ' ')
+        verdict         = $verdict
+        commandId       = $cmd.id
+        findings        = @($findings)
+        errorMessage    = $errorMsg
+        remediation     = $remediation
+        remediationPath = $remediationPath
     } | ConvertTo-Json -Depth 4
 
     try {

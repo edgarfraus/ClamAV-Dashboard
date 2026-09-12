@@ -62,6 +62,14 @@ public class ScanJob {
     @Column(length = 2048)
     private String quarantinePath;
 
+    // Cosa e' successo davvero al file infetto: null per i job non VIRUS_FOUND
+    // (o riportati da agent troppo vecchi per inviarla). Il percorso descrittivo
+    // (dove e' finito in quarantena, sulla console o sulla macchina remota che
+    // lo riporta) resta in quarantinePath, condiviso fra i due casi.
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private RemediationStatus remediationStatus;
+
     @Column(columnDefinition = "boolean default false")
     private boolean acknowledged = false;
 
@@ -138,6 +146,8 @@ public class ScanJob {
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
     public String getQuarantinePath() { return quarantinePath; }
     public void setQuarantinePath(String quarantinePath) { this.quarantinePath = quarantinePath; }
+    public RemediationStatus getRemediationStatus() { return remediationStatus; }
+    public void setRemediationStatus(RemediationStatus remediationStatus) { this.remediationStatus = remediationStatus; }
     public boolean isAcknowledged() { return acknowledged; }
     public void setAcknowledged(boolean acknowledged) { this.acknowledged = acknowledged; }
     public String getAcknowledgedBy() { return acknowledgedBy; }

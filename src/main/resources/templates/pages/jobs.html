@@ -80,7 +80,7 @@
             <table class="table table-striped table-hover align-middle">
               <thead>
                 <tr>
-                  <th>ID</th><th>Type</th><th>Status</th><th>Verdict</th>
+                  <th>ID</th><th>Type</th><th>Status</th><th>Verdict</th><th>Remediation</th>
                   <th>Target</th><th>Endpoint</th><th>Submitted by</th><th>Submitted at</th>
                 </tr>
               </thead>
@@ -92,6 +92,12 @@
                   <td>
                     <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
                     <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+                  </td>
+                  <td>
+                    <span th:if="${j.remediationStatus != null}" class="badge-status"
+                          th:classappend="${j.remediationStatus.name() == 'FAILED'} ? 'badge-error' : (${j.remediationStatus.name() == 'NOT_ATTEMPTED'} ? 'badge-neutral' : 'badge-ok')"
+                          th:text="${j.remediationStatus}">status</span>
+                    <span th:unless="${j.remediationStatus != null}" class="muted">—</span>
                   </td>
                   <td th:text="${j.target}" class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">target</td>
                   <td th:text="${j.endpoint != null ? j.endpoint.name : (j.sourceHost != null ? j.sourceHost : '—')}" style="font-size:13px;">ep</td>

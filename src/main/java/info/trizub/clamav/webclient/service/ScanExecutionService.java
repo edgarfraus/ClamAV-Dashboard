@@ -1,6 +1,7 @@
 package info.trizub.clamav.webclient.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import info.trizub.clamav.webclient.model.RemediationStatus;
 import info.trizub.clamav.webclient.model.ScanJob;
 import info.trizub.clamav.webclient.model.ScanJobStatus;
 import info.trizub.clamav.webclient.model.ScanJobType;
@@ -19,7 +20,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -146,23 +149,44 @@ public class ScanExecutionService {
             ScanResult.VirusFound vf = (ScanResult.VirusFound) result;
             Map<String, Collection<String>> found = vf.getFoundViruses();
 
-            // Quarantine logic
+            // Quarantine logic. QuarantineService itself no-ops (returns null)
+            // when settings.quarantineEnabled() is off, which is exactly
+            // NOT_ATTEMPTED - the same status agent-reported jobs get when
+            // their group is in Detection mode.
+            RemediationStatus remediation = RemediationStatus.NOT_ATTEMPTED;
+            String remediationPath = null;
             if (uploadedFile != null) {
                 Path q = quarantineService.quarantine(uploadedFile);
-                if (q != null) setQuarantinePath(jobId, q.toString());
-            } else if (found != null) {
+                if (q != null) {
+                    remediation = RemediationStatus.QUARANTINED;
+                    remediationPath = q.toString();
+                } else if (settings.quarantineEnabled()) {
+                    remediation = RemediationStatus.FAILED;
+                }
+            } else if (found != null && !found.isEmpty()) {
+                List<String> moved = new ArrayList<>();
+                boolean anyFailed = false;
                 for (String p : found.keySet()) {
                     try {
                         Path file = Paths.get(p);
                         if (Files.isRegularFile(file)) {
-                            quarantineService.quarantine(file);
+                            Path q = quarantineService.quarantine(file);
+                            if (q != null) moved.add(q.toString());
+                            else if (settings.quarantineEnabled()) anyFailed = true;
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        anyFailed = true;
                     }
+                }
+                if (!moved.isEmpty()) {
+                    remediation = anyFailed ? RemediationStatus.FAILED : RemediationStatus.QUARANTINED;
+                    remediationPath = String.join("; ", moved);
+                } else if (anyFailed) {
+                    remediation = RemediationStatus.FAILED;
                 }
             }
 
-            finishFound(jobId, found);
+            finishFound(jobId, found, remediation, remediationPath);
             log.debug("Job {} finished VIRUS_FOUND", jobId);
             notifyIfNeeded(jobId);
         } else {
@@ -197,7 +221,7 @@ public class ScanExecutionService {
     }
 
     @Transactional
-    public void finishFound(String id, Object foundViruses) {
+    public void finishFound(String id, Object foundViruses, RemediationStatus remediation, String remediationPath) {
         ScanJob job = jobRepo.findById(id).orElseThrow();
         job.setStatus(ScanJobStatus.FINISHED);
         job.setVerdict(ScanVerdict.VIRUS_FOUND);
@@ -206,6 +230,8 @@ public class ScanExecutionService {
         } catch (Exception e) {
             job.setFoundVirusesJson(String.valueOf(foundViruses));
         }
+        job.setRemediationStatus(remediation != null ? remediation : RemediationStatus.NOT_ATTEMPTED);
+        if (remediationPath != null && !remediationPath.isBlank()) job.setQuarantinePath(remediationPath);
         job.setFinishedAt(Instant.now());
         jobRepo.save(job);
     }
@@ -227,13 +253,6 @@ public class ScanExecutionService {
         job.setVerdict(ScanVerdict.SKIPPED);
         job.setErrorMessage(reason);
         job.setFinishedAt(Instant.now());
-        jobRepo.save(job);
-    }
-
-    @Transactional
-    public void setQuarantinePath(String id, String quarantinePath) {
-        ScanJob job = jobRepo.findById(id).orElseThrow();
-        job.setQuarantinePath(quarantinePath);
         jobRepo.save(job);
     }
 }

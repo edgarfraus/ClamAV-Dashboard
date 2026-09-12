@@ -156,6 +156,45 @@ sync_onaccess_mode() {
   systemctl restart clamav-onacc.service 2>&1 | while IFS= read -r l; do log "  $l"; done
 }
 
+# Moves an infected file into quarantine, run by this script itself (as root)
+# rather than via clamdscan/clamscan's own --move: that flag is carried out by
+# clamd, which needs ITS OWN configured user (root or the packaged "clamav"
+# user, depending on install-clamd-remote.sh's choices) to have write access
+# to both the file and the destination - one more unknown this sidesteps.
+#
+# The quarantine directory is created on the SAME filesystem as the infected
+# file (via "df"), not a fixed path: a same-filesystem "mv" is a pure
+# rename() that never opens/reads the file's content, so - unlike a
+# cross-filesystem move, which copies the bytes first - it is never itself
+# intercepted by an OnAccessPrevention=yes block on a file already known to
+# be infected (this matters when clamd runs as its non-root packaged user for
+# fd-passing: root is not automatically excluded from on-access there the way
+# it is when clamd runs as root). If the move still fails, or "df" is
+# unavailable, falling back to unlink() (rm) keeps the same guarantee -
+# deleting is metadata-only too - and getting the file off disk matters more
+# here than preserving a copy for forensics.
+quarantine_file() {
+  local path="$1" mnt qdir dest
+  [[ -e "$path" ]] || return 1
+  if command -v df >/dev/null 2>&1; then
+    mnt="$(df --output=target "$path" 2>/dev/null | tail -1)"
+  fi
+  if [[ -n "${mnt:-}" ]]; then
+    qdir="${mnt%/}/.claimav-quarantine"
+    mkdir -p "$qdir" 2>/dev/null && chmod 700 "$qdir" 2>/dev/null
+    dest="${qdir}/$(date +%s%N)-$(basename -- "$path")"
+    if mv -f -- "$path" "$dest" 2>/dev/null; then
+      printf 'quarantined\t%s' "$dest"
+      return 0
+    fi
+  fi
+  if rm -f -- "$path" 2>/dev/null; then
+    printf 'removed\t'
+    return 0
+  fi
+  return 1
+}
+
 # Picks whichever scanner is available. clamdscan is much faster (signatures are
 # already in the daemon's memory); clamscan is the fallback when clamd is silent.
 pick_scanner() {
@@ -181,13 +220,16 @@ scan_error_detail() {
 
 report_result() {
   local command_id="$1" verdict="$2" target="$3" findings_json="$4" error_message="$5"
+  local remediation="${6:-}" remediation_path="${7:-}"
   local payload
   payload="{\"hostname\":\"$(json_escape "$(hostname)")\""
   payload+=",\"path\":\"$(json_escape "$target")\""
   payload+=",\"verdict\":\"${verdict}\""
   payload+=",\"commandId\":${command_id}"
   payload+=",\"findings\":${findings_json}"
-  payload+=",\"errorMessage\":\"$(json_escape "$error_message")\"}"
+  payload+=",\"errorMessage\":\"$(json_escape "$error_message")\""
+  payload+=",\"remediation\":\"$(json_escape "$remediation")\""
+  payload+=",\"remediationPath\":\"$(json_escape "$remediation_path")\"}"
 
   if curl -sS -f --max-time "$CURL_TIMEOUT" \
        -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
@@ -204,7 +246,7 @@ report_result() {
 }
 
 run_command() {
-  local command_id="$1" targets_raw="$2"
+  local command_id="$1" targets_raw="$2" desired_mode="${3:-}"
 
   # Targets arrive one per line; collect them into an array so they can all be
   # passed to a single scanner invocation.
@@ -265,7 +307,39 @@ run_command() {
   fi
 
   if [[ -n "$infected" ]]; then
-    report_result "$command_id" "VIRUS_FOUND" "${existing[*]}" "$findings_json" ""
+    # Prevention: quarantine every infected file this scan just found. Detection
+    # (or a group that never set a mode - desired_mode empty) reports only, as
+    # documented: nothing here is touched.
+    local remediation="not_attempted" remediation_paths="" any_failed=false any_quarantined=false any_removed=false
+    if [[ "$desired_mode" == "prevent" ]]; then
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local infected_path="${line%%: *}"
+        local outcome action moved_path
+        if outcome="$(quarantine_file "$infected_path")"; then
+          action="${outcome%%$'\t'*}"
+          moved_path="${outcome#*$'\t'}"
+          if [[ "$action" == "quarantined" && -n "$moved_path" ]]; then
+            any_quarantined=true
+            [[ -n "$remediation_paths" ]] && remediation_paths+="; "
+            remediation_paths+="$moved_path"
+          else
+            any_removed=true
+          fi
+        else
+          any_failed=true
+          log "command ${command_id}: could not quarantine or remove ${infected_path}"
+        fi
+      done <<< "$infected"
+      if [[ "$any_failed" == true ]]; then
+        remediation="failed"
+      elif [[ "$any_quarantined" == true ]]; then
+        remediation="quarantined"
+      elif [[ "$any_removed" == true ]]; then
+        remediation="removed"
+      fi
+    fi
+    report_result "$command_id" "VIRUS_FOUND" "${existing[*]}" "$findings_json" "" "$remediation" "$remediation_paths"
   elif [[ "$exit_code" -eq 0 ]]; then
     # No virus: a clean result still has to be reported, because somebody
     # started this scan from the console and is waiting for the answer.
@@ -291,12 +365,16 @@ poll_once() {
   [[ -z "$response" ]] && return 0
 
   # Each line is either "MODE detect|prevent" (the console's desired on-access
-  # mode for this endpoint's group, at most one such line) or
+  # mode for this endpoint's group, at most one such line, always first) or
   # "<id> <base64-encoded targets>" (a scan command). "MODE" is never a valid
-  # command id (those are numeric), so the two never collide.
+  # command id (those are numeric), so the two never collide. The mode also
+  # governs remediation for scans run from here on: Prevention quarantines
+  # what it finds, Detection only ever reports.
+  local desired_mode=""
   while IFS=' ' read -r command_id encoded; do
     [[ -z "$command_id" || -z "$encoded" ]] && continue
     if [[ "$command_id" == "MODE" ]]; then
+      desired_mode="$encoded"
       sync_onaccess_mode "$encoded"
       continue
     fi
@@ -305,7 +383,7 @@ poll_once() {
       log "command ${command_id}: undecodable targets, skipping"
       continue
     }
-    run_command "$command_id" "$targets_raw"
+    run_command "$command_id" "$targets_raw" "$desired_mode"
   done <<< "$response"
 }
 

@@ -47,6 +47,15 @@ CURL_TIMEOUT="${CURL_TIMEOUT:-10}"
 
 [[ -r "$CONFIG_FILE" ]] && . "$CONFIG_FILE"
 
+# Written by install-clamd-remote.sh only when --on-access was used: where
+# clamd's own config lives, so this reporter can tell whether the endpoint's
+# group is currently in Prevention mode and, if so, quarantine what it finds -
+# OnAccessPrevention=yes on its own only blocks access to the file, it never
+# removes it, which is what turns "prevention" into an empty word.
+ONACCESS_FACTS="${ONACCESS_FACTS:-/etc/clamav/onaccess.conf}"
+[[ -r "$ONACCESS_FACTS" ]] && . "$ONACCESS_FACTS"
+CLAMD_CONF_PATH="${CLAMD_CONF_PATH:-}"
+
 DASHBOARD_URL="${DASHBOARD_URL:-}"
 DASHBOARD_AGENT_KEY="${DASHBOARD_AGENT_KEY:-}"
 DASHBOARD_API_USER="${DASHBOARD_API_USER:-}"
@@ -138,17 +147,62 @@ flush_spool() {
   shopt -u nullglob
 }
 
+# Reads OnAccessPrevention straight from THIS machine's clamd.conf, the same
+# source of truth clamav-agent-poll.sh reports back to the console with (kept
+# in sync there, not asked for here): this reporter only follows the log and
+# has no poll loop of its own to receive the console's desired mode through.
+current_onaccess_mode() {
+  [[ -n "$CLAMD_CONF_PATH" && -r "$CLAMD_CONF_PATH" ]] || return 0
+  local v
+  v="$(grep -E '^[[:space:]]*OnAccessPrevention[[:space:]]+' "$CLAMD_CONF_PATH" | awk '{print $2}' | tail -1 || true)"
+  case "$v" in
+    yes) printf 'prevent' ;;
+    no)  printf 'detect' ;;
+  esac
+}
+
+# Moves an infected file into quarantine, or deletes it if that is not
+# possible. See clamav-agent-poll.sh's quarantine_file() for the full
+# reasoning (same-filesystem rename so an already-known-infected file is not
+# itself blocked from being moved by the very Prevention mode that flagged
+# it, unlink() as a metadata-only fallback) - duplicated here rather than
+# shared because this script and the poll loop are installed and run
+# independently of each other.
+quarantine_file() {
+  local path="$1" mnt qdir dest
+  [[ -e "$path" ]] || return 1
+  if command -v df >/dev/null 2>&1; then
+    mnt="$(df --output=target "$path" 2>/dev/null | tail -1)"
+  fi
+  if [[ -n "${mnt:-}" ]]; then
+    qdir="${mnt%/}/.claimav-quarantine"
+    mkdir -p "$qdir" 2>/dev/null && chmod 700 "$qdir" 2>/dev/null
+    dest="${qdir}/$(date +%s%N)-$(basename -- "$path")"
+    if mv -f -- "$path" "$dest" 2>/dev/null; then
+      printf 'quarantined\t%s' "$dest"
+      return 0
+    fi
+  fi
+  if rm -f -- "$path" 2>/dev/null; then
+    printf 'removed\t'
+    return 0
+  fi
+  return 1
+}
+
 send_finding() {
-  local path="$1" sig="$2"
+  local path="$1" sig="$2" remediation="$3" remediation_path="$4"
   local payload
-  payload=$(printf '{"hostname":"%s","path":"%s","verdict":"VIRUS_FOUND","source":"realtime","findings":["%s"]}' \
+  payload=$(printf '{"hostname":"%s","path":"%s","verdict":"VIRUS_FOUND","source":"realtime","findings":["%s"],"remediation":"%s","remediationPath":"%s"}' \
     "$(json_escape "$(hostname)")" \
     "$(json_escape "$path")" \
-    "$(json_escape "${path}: ${sig} FOUND")")
+    "$(json_escape "${path}: ${sig} FOUND")" \
+    "$(json_escape "$remediation")" \
+    "$(json_escape "$remediation_path")")
 
   flush_spool
   if post_payload "$payload"; then
-    log "sent: $path ($sig)"
+    log "sent: $path ($sig) remediation=${remediation:-not_attempted}"
   else
     spool_payload "$payload"
   fi
@@ -186,7 +240,26 @@ process_line() {
   # Old markers are useless: prune them now and then so they do not pile up.
   find "$DEDUP_DIR" -type f -mmin +120 -delete 2>/dev/null || true
 
-  send_finding "$path" "$sig"
+  # Detection only ever reports, as documented - OnAccessPrevention=yes
+  # already blocks every future access to this path on its own; quarantining
+  # it too is what makes Prevention actually remove the danger instead of
+  # just leaving it sitting there, permanently un-openable, forever.
+  local remediation="not_attempted" remediation_path="" outcome
+  if [[ "$(current_onaccess_mode)" == "prevent" ]]; then
+    if outcome="$(quarantine_file "$path")"; then
+      if [[ "${outcome%%$'\t'*}" == "quarantined" ]]; then
+        remediation="quarantined"
+        remediation_path="${outcome#*$'\t'}"
+      else
+        remediation="removed"
+      fi
+    else
+      remediation="failed"
+      log "could not quarantine or remove ${path}"
+    fi
+  fi
+
+  send_finding "$path" "$sig" "$remediation" "$remediation_path"
 }
 
 # Reports exactly why the console could not be reached. Hiding curl's error

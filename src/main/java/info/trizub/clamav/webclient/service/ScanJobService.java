@@ -243,7 +243,8 @@ public class ScanJobService {
     @Transactional
     public ScanJob createExternalReport(String hostname, String path, ScanVerdict verdict,
                                         Map<String, List<String>> foundViruses, String errorMessage,
-                                        ScanJobType type, ClamdEndpoint endpoint, String username) {
+                                        ScanJobType type, ClamdEndpoint endpoint, String username,
+                                        RemediationStatus remediation, String remediationPath) {
         String id = UUID.randomUUID().toString().replace("-", "");
         ScanJob job = new ScanJob();
         job.setId(id);
@@ -269,6 +270,8 @@ public class ScanJobService {
             } catch (Exception e) {
                 job.setFoundVirusesJson(String.valueOf(foundViruses));
             }
+            job.setRemediationStatus(remediation != null ? remediation : RemediationStatus.NOT_ATTEMPTED);
+            if (remediationPath != null && !remediationPath.isBlank()) job.setQuarantinePath(remediationPath);
         } else if (verdict == ScanVerdict.ERROR) {
             job.setErrorMessage(errorMessage);
         }
@@ -313,8 +316,14 @@ private void enqueueAfterCommit(String jobId) {
         repo.save(job);
     }
 
+    /**
+     * Esito di una scansione lanciata dalla console e chiusa da un agent
+     * (POST /api/scan/report con commandId). remediation e' quello che l'agent
+     * ha davvero fatto sul file infetto sulla SUA macchina - la console non ha
+     * altro modo per saperlo, non essendoci un canale diretto verso l'host.
+     */
     @Transactional
-    public void finishFound(String id, Object foundViruses) {
+    public void finishFound(String id, Object foundViruses, RemediationStatus remediation, String remediationPath) {
         ScanJob job = repo.findById(id).orElseThrow();
         job.setStatus(ScanJobStatus.FINISHED);
         job.setVerdict(ScanVerdict.VIRUS_FOUND);
@@ -323,6 +332,8 @@ private void enqueueAfterCommit(String jobId) {
         } catch (Exception e) {
             job.setFoundVirusesJson(String.valueOf(foundViruses));
         }
+        job.setRemediationStatus(remediation != null ? remediation : RemediationStatus.NOT_ATTEMPTED);
+        if (remediationPath != null && !remediationPath.isBlank()) job.setQuarantinePath(remediationPath);
         job.setFinishedAt(Instant.now());
         repo.save(job);
     }
@@ -345,10 +356,4 @@ private void enqueueAfterCommit(String jobId) {
         repo.save(job);
     }
 
-    @Transactional
-    public void setQuarantinePath(String id, String quarantinePath) {
-        ScanJob job = repo.findById(id).orElseThrow();
-        job.setQuarantinePath(quarantinePath);
-        repo.save(job);
-    }
 }
