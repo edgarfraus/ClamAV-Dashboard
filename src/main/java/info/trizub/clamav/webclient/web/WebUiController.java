@@ -282,10 +282,16 @@ public class WebUiController {
 
     // "Complete" here means every real directory under root — everything except the virtual/
     // pseudo filesystems below, which are never safe to hand to clamd as a scan target (see
-    // CRITICAL_UNIX_PREFIXES).
+    // CRITICAL_UNIX_PREFIXES). One shared list for Linux and macOS, not two: the agent already
+    // skips whatever doesn't exist on a given machine (clamav-agent-poll.sh's run_command), so
+    // there is no need to know which of the two a UNIX-platform endpoint actually is - a Linux
+    // box simply never has /Users or /Applications, and a Mac never has /boot or /lib64. Without
+    // /Users specifically, a full-disk scan on a Mac silently covered nothing a user ever
+    // touches: /home there is an unused automount stub, not where accounts actually live.
     private static final List<String> DEFAULT_UNIX_TARGETS =
             List.of("/bin", "/boot", "/etc", "/home", "/lib", "/lib64", "/media", "/mnt",
-                    "/opt", "/root", "/sbin", "/srv", "/tmp", "/usr", "/var", "/data");
+                    "/opt", "/root", "/sbin", "/srv", "/tmp", "/usr", "/var", "/data",
+                    "/Users", "/Applications");
     // Without an agent, a bare drive root is blocked below (see isCriticalPath):
     // clamd reached over TCP has no exclude filter, so this stays a curated
     // subset for that path, the same reasoning as DEFAULT_UNIX_TARGETS.
