@@ -372,8 +372,20 @@ try {
             }
         }
     } elseif ($exit -ne 0) {
-        $verdict  = 'ERROR'
-        $errorMsg = "clamscan exit $exit`n" + ($output -join "`n")
+        if (($output -join "`n") -match '(?m)^Infected files: 0$') {
+            # clamscan exit 2 covers two different situations it cannot tell
+            # apart in its own exit code: the scan never really ran, and "it
+            # ran to completion, found nothing, but could not open some
+            # individual file along the way" (a permission-protected system
+            # file, a locked file...). The summary line only appears once a
+            # scan has actually finished, so its presence with zero
+            # infections means this is the second, harmless case - ordinary
+            # noise on a broad target, not worth reporting.
+            $verdict = 'OK'
+        } else {
+            $verdict  = 'ERROR'
+            $errorMsg = "clamscan exit $exit`n" + ($output -join "`n")
+        }
     }
 } catch {
     $verdict  = 'ERROR'
@@ -491,7 +503,14 @@ foreach ($cmd in $resp.commands) {
                     $remediation = 'failed'
                 }
             }
-        } elseif ($exit -ne 0) {
+        } elseif ($exit -ne 0 -and ($output -join "`n") -notmatch '(?m)^Infected files: 0$') {
+            # clamscan exit 2 covers two different situations it cannot tell
+            # apart in its own exit code: the scan never really ran, and "it
+            # ran to completion, found nothing, but could not open some
+            # individual file along the way". The summary line only appears
+            # once a scan has actually finished, so its presence with zero
+            # infections ($verdict is already 'OK' from the top of this loop)
+            # means this is the harmless second case, not a real failure.
             $verdict  = 'ERROR'
             $errorMsg = "clamscan exit $exit`n" + ($output -join "`n")
         }

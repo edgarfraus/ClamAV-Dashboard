@@ -377,6 +377,18 @@ run_command() {
     # No virus: a clean result still has to be reported, because somebody
     # started this scan from the console and is waiting for the answer.
     report_result "$command_id" "OK" "${existing[*]}" "[]" ""
+  elif printf '%s\n' "$output" | grep -qE '^Infected files: 0$'; then
+    # clamdscan/clamscan exit 2 for two very different situations it cannot
+    # tell apart in its own exit code: the scan never really ran (bad target,
+    # daemon died mid-scan...) and "it ran to completion, found nothing, but
+    # could not open some individual file along the way" (a permission-
+    # protected system file, a socket, a SIP-restricted path on macOS...).
+    # The summary line only gets printed once a scan has actually finished,
+    # so its presence with zero infections is solid evidence of the second
+    # case - completely ordinary noise on a broad target like a full-disk
+    # scan, on every platform, not a reason to mark a clean result as failed.
+    log "command ${command_id}: clean, but some paths could not be opened: $(scan_error_detail "$output")"
+    report_result "$command_id" "OK" "${existing[*]}" "[]" ""
   else
     report_result "$command_id" "ERROR" "${existing[*]}" "[]" \
       "Scan failed (exit code ${exit_code}): $(scan_error_detail "$output")"

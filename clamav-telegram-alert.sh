@@ -228,12 +228,21 @@ if [ -n "$INFECTED_LINES" ]; then
   send_report "VIRUS_FOUND" ""
   echo "[$TIMESTAMP] report sent to the dashboard (${COUNT} infected files)" >> "$LOG_FILE"
 
-elif [ "$EXIT_CODE" -eq 2 ]; then
-  # Scan error (e.g. clamd unreachable) - report it anyway
+elif [ "$EXIT_CODE" -eq 2 ] && ! printf '%s\n' "$SCAN_OUTPUT" | grep -qE '^Infected files: 0$'; then
+  # clamdscan/clamscan exit 2 for two very different situations it cannot
+  # tell apart in its own exit code: the scan never really ran (clamd died
+  # mid-scan, a bad target...) and "it ran to completion, found nothing, but
+  # could not open some individual file along the way" (a permission-
+  # protected system file, a socket, a SIP-restricted path on macOS...). The
+  # summary line only gets printed once a scan has actually finished, so its
+  # absence here means this is the first, genuine kind of failure.
   send_report "ERROR" "Scan failed (exit code ${EXIT_CODE}) on ${SCAN_PATHS[*]}: $(scan_error_detail "$SCAN_OUTPUT")"
   echo "[$TIMESTAMP] scan error, warning report sent to the dashboard" >> "$LOG_FILE"
 
 else
+  # Either a clean exit 0, or exit 2 with a completed summary and zero
+  # infections - ordinary noise on a broad target, not worth an alert on a
+  # scheduled scan whose whole point is to stay quiet when nothing is wrong.
   echo "[$TIMESTAMP] nothing infected, no report sent" >> "$LOG_FILE"
 fi
 
