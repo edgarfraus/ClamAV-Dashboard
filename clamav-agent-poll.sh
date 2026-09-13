@@ -213,6 +213,21 @@ quarantine_file() {
   return 1
 }
 
+# --fdpass hands clamd an already-open file descriptor via SCM_RIGHTS, which
+# is a UNIX-domain-socket capability - TCP cannot carry it at all, at the
+# kernel level, regardless of ClamAV's own configuration. A clamd reachable
+# only over TCP (no LocalSocket in clamd.conf - the stock state of a
+# Homebrew-installed clamd on macOS, unless someone edits the config) makes
+# every --fdpass scan fail outright and identically no matter what is being
+# scanned, which is exactly indistinguishable from "every target is somehow
+# broken" without this check. Verified against this very script (always
+# present, always readable, never infected) rather than trying to read
+# clamd.conf, whose path this generic script does not always know.
+fdpass_available() {
+  clamdscan --fdpass "$0" >/dev/null 2>&1
+  [[ $? -le 1 ]]
+}
+
 # Picks whichever scanner is available. clamdscan is much faster (signatures are
 # already in the daemon's memory); clamscan is the fallback when clamd is silent.
 # Sets SCANNER on success. On failure, sets SCANNER_ERROR too: "neither binary
@@ -223,7 +238,11 @@ quarantine_file() {
 pick_scanner() {
   if command -v clamdscan >/dev/null 2>&1; then
     if clamdscan --ping 1 >/dev/null 2>&1; then
-      SCANNER=(clamdscan --multiscan --fdpass --infected)
+      if fdpass_available; then
+        SCANNER=(clamdscan --multiscan --fdpass --infected)
+      else
+        SCANNER=(clamdscan --multiscan --infected)
+      fi
       return 0
     elif command -v clamscan >/dev/null 2>&1; then
       SCANNER=(clamscan --recursive --infected)

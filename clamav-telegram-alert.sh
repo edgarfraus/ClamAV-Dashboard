@@ -126,7 +126,18 @@ if [[ ${#SCAN_PATHS[@]} -eq 0 ]]; then
 # back to clamscan, which is self-contained: slower, but the scan still happens.
 elif command -v clamdscan >/dev/null 2>&1; then
   if clamdscan --ping 1 >/dev/null 2>&1; then
-    SCANNER=(clamdscan --multiscan --fdpass --infected)
+    # --fdpass needs a UNIX-domain socket to clamd (SCM_RIGHTS cannot cross
+    # TCP at all, at the kernel level): a stock Homebrew clamd on macOS, or
+    # any clamd without LocalSocket in its config, makes every --fdpass scan
+    # fail outright and identically no matter what is targeted. Verified
+    # against this very script (always present, readable, never infected).
+    FDPASS_RC=0
+    clamdscan --fdpass "$0" >/dev/null 2>&1 || FDPASS_RC=$?
+    if [ "$FDPASS_RC" -le 1 ]; then
+      SCANNER=(clamdscan --multiscan --fdpass --infected)
+    else
+      SCANNER=(clamdscan --multiscan --infected)
+    fi
   elif command -v clamscan >/dev/null 2>&1; then
     SCANNER=(clamscan --recursive --infected)
     echo "[$TIMESTAMP] clamd unreachable: falling back to clamscan (slower)" >> "$LOG_FILE"
