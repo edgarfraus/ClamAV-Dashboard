@@ -206,14 +206,30 @@ quarantine_file() {
 
 # Picks whichever scanner is available. clamdscan is much faster (signatures are
 # already in the daemon's memory); clamscan is the fallback when clamd is silent.
+# Sets SCANNER on success. On failure, sets SCANNER_ERROR too: "neither binary
+# is installed" and "clamdscan is there but clamd isn't answering" need
+# completely different fixes (install the package vs. check the daemon), and
+# reporting them as the same generic message sends whoever reads the job to
+# the wrong place.
 pick_scanner() {
-  if command -v clamdscan >/dev/null 2>&1 && clamdscan --ping 1 >/dev/null 2>&1; then
-    SCANNER=(clamdscan --multiscan --fdpass --infected)
-    return 0
+  if command -v clamdscan >/dev/null 2>&1; then
+    if clamdscan --ping 1 >/dev/null 2>&1; then
+      SCANNER=(clamdscan --multiscan --fdpass --infected)
+      return 0
+    elif command -v clamscan >/dev/null 2>&1; then
+      SCANNER=(clamscan --recursive --infected)
+      return 0
+    else
+      SCANNER_ERROR="clamdscan is installed but clamd is not responding to --ping"
+      SCANNER_ERROR+=" (and clamscan is not installed as a fallback)."
+      SCANNER_ERROR+=" Check: systemctl status 'clamd@*' clamd"
+      return 1
+    fi
   elif command -v clamscan >/dev/null 2>&1; then
     SCANNER=(clamscan --recursive --infected)
     return 0
   fi
+  SCANNER_ERROR="Neither clamdscan nor clamscan is installed on this machine."
   return 1
 }
 
@@ -289,8 +305,7 @@ run_command() {
   fi
 
   if ! pick_scanner; then
-    report_result "$command_id" "ERROR" "${existing[*]}" "[]" \
-      "Neither clamdscan nor clamscan is installed on this machine."
+    report_result "$command_id" "ERROR" "${existing[*]}" "[]" "$SCANNER_ERROR"
     return
   fi
 

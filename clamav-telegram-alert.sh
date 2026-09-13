@@ -93,13 +93,27 @@ echo "[$TIMESTAMP] starting scan of: ${SCAN_PATHS[*]}" >> "$LOG_FILE"
 # ClamAV from Homebrew, where the daemon does not start on its own) it falls
 # back to clamscan, which is self-contained: slower, but the scan still happens.
 NO_SCANNER=0
-if command -v clamdscan >/dev/null 2>&1 && clamdscan --ping 1 >/dev/null 2>&1; then
-  SCANNER=(clamdscan --multiscan --fdpass --infected)
+NO_SCANNER_REASON=""
+if command -v clamdscan >/dev/null 2>&1; then
+  if clamdscan --ping 1 >/dev/null 2>&1; then
+    SCANNER=(clamdscan --multiscan --fdpass --infected)
+  elif command -v clamscan >/dev/null 2>&1; then
+    SCANNER=(clamscan --recursive --infected)
+    echo "[$TIMESTAMP] clamd unreachable: falling back to clamscan (slower)" >> "$LOG_FILE"
+  else
+    # Two different problems that need two different fixes (start the daemon
+    # vs. install the fallback package): reporting them as one generic
+    # "neither is installed" sends whoever reads it to the wrong place, when
+    # clamdscan being present at all already rules that half out.
+    NO_SCANNER_REASON="clamdscan is installed but clamd is not responding to --ping (and clamscan is not installed as a fallback)."
+    echo "[$TIMESTAMP] $NO_SCANNER_REASON" >> "$LOG_FILE"
+    NO_SCANNER=1
+  fi
 elif command -v clamscan >/dev/null 2>&1; then
   SCANNER=(clamscan --recursive --infected)
-  echo "[$TIMESTAMP] clamd unreachable: falling back to clamscan (slower)" >> "$LOG_FILE"
 else
-  echo "[$TIMESTAMP] neither clamdscan nor clamscan available" >> "$LOG_FILE"
+  NO_SCANNER_REASON="Neither clamdscan nor clamscan is installed on this machine."
+  echo "[$TIMESTAMP] $NO_SCANNER_REASON" >> "$LOG_FILE"
   NO_SCANNER=1
 fi
 
@@ -116,7 +130,7 @@ if [ "$NO_SCANNER" -eq 0 ]; then
 else
   # No scanner: report it as a scan error, so the console sees the problem
   # instead of simply never hearing from this machine again.
-  SCAN_OUTPUT="Neither clamdscan nor clamscan is installed on this machine."
+  SCAN_OUTPUT="$NO_SCANNER_REASON"
   EXIT_CODE=2
 fi
 
