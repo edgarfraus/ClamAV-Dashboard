@@ -806,8 +806,18 @@ EOF
   systemctl daemon-reload
   # "|| true": if a service fails to start we want to reach the diagnostic block
   # below and show the journal, not die because of set -e.
-  systemctl enable --now clamav-onacc.service || true
-  systemctl enable --now clamav-console-report.service || true
+  #
+  # restart, not "enable --now": on a machine already enrolled, this unit file
+  # and/or console-report.conf may just have been rewritten (a different
+  # CLAMONACC_MODE, a new console URL/key after a key rotation...), but a
+  # process already running read all of that at its own startup and never
+  # looks again - "--now" is a no-op start on an already-active unit, so the
+  # new config would otherwise sit on disk unused until something else
+  # happened to bounce the service.
+  systemctl enable clamav-onacc.service || true
+  systemctl enable clamav-console-report.service || true
+  systemctl restart clamav-onacc.service || true
+  systemctl restart clamav-console-report.service || true
   sleep 3
 
   if [[ "$ONACC_SUPPORTED" -eq 1 ]] && systemctl is-active --quiet clamav-onacc.service; then

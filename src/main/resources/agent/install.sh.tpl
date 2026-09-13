@@ -229,7 +229,15 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable --now clamav-agent-poll.service || true
+  systemctl enable clamav-agent-poll.service || true
+  # restart, not "enable --now": on a machine already enrolled, this script
+  # just rewrote /etc/clamav/console-report.conf with a (possibly different)
+  # URL/key, but the process already running read the OLD file at its own
+  # startup and never looks at it again - "--now" is a no-op start on an
+  # already-active unit, so without an explicit restart the new config would
+  # sit on disk unused, sometimes for days, until something else happened to
+  # bounce the service.
+  systemctl restart clamav-agent-poll.service || true
   sleep 2
   if systemctl is-active --quiet clamav-agent-poll.service; then
     ok "Console-driven scans enabled: the console Scan button reaches this machine."
