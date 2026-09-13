@@ -148,6 +148,21 @@ function Find-ClamScan {
     return $null
 }
 
+# "ClamAV 1.4.6/27650/Mon Jan 1 00:00:00 2024" - same format the Linux/macOS
+# agents send, so the console shows the signature database version and age
+# without needing to connect here. 2>$null (not 2>&1): merging stderr into
+# the success stream is what turns a harmless clamscan warning into a
+# terminating exception elsewhere in this script; simply discarding it here
+# avoids the problem instead of having to reason about it again.
+function Get-ClamavVersionString {
+    param([string]$ClamScanPath)
+    try {
+        $v = & $ClamScanPath --version 2>$null | Select-Object -First 1
+        if ($v) { return [string]$v }
+    } catch { }
+    return ''
+}
+
 $clamScan = Find-ClamScan
 
 if (-not $clamScan) {
@@ -292,6 +307,13 @@ $ErrorActionPreference = 'Stop'
 $cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
 
+$clamavVersion = ''
+try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Object -First 1) } catch { }
+# Sent on every request, same as clamscan's own version above: there is no
+# clamd on Windows (no realtime, see the note at the top of this installer),
+# so "unsupported" is a fixed fact about this OS, not something to detect.
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported' }
+
 $findings = New-Object System.Collections.Generic.List[string]
 $verdict  = 'OK'
 $errorMsg = ''
@@ -305,7 +327,7 @@ $remediationPath = ''
 # own Scheduled Task - hence the separate /api/agent/mode endpoint.
 $mode = $null
 try {
-    $modeResp = Invoke-RestMethod -Uri "$base/api/agent/mode" -Headers @{ 'X-Agent-Key' = $cfg.AgentKey } -TimeoutSec 15
+    $modeResp = Invoke-RestMethod -Uri "$base/api/agent/mode" -Headers $headers -TimeoutSec 15
     $mode = $modeResp.onAccessMode
 } catch { }
 
@@ -373,8 +395,7 @@ $payload = @{
     remediationPath = $remediationPath
 } | ConvertTo-Json -Depth 4
 
-Invoke-RestMethod -Method Post -Uri "$base/api/scan/report" `
-    -Headers @{ 'X-Agent-Key' = $cfg.AgentKey } `
+Invoke-RestMethod -Method Post -Uri "$base/api/scan/report" -Headers $headers `
     -ContentType 'application/json' -Body $payload | Out-Null
 '@
 Set-Content -Path $ScanScript -Value $scanScriptBody -Encoding UTF8
@@ -401,7 +422,13 @@ $pollScriptBody = @'
 $ErrorActionPreference = 'Stop'
 $cfg = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
-$headers = @{ 'X-Agent-Key' = $cfg.AgentKey }
+
+$clamavVersion = ''
+try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Object -First 1) } catch { }
+# Sent on every request, same as clamscan's own version above: there is no
+# clamd on Windows (no realtime, see the note at the top of this installer),
+# so "unsupported" is a fixed fact about this OS, not something to detect.
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported' }
 
 try {
     $resp = Invoke-RestMethod -Uri "$base/api/agent/commands" -Headers $headers -TimeoutSec 15
@@ -508,7 +535,11 @@ try {
         errorMessage = "Windows agent connectivity test: console and key are working."
     } | ConvertTo-Json
     Invoke-RestMethod -Method Post -Uri ($ConsoleUrl.TrimEnd('/') + '/api/scan/report') `
-        -Headers @{ 'X-Agent-Key' = $AgentKey } `
+        -Headers @{
+            'X-Agent-Key'          = $AgentKey
+            'X-Agent-Clamav'       = (Get-ClamavVersionString $clamScan)
+            'X-Agent-OnAccess-Mode' = 'unsupported'
+        } `
         -ContentType 'application/json' -Body $testPayload | Out-Null
     Write-Ok "Console reachable: look for the test job on the Jobs page."
 } catch {

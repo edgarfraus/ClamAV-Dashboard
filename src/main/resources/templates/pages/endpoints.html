@@ -154,7 +154,9 @@
                   </td>
                   <td style="font-size:12px;">
                     <span th:if="${e.agentOnAccessMode == null}" class="muted">—</span>
-                    <span th:if="${e.agentOnAccessMode != null}" class="badge-status"
+                    <span th:if="${e.agentOnAccessMode == 'unsupported'}" class="muted"
+                          title="Realtime non disponibile su questa piattaforma (fanotify e' solo Linux)">n/d piattaforma</span>
+                    <span th:if="${e.agentOnAccessMode == 'prevent' or e.agentOnAccessMode == 'detect'}" class="badge-status"
                           th:classappend="${e.agentOnAccessMode == 'prevent'} ? 'badge-virus_found' : 'badge-ok'"
                           th:title="${'Gestita dal gruppo ' + (e.group != null ? e.group.name : '—')}"
                           th:text="${e.agentOnAccessMode}">detect</span>

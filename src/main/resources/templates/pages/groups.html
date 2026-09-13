@@ -123,12 +123,16 @@
                       <span th:if="${!ep.agentEnrolled}">n/a</span>
                       <span th:if="${ep.agentEnrolled}">non ancora riportato</span>
                     </span>
-                    <span th:if="${ep.agentOnAccessMode != null}"
+                    <span th:if="${ep.agentOnAccessMode == 'unsupported'}" class="muted" style="font-size:12px;"
+                          title="Realtime non disponibile su questa piattaforma (fanotify e' solo Linux): la scelta Detection/Prevention si applica comunque alle scansioni programmate e da console.">
+                      n/d piattaforma
+                    </span>
+                    <span th:if="${ep.agentOnAccessMode == 'prevent' or ep.agentOnAccessMode == 'detect'}"
                           class="badge-status"
                           th:classappend="${ep.agentOnAccessMode == 'prevent'} ? 'badge-virus_found' : 'badge-ok'"
                           th:title="${'Ultimo report agent: ' + ep.agentOnAccessAppliedAt}"
                           th:text="${ep.agentOnAccessMode}">detect</span>
-                    <span th:if="${ep.agentOnAccessMode != null
+                    <span th:if="${(ep.agentOnAccessMode == 'prevent' or ep.agentOnAccessMode == 'detect')
                                    and ((ep.agentOnAccessMode == 'prevent') != g.onAccessPrevent)}"
                           class="muted" style="font-size:11px;" title="In attesa che l'agent applichi il cambio al prossimo poll">
                       (pending)

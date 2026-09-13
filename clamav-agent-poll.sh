@@ -88,6 +88,15 @@ clamav_version() {
 # (X-Agent-OnAccess-Mode) so the console shows what is REALLY in effect, not
 # just the mode it last asked for.
 current_onaccess_mode() {
+  # This script also runs unmodified on macOS (install_macos() in
+  # install.sh.tpl reuses it verbatim): on-access uses fanotify, which is
+  # Linux-only, so realtime can never exist there, not just "not installed
+  # yet" - report that plainly instead of an empty value a console can't
+  # tell apart from "hasn't reported yet".
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    printf 'unsupported'
+    return 0
+  fi
   [[ -n "$CLAMD_CONF_PATH" && -r "$CLAMD_CONF_PATH" ]] || return 0
   local v
   v="$(grep -E '^[[:space:]]*OnAccessPrevention[[:space:]]+' "$CLAMD_CONF_PATH" | awk '{print $2}' | tail -1 || true)"

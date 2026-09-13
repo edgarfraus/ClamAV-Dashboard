@@ -152,6 +152,15 @@ flush_spool() {
 # in sync there, not asked for here): this reporter only follows the log and
 # has no poll loop of its own to receive the console's desired mode through.
 current_onaccess_mode() {
+  # This binary is installed on macOS too (install_macos() in install.sh.tpl
+  # unpacks it unconditionally as the "--test" diagnostic tool, even though
+  # nothing ever runs it in --follow mode there): fanotify is Linux-only, so
+  # report that plainly rather than an empty value indistinguishable from
+  # "hasn't reported yet".
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    printf 'unsupported'
+    return 0
+  fi
   [[ -n "$CLAMD_CONF_PATH" && -r "$CLAMD_CONF_PATH" ]] || return 0
   local v
   v="$(grep -E '^[[:space:]]*OnAccessPrevention[[:space:]]+' "$CLAMD_CONF_PATH" | awk '{print $2}' | tail -1 || true)"

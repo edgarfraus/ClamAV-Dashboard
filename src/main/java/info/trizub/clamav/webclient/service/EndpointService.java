@@ -188,7 +188,11 @@ public class EndpointService {
                     String v = clamdVersion.trim();
                     ep.setAgentClamdVersion(v.length() > 255 ? v.substring(0, 255) : v);
                 }
-                if ("prevent".equals(onAccessMode) || "detect".equals(onAccessMode)) {
+                // "unsupported" = Windows/macOS agents reporting a platform fact (no
+                // fanotify there, ever), not a mode the console asked for - still
+                // worth persisting so the UI can say so instead of "not yet reported".
+                if ("prevent".equals(onAccessMode) || "detect".equals(onAccessMode)
+                        || "unsupported".equals(onAccessMode)) {
                     ep.setAgentOnAccessMode(onAccessMode);
                     ep.setAgentOnAccessAppliedAt(Instant.now());
                 }
