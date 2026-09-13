@@ -286,8 +286,17 @@ public class WebUiController {
     private static final List<String> DEFAULT_UNIX_TARGETS =
             List.of("/bin", "/boot", "/etc", "/home", "/lib", "/lib64", "/media", "/mnt",
                     "/opt", "/root", "/sbin", "/srv", "/tmp", "/usr", "/var", "/data");
+    // Without an agent, a bare drive root is blocked below (see isCriticalPath):
+    // clamd reached over TCP has no exclude filter, so this stays a curated
+    // subset for that path, the same reasoning as DEFAULT_UNIX_TARGETS.
     private static final List<String> DEFAULT_WINDOWS_TARGETS =
             List.of("C:\\Users", "C:\\Program Files", "C:\\Program Files (x86)");
+    // An agent-enrolled endpoint scans locally through its own clamscan.exe,
+    // where a full C:\ is exactly what a normal "full scan" means and carries
+    // none of the direct-TCP risk above - so it can just be the whole drive,
+    // rather than a curated subset that would leave most of the disk out.
+    private static final List<String> DEFAULT_WINDOWS_AGENT_TARGETS =
+            List.of("C:\\");
 
     // Paths that must NEVER be scanned, even if an admin explicitly configures them (or "/")
     // as a full-disk target. Reason: xyz.capybara:clamav-client's parallelScan(Path) has no
@@ -328,9 +337,10 @@ public class WebUiController {
                     .map(String::trim)
                     .filter(s -> !s.isEmpty() && !s.startsWith("#"))
                     .collect(Collectors.toList());
+        } else if (ep.getPlatform() == Platform.WINDOWS) {
+            base = new ArrayList<>(ep.isAgentEnrolled() ? DEFAULT_WINDOWS_AGENT_TARGETS : DEFAULT_WINDOWS_TARGETS);
         } else {
-            base = new ArrayList<>(ep.getPlatform() == Platform.WINDOWS
-                    ? DEFAULT_WINDOWS_TARGETS : DEFAULT_UNIX_TARGETS);
+            base = new ArrayList<>(DEFAULT_UNIX_TARGETS);
         }
 
         // Hard safety net: applies even to a custom fullDiskTargets list, so a critical path can

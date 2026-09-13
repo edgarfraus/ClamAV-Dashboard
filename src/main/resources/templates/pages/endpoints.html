@@ -219,7 +219,8 @@
         <div class="muted" style="font-size:13px;margin-bottom:12px;" id="modal-ep-name">endpoint</div>
         <div class="muted" style="font-size:12px;margin-bottom:8px;">
           One path per line. Lines starting with <code>#</code> are comments. Leave empty to use the platform default
-          (<code>/etc, /home, /var, /usr, /opt, /tmp…</code> for UNIX; <code>C:\Users, C:\Program&nbsp;Files…</code> for Windows).
+          (<code>/etc, /home, /var, /usr, /opt, /tmp…</code> for UNIX; on Windows the whole <code>C:\</code> with an agent,
+          otherwise <code>C:\Users, C:\Program&nbsp;Files…</code>).
         </div>
         <form id="targets-form" method="post">
           <textarea name="targets" id="modal-targets" class="form-control mono"
