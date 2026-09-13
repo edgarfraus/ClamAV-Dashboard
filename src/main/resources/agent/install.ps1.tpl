@@ -446,17 +446,27 @@ $quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
 if ($mode -eq 'prevent') { New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null }
 
 foreach ($cmd in $resp.commands) {
-    $targets = @($cmd.target -split "`n" | Where-Object { $_.Trim() -ne '' })
+    $requestedTargets = @($cmd.target -split "`n" | Where-Object { $_.Trim() -ne '' })
     $verdict  = 'OK'
     $errorMsg = ''
     $findings = New-Object System.Collections.Generic.List[string]
     $remediation     = 'not_attempted'
     $remediationPath = ''
 
+    # Drop targets that don't exist on THIS machine: clamscan given several
+    # paths at once exits non-zero as soon as ANY of them is missing, which
+    # would otherwise mark a full-disk/custom-target scan as ERROR even
+    # though every real directory scanned clean (these lists are configured
+    # once for a whole fleet, so not every machine has every path).
+    $targets = @($requestedTargets | Where-Object { Test-Path -LiteralPath $_ })
+
     $scanArgs = @('--infected')
     if ($mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
 
     try {
+        if ($targets.Count -eq 0) {
+            throw "None of the requested paths exist on this machine: $($requestedTargets -join ' ')"
+        }
         # No --recursive: this clamscan.exe build rejects it ("Ignoring unsupported
         # option --recursive (-r)") and scans subdirectories by default anyway.
         # As in the scheduled scan script above, stderr must not be promoted to a
@@ -490,9 +500,10 @@ foreach ($cmd in $resp.commands) {
         $errorMsg = $_.Exception.Message
     }
 
+    $reportedTargets = if ($targets.Count -gt 0) { $targets } else { $requestedTargets }
     $payload = @{
         hostname        = $env:COMPUTERNAME
-        path            = ($targets -join ' ')
+        path            = ($reportedTargets -join ' ')
         verdict         = $verdict
         commandId       = $cmd.id
         findings        = @($findings)

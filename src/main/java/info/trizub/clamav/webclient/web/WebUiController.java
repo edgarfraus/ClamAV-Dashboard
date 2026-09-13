@@ -303,11 +303,17 @@ public class WebUiController {
     private static final java.util.regex.Pattern WINDOWS_DRIVE_ROOT =
             java.util.regex.Pattern.compile("^[A-Za-z]:\\\\?$");
 
-    private boolean isCriticalPath(String target, Platform platform) {
+    private boolean isCriticalPath(String target, ClamdEndpoint ep) {
         if (target == null || target.isBlank()) return true;
         String t = target.trim();
-        if (platform == Platform.WINDOWS) {
-            return WINDOWS_DRIVE_ROOT.matcher(t).matches();
+        if (ep.getPlatform() == Platform.WINDOWS) {
+            // A whole drive is only safe when the scan runs locally through the
+            // agent's own clamscan.exe: reached directly, clamd has no exclude
+            // filter here either (same gap as "/" below), just without a
+            // /proc-style virtual filesystem to get stuck in on Windows. A full
+            // C:\ is what a normal "full scan" means and clamscan.exe handles
+            // it the same way it handles any other directory.
+            return !ep.isAgentEnrolled() && WINDOWS_DRIVE_ROOT.matcher(t).matches();
         }
         if (t.equals("/")) return true;
         return CRITICAL_UNIX_PREFIXES.stream()
@@ -329,7 +335,7 @@ public class WebUiController {
 
         // Hard safety net: applies even to a custom fullDiskTargets list, so a critical path can
         // never reach clamd through this button regardless of what's configured on the endpoint.
-        base = base.stream().filter(t -> !isCriticalPath(t, ep.getPlatform())).collect(Collectors.toList());
+        base = base.stream().filter(t -> !isCriticalPath(t, ep)).collect(Collectors.toList());
 
         List<String> excluded = exclusionRepo.findApplicableTo(ep)
                 .stream().map(ScanExclusion::getPath).collect(Collectors.toList());

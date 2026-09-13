@@ -27,6 +27,15 @@
 #
 set -uo pipefail
 
+# On macOS (install_macos() in install.sh.tpl reuses this same script under a
+# LaunchDaemon) this runs with launchd's own minimal PATH, not the interactive
+# shell PATH that "brew shellenv" sets up - so clamscan/clamdscan, installed
+# under Homebrew's prefix, are invisible to "command -v" here even though
+# they work fine from a Terminal. Without this, every scan fails with
+# "Neither clamdscan nor clamscan is installed on this machine." on a machine
+# where both plainly are. No-op on Linux, where these paths don't exist.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+
 CONFIG_FILE="${CONFIG_FILE:-/etc/clamav/console-report.conf}"
 [[ -r "$CONFIG_FILE" ]] && . "$CONFIG_FILE"
 

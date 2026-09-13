@@ -36,6 +36,11 @@
 #
 set -uo pipefail
 
+# Homebrew's bin directories aren't on a launchd daemon's PATH by default
+# (this binary is installed on macOS too, for its --test diagnostic - see
+# clamav-agent-poll.sh for the full reasoning). No-op on Linux.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+
 CONFIG_FILE="${CONFIG_FILE:-/etc/clamav/console-report.conf}"
 SPOOL_DIR="${SPOOL_DIR:-/var/lib/clamav-console-report/spool}"
 DEDUP_DIR="${DEDUP_DIR:-/var/lib/clamav-console-report/dedup}"

@@ -24,6 +24,14 @@
 #
 set -euo pipefail
 
+# On macOS (install_macos() in install.sh.tpl installs this same script under
+# a LaunchDaemon as clamav-scan-report.sh) this runs with launchd's own
+# minimal PATH, not the interactive shell PATH "brew shellenv" sets up - so
+# clamscan/clamdscan, installed under Homebrew's prefix, are invisible to
+# "command -v" here even though they work fine from a Terminal. No-op on
+# Linux, where these paths don't exist.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+
 ### === CONFIGURATION === ###
 
 # The installer's configuration takes precedence when present, so this script
@@ -66,6 +74,23 @@ else
   )
 fi
 
+# Drop targets that don't exist on THIS machine: clamdscan/clamscan given
+# several paths at once return a nonzero exit code as soon as ANY of them is
+# missing, which would otherwise mark the entire scan as failed even though
+# every real directory scanned clean. The default list above (and any
+# admin-configured SCAN_PATHS_LIST) is meant to cover a whole fleet, so not
+# every machine has every path - /var/www only existing on web servers is
+# exactly this in practice.
+EXISTING_SCAN_PATHS=()
+MISSING_SCAN_PATHS=()
+for p in "${SCAN_PATHS[@]}"; do
+  if [[ -e "$p" ]]; then EXISTING_SCAN_PATHS+=("$p"); else MISSING_SCAN_PATHS+=("$p"); fi
+done
+if [[ ${#MISSING_SCAN_PATHS[@]} -gt 0 ]]; then
+  echo "[$TIMESTAMP] skipping missing path(s): ${MISSING_SCAN_PATHS[*]}" >> "$LOG_FILE"
+fi
+SCAN_PATHS=("${EXISTING_SCAN_PATHS[@]}")
+
 # Paths to exclude (regexes, as accepted by clamdscan --exclude-dir)
 EXCLUDE_DIRS=(
   "^/var/lib/docker"
@@ -89,12 +114,17 @@ done
 
 echo "[$TIMESTAMP] starting scan of: ${SCAN_PATHS[*]}" >> "$LOG_FILE"
 
+NO_SCANNER=0
+NO_SCANNER_REASON=""
+
+if [[ ${#SCAN_PATHS[@]} -eq 0 ]]; then
+  NO_SCANNER_REASON="None of the configured scan paths exist on this machine."
+  echo "[$TIMESTAMP] $NO_SCANNER_REASON" >> "$LOG_FILE"
+  NO_SCANNER=1
 # clamdscan needs clamd to be running. Where it is not (typically macOS with
 # ClamAV from Homebrew, where the daemon does not start on its own) it falls
 # back to clamscan, which is self-contained: slower, but the scan still happens.
-NO_SCANNER=0
-NO_SCANNER_REASON=""
-if command -v clamdscan >/dev/null 2>&1; then
+elif command -v clamdscan >/dev/null 2>&1; then
   if clamdscan --ping 1 >/dev/null 2>&1; then
     SCANNER=(clamdscan --multiscan --fdpass --infected)
   elif command -v clamscan >/dev/null 2>&1; then

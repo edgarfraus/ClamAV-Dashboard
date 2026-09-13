@@ -310,6 +310,13 @@ install_linux() {
 # macOS
 # ---------------------------------------------------------------------------
 install_macos() {
+  # Homebrew's own bin directories: "sudo" on macOS does not always inherit
+  # the invoking user's PATH (depends on /etc/sudoers secure_path), and this
+  # runs under sudo. The scripts installed below export the same thing again
+  # for themselves, since they run later, standalone, under launchd - not
+  # under this shell at all.
+  export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+
   if ! command -v clamdscan >/dev/null 2>&1 && ! command -v clamscan >/dev/null 2>&1; then
     err "ClamAV does not appear to be installed. Install it with Homebrew and re-run:"
     err "    brew install clamav"
