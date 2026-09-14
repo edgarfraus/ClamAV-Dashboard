@@ -312,7 +312,7 @@ try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Objec
 # Sent on every request, same as clamscan's own version above: there is no
 # clamd on Windows (no realtime, see the note at the top of this installer),
 # so "unsupported" is a fixed fact about this OS, not something to detect.
-$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported' }
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows' }
 
 $findings = New-Object System.Collections.Generic.List[string]
 $verdict  = 'OK'
@@ -332,7 +332,16 @@ try {
 } catch { }
 
 $quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
-$scanArgs = @('--infected')
+# --recursive: unlike clamdscan (which hands directories to clamd, and clamd
+# always walks them fully on its own), clamscan.exe does NOT descend into
+# subdirectories by default - without this, "scan C:\" only looks at the
+# handful of files directly inside C:\ and returns clean in seconds, having
+# never touched anything a user or program actually put on disk. An earlier
+# fix dropped this flag entirely to silence one build's "unsupported option"
+# warning, which killed recursion along with the warning; the warning itself
+# is now harmless on its own (see the ErrorActionPreference note below), so
+# it can go back in.
+$scanArgs = @('--infected', '--recursive')
 if ($mode -eq 'prevent') {
     New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null
     $scanArgs += "--move=$quarantineDir"
@@ -440,7 +449,7 @@ try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Objec
 # Sent on every request, same as clamscan's own version above: there is no
 # clamd on Windows (no realtime, see the note at the top of this installer),
 # so "unsupported" is a fixed fact about this OS, not something to detect.
-$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported' }
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows' }
 
 try {
     $resp = Invoke-RestMethod -Uri "$base/api/agent/commands" -Headers $headers -TimeoutSec 15
@@ -472,17 +481,19 @@ foreach ($cmd in $resp.commands) {
     # once for a whole fleet, so not every machine has every path).
     $targets = @($requestedTargets | Where-Object { Test-Path -LiteralPath $_ })
 
-    $scanArgs = @('--infected')
+    # --recursive: clamscan.exe does not descend into subdirectories on its own
+    # (see the scheduled scan script above for why an earlier fix dropped it
+    # by mistake) - without it, a "full disk" scan of a whole directory tree
+    # only ever looks at the handful of files directly inside each target.
+    $scanArgs = @('--infected', '--recursive')
     if ($mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
 
     try {
         if ($targets.Count -eq 0) {
             throw "None of the requested paths exist on this machine: $($requestedTargets -join ' ')"
         }
-        # No --recursive: this clamscan.exe build rejects it ("Ignoring unsupported
-        # option --recursive (-r)") and scans subdirectories by default anyway.
-        # As in the scheduled scan script above, stderr must not be promoted to a
-        # terminating error or a clean/warned scan would be reported as ERROR.
+        # stderr must not be promoted to a terminating error, or a clean/warned
+        # scan would be reported as ERROR.
         $ErrorActionPreference = 'Continue'
         $output = & $cfg.ClamScan @scanArgs $targets 2>&1
         $exit = $LASTEXITCODE
@@ -569,6 +580,7 @@ try {
             'X-Agent-Key'          = $AgentKey
             'X-Agent-Clamav'       = (Get-ClamavVersionString $clamScan)
             'X-Agent-OnAccess-Mode' = 'unsupported'
+            'X-Agent-OS'           = 'windows'
         } `
         -ContentType 'application/json' -Body $testPayload | Out-Null
     Write-Ok "Console reachable: look for the test job on the Jobs page."

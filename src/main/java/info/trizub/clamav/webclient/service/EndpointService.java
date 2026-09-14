@@ -180,7 +180,7 @@ public class EndpointService {
      * Best-effort: non deve mai far fallire la richiesta dell'agent.
      */
     @Transactional
-    public void touchAgentSeen(Long id, String clamdVersion, String onAccessMode) {
+    public void touchAgentSeen(Long id, String clamdVersion, String onAccessMode, String agentOs) {
         try {
             repo.findById(id).ifPresent(ep -> {
                 ep.setAgentLastSeenAt(Instant.now());
@@ -195,6 +195,9 @@ public class EndpointService {
                         || "unsupported".equals(onAccessMode)) {
                     ep.setAgentOnAccessMode(onAccessMode);
                     ep.setAgentOnAccessAppliedAt(Instant.now());
+                }
+                if ("linux".equals(agentOs) || "macos".equals(agentOs) || "windows".equals(agentOs)) {
+                    ep.setAgentOs(agentOs);
                 }
                 repo.save(ep);
             });

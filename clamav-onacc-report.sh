@@ -103,6 +103,16 @@ json_escape() {
   printf '%s' "$s"
 }
 
+# Attached to every request (X-Agent-OS) so the console knows what this
+# machine actually is - see clamav-agent-poll.sh's agent_os() for the full
+# reasoning (the Platform field has no macOS value to pick).
+agent_os() {
+  case "$(uname -s)" in
+    Linux)  printf 'linux' ;;
+    Darwin) printf 'macos' ;;
+  esac
+}
+
 # clamd/ClamAV version on this machine, formatted as
 # "ClamAV 1.0.3/27263/Tue Sep  2 ...". Attached to every request so the console
 # can show the signature database version and age without connecting here.
@@ -125,6 +135,7 @@ post_payload() {
   curl -sS -f --max-time "$CURL_TIMEOUT" \
     "${AUTH_ARGS[@]}" "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
     -H "X-Agent-Clamav: $(clamav_version)" \
+    -H "X-Agent-OS: $(agent_os)" \
     -X POST "${DASHBOARD_URL%/}/api/scan/report" \
     -H 'Content-Type: application/json' \
     -d "$payload" > /dev/null 2>&1

@@ -198,6 +198,16 @@ clamav_version() {
   printf '%s' "$v"
 }
 
+# So the console knows what this machine actually is - see
+# clamav-agent-poll.sh's agent_os() for the full reasoning (the Platform
+# field has no macOS value to pick).
+agent_os() {
+  case "$(uname -s)" in
+    Linux)  printf 'linux' ;;
+    Darwin) printf 'macos' ;;
+  esac
+}
+
 # Build the JSON array of infected lines (one raw string per line; parsing
 # "path: SIGNATURE FOUND" is done server-side by the dashboard).
 FINDINGS_JSON="[]"
@@ -228,6 +238,7 @@ send_report() {
 
   curl -s "${AUTH_ARGS[@]}" "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
     -H "X-Agent-Clamav: $(clamav_version)" \
+    -H "X-Agent-OS: $(agent_os)" \
     -X POST "${DASHBOARD_URL%/}/api/scan/report" \
     -H 'Content-Type: application/json' \
     -d "$payload" \

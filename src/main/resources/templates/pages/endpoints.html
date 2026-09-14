@@ -132,6 +132,10 @@
                       <option value="WINDOWS" th:selected="${e.platform.name() == 'WINDOWS'}">WINDOWS</option>
                       <option value="JVM_PLATFORM" th:selected="${e.platform.name() == 'JVM_PLATFORM'}">JVM</option>
                     </select>
+                    <div th:if="${e.agentOs != null}" class="muted" style="font-size:10px;margin-top:2px;"
+                         title="Riportato dall'agent stesso - usato per scegliere le cartelle di una scansione completa, non dipende da questa selezione">
+                      agent: <span th:text="${e.agentOs}">linux</span>
+                    </div>
                   </td>
                   <td style="width:130px;">
                     <select class="form-select form-select-sm" th:form="${'ep-form-' + e.id}" name="groupId">
@@ -219,8 +223,9 @@
         <div class="muted" style="font-size:13px;margin-bottom:12px;" id="modal-ep-name">endpoint</div>
         <div class="muted" style="font-size:12px;margin-bottom:8px;">
           One path per line. Lines starting with <code>#</code> are comments. Leave empty to use the platform default
-          (<code>/etc, /home, /var, /usr, /opt, /tmp…</code> for UNIX; on Windows the whole <code>C:\</code> with an agent,
-          otherwise <code>C:\Users, C:\Program&nbsp;Files…</code>).
+          (<code>/etc, /home, /var, /usr, /opt, /tmp…</code> for Linux; <code>/Users, /Applications, /Library</code> for
+          macOS, detected from the agent itself; on Windows the whole <code>C:\</code> with an agent, otherwise
+          <code>C:\Users, C:\Program&nbsp;Files…</code>).
         </div>
         <form id="targets-form" method="post">
           <textarea name="targets" id="modal-targets" class="form-control mono"

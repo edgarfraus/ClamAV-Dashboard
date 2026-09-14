@@ -78,6 +78,20 @@ json_escape() {
   printf '%s' "$s"
 }
 
+# Attached to every request (X-Agent-OS) so the console knows what this
+# machine actually is instead of whatever an admin happened to pick in the
+# Platform dropdown - that field comes from xyz.capybara:clamav-client and
+# only has UNIX/WINDOWS/JVM_PLATFORM, no macOS value, so a Mac endpoint has
+# nothing better to be labelled there. This is what a full-disk scan's
+# default targets are chosen from (see resolveFullDiskTargets on the
+# console): /Users on macOS is not the same list as Linux's /home.
+agent_os() {
+  case "$(uname -s)" in
+    Linux)  printf 'linux' ;;
+    Darwin) printf 'macos' ;;
+  esac
+}
+
 # clamd/ClamAV version on this machine, as "ClamAV 1.0.3/27263/Tue Sep  2 ...".
 # Attached to every request so the console can display the signature database
 # version and age without connecting to this machine, which it no longer does.
@@ -288,6 +302,7 @@ report_result() {
        -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
        -H "X-Agent-Clamav: $(clamav_version)" \
        -H "X-Agent-OnAccess-Mode: $(current_onaccess_mode)" \
+       -H "X-Agent-OS: $(agent_os)" \
        "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
        -X POST "${DASHBOARD_URL%/}/api/scan/report" \
        -H 'Content-Type: application/json' \
@@ -420,6 +435,7 @@ poll_once() {
       -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
       -H "X-Agent-Clamav: $(clamav_version)" \
       -H "X-Agent-OnAccess-Mode: $(current_onaccess_mode)" \
+      -H "X-Agent-OS: $(agent_os)" \
       "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
       "${DASHBOARD_URL%/}/api/agent/commands?format=text" 2>/dev/null)" || {
     log "console unreachable, retrying on the next pass"

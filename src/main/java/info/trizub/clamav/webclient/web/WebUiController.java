@@ -282,16 +282,19 @@ public class WebUiController {
 
     // "Complete" here means every real directory under root — everything except the virtual/
     // pseudo filesystems below, which are never safe to hand to clamd as a scan target (see
-    // CRITICAL_UNIX_PREFIXES). One shared list for Linux and macOS, not two: the agent already
-    // skips whatever doesn't exist on a given machine (clamav-agent-poll.sh's run_command), so
-    // there is no need to know which of the two a UNIX-platform endpoint actually is - a Linux
-    // box simply never has /Users or /Applications, and a Mac never has /boot or /lib64. Without
-    // /Users specifically, a full-disk scan on a Mac silently covered nothing a user ever
-    // touches: /home there is an unused automount stub, not where accounts actually live.
+    // CRITICAL_UNIX_PREFIXES).
     private static final List<String> DEFAULT_UNIX_TARGETS =
             List.of("/bin", "/boot", "/etc", "/home", "/lib", "/lib64", "/media", "/mnt",
-                    "/opt", "/root", "/sbin", "/srv", "/tmp", "/usr", "/var", "/data",
-                    "/Users", "/Applications");
+                    "/opt", "/root", "/sbin", "/srv", "/tmp", "/usr", "/var", "/data");
+    // macOS is not the same list with the gaps filtered out: /home there is an
+    // unused automount stub (accounts live in /Users), and most of the Linux
+    // FHS paths above don't exist at all. Picked from ep.getAgentOs(), which
+    // the agent itself reports (X-Agent-OS) - not the "platform" field further
+    // down, which comes from xyz.capybara:clamav-client and has no macOS value
+    // (UNIX/WINDOWS/JVM_PLATFORM only), so a Mac endpoint has never had a
+    // correct option there.
+    private static final List<String> DEFAULT_MACOS_TARGETS =
+            List.of("/Users", "/Applications", "/Library");
     // Without an agent, a bare drive root is blocked below (see isCriticalPath):
     // clamd reached over TCP has no exclude filter, so this stays a curated
     // subset for that path, the same reasoning as DEFAULT_UNIX_TARGETS.
@@ -345,6 +348,8 @@ public class WebUiController {
                     .collect(Collectors.toList());
         } else if (ep.getPlatform() == Platform.WINDOWS) {
             base = new ArrayList<>(ep.isAgentEnrolled() ? DEFAULT_WINDOWS_AGENT_TARGETS : DEFAULT_WINDOWS_TARGETS);
+        } else if ("macos".equals(ep.getAgentOs())) {
+            base = new ArrayList<>(DEFAULT_MACOS_TARGETS);
         } else {
             base = new ArrayList<>(DEFAULT_UNIX_TARGETS);
         }

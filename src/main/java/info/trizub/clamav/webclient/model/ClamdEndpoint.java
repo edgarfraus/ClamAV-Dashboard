@@ -66,6 +66,18 @@ public class ClamdEndpoint {
 
     private Instant agentOnAccessAppliedAt;
 
+    // Sistema operativo riportato dall'agent stesso ("linux"/"macos"/"windows"),
+    // via X-Agent-OS a ogni richiesta - non e' il campo "platform" qui sotto,
+    // che viene da xyz.capybara:clamav-client e serve solo al protocollo verso
+    // clamd (quell'enum non ha un valore macOS: UNIX/WINDOWS/JVM_PLATFORM).
+    // Un mac riportato lì come "JVM" per mancanza di alternative nel menu a
+    // tendina e' un'etichetta scelta a mano, non un fatto verificato; questo
+    // campo invece arriva dalla macchina stessa e serve a scegliere le
+    // directory di default corrette per una scansione completa (es. /Users
+    // su macOS, dove /home e' solo uno stub dell'automounter).
+    @Column(length = 16)
+    private String agentOs;
+
     public ClamdEndpoint() {}
 
     public ClamdEndpoint(String name, String host, int port, Platform platform) {
@@ -100,5 +112,7 @@ public class ClamdEndpoint {
     public void setAgentOnAccessMode(String agentOnAccessMode) { this.agentOnAccessMode = agentOnAccessMode; }
     public Instant getAgentOnAccessAppliedAt() { return agentOnAccessAppliedAt; }
     public void setAgentOnAccessAppliedAt(Instant agentOnAccessAppliedAt) { this.agentOnAccessAppliedAt = agentOnAccessAppliedAt; }
+    public String getAgentOs() { return agentOs; }
+    public void setAgentOs(String agentOs) { this.agentOs = agentOs; }
     public boolean isAgentEnrolled() { return agentKey != null && !agentKey.isBlank(); }
 }
