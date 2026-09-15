@@ -318,9 +318,51 @@ install_macos() {
   export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
 
   if ! command -v clamdscan >/dev/null 2>&1 && ! command -v clamscan >/dev/null 2>&1; then
-    err "ClamAV does not appear to be installed. Install it with Homebrew and re-run:"
-    err "    brew install clamav"
-    exit 1
+    if ! command -v brew >/dev/null 2>&1; then
+      err "ClamAV is not installed and Homebrew is not available to install it."
+      err "Install Homebrew (https://brew.sh), then either run this script again"
+      err "or install ClamAV yourself:  brew install clamav"
+      exit 1
+    fi
+    log "ClamAV not found - installing it via Homebrew..."
+    # Homebrew refuses to run as root, but this whole script does (see the root
+    # check above): run it as whoever invoked sudo, falling back to the current
+    # user on the off chance this is somehow already running unprivileged.
+    local brew_user="${SUDO_USER:-$(whoami)}"
+    if ! sudo -u "$brew_user" brew install clamav; then
+      err "brew install clamav failed. Install it manually and re-run this script:"
+      err "    brew install clamav"
+      exit 1
+    fi
+    if ! command -v clamdscan >/dev/null 2>&1 && ! command -v clamscan >/dev/null 2>&1; then
+      err "ClamAV was installed but clamdscan/clamscan could not be found afterwards."
+      err "Open a new terminal (so PATH is refreshed) and re-run this script."
+      exit 1
+    fi
+    ok "ClamAV installed via Homebrew."
+
+    # A fresh Homebrew install ships no signature database, and freshclam
+    # refuses to run until the "Example" placeholder line is removed from
+    # freshclam.conf - the same bootstrap install.ps1.tpl does for the Windows
+    # package. Only done here, right after a fresh install: per the freshclam
+    # gotcha elsewhere in this project, never touch a database that already
+    # works, since a failed refresh (proxy, or ClamAV's own 429s) deletes the
+    # old files before the new ones ever land.
+    local brew_prefix clamav_etc freshclam_conf freshclam_sample
+    brew_prefix="$(brew --prefix 2>/dev/null || echo /usr/local)"
+    clamav_etc="$brew_prefix/etc/clamav"
+    freshclam_conf="$clamav_etc/freshclam.conf"
+    freshclam_sample="$clamav_etc/freshclam.conf.sample"
+    if [[ ! -f "$freshclam_conf" && -f "$freshclam_sample" ]]; then
+      grep -v '^Example$' "$freshclam_sample" > "$freshclam_conf"
+    fi
+    if [[ -f "$freshclam_conf" ]] && command -v freshclam >/dev/null 2>&1; then
+      log "Downloading the virus database (freshclam, first run - can take a minute)..."
+      freshclam --config-file="$freshclam_conf" || \
+        warn "freshclam failed - check network/proxy, then run it manually: freshclam --config-file=\"$freshclam_conf\""
+    else
+      warn "freshclam.conf could not be prepared - update the virus database manually."
+    fi
   fi
 
   write_agent_config
@@ -381,6 +423,25 @@ PLIST
     launchctl unload /Library/LaunchDaemons/com.claimav.agent.scan.plist 2>/dev/null || true
     launchctl load  /Library/LaunchDaemons/com.claimav.agent.scan.plist
     ok "Scheduled scan enabled (every night at 02:30)."
+  fi
+
+  if [[ "$WANT_CENTRAL" == "1" || "$WANT_SCHEDULED" == "1" ]]; then
+    # Verified behaviour, not a theoretical concern: since Catalina, macOS's TCC
+    # blocks access to protected user data (Desktop, Documents, Downloads, Mail,
+    # Messages, Photos, most of ~/Library...) regardless of the caller's UID -
+    # being root, which this LaunchDaemon runs as, does NOT bypass it. Without
+    # an explicit grant, clamscan/clamdscan silently cannot read almost anything
+    # under /Users, and the "some files were unreadable" tolerance a broad scan
+    # already needs (see run_command in clamav-agent-poll.sh) reports that as a
+    # clean OK instead of an error - a full-disk scan finishes in seconds having
+    # actually scanned almost nothing, with no visible failure anywhere.
+    warn ""
+    warn "IMPORTANT - macOS Full Disk Access required:"
+    warn "  System Settings > Privacy & Security > Full Disk Access > add /bin/bash"
+    warn "Without it, scans of /Users will silently skip most real files and still"
+    warn "report clean. After granting it, restart the agent:"
+    warn "  sudo launchctl unload /Library/LaunchDaemons/com.claimav.agent.poll.plist"
+    warn "  sudo launchctl load /Library/LaunchDaemons/com.claimav.agent.poll.plist"
   fi
   return 0
 }
