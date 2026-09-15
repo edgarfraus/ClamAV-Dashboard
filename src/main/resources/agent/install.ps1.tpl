@@ -53,6 +53,7 @@ $InstallDir = Join-Path $env:ProgramData 'ClaimAV'
 $ConfigPath = Join-Path $InstallDir 'agent.conf.json'
 $ScanScript = Join-Path $InstallDir 'scan-report.ps1'
 $PollScript = Join-Path $InstallDir 'poll-agent.ps1'
+$RunCommandScript = Join-Path $InstallDir 'run-command.ps1'
 $TaskName   = 'ClaimAV Agent Scan'
 $PollTask   = 'ClaimAV Agent Poll'
 
@@ -439,6 +440,17 @@ if ($wantScheduled) {
 # --- 5b) Agent: runs the scans requested by the console ---------------------
 # This is what makes the console "Scan" button work for this machine: the
 # console queues, the agent picks up and runs locally.
+#
+# The actual clamscan.exe run happens in a DETACHED process (run-command.ps1,
+# below), not inline here. A full-disk scan can run far longer than the
+# console's AGENT_ALIVE_WINDOW (15 min, see ApiController.java): it is the GET
+# below that updates "last seen" on the console, and the Poll task is
+# registered with a 5-minute repetition - if the scan blocked this script the
+# way it used to, the task's next tick would find the previous instance still
+# running and skip (Task Scheduler's default is not to start a second
+# instance), so a machine actively scanning would get flagged offline for as
+# long as the scan took. Spawning the scan and returning immediately keeps
+# this task quick every time, so the heartbeat never stops.
 $pollScriptBody = @'
 $ErrorActionPreference = 'Stop'
 $cfg = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
@@ -461,96 +473,133 @@ try {
 # Detection vs Prevention (Admin > Groups > realtime mode). $resp already
 # carries it (AgentApiController includes it in the same JSON as the
 # commands), so no extra round trip is needed here the way the standalone
-# nightly scan script needs one.
-$mode = $resp.onAccessMode
-$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
-if ($mode -eq 'prevent') { New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null }
+# nightly scan script needs one. Cast to string: a group-less endpoint omits
+# the property entirely, and passing $null through to run-command.ps1's
+# -Mode (a [string] parameter) as a literal argument would error.
+$mode = [string]$resp.onAccessMode
 
+$runCommandScript = Join-Path $env:ProgramData 'ClaimAV\run-command.ps1'
 foreach ($cmd in $resp.commands) {
-    $requestedTargets = @($cmd.target -split "`n" | Where-Object { $_.Trim() -ne '' })
-    $verdict  = 'OK'
-    $errorMsg = ''
-    $findings = New-Object System.Collections.Generic.List[string]
-    $remediation     = 'not_attempted'
-    $remediationPath = ''
+    # Targets go through a temp file, not a command-line argument: they can
+    # contain spaces and there can be several, and a file sidesteps every
+    # quoting edge case Start-Process's -ArgumentList has with those. The
+    # child script deletes it once read.
+    $targetsFile = Join-Path $env:TEMP "claimav-targets-$($cmd.id).txt"
+    Set-Content -LiteralPath $targetsFile -Value $cmd.target -Encoding UTF8
+    Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $runCommandScript,
+        '-CommandId', $cmd.id, '-TargetsFile', $targetsFile, '-Mode', $mode
+    )
+}
+'@
 
-    # Drop targets that don't exist on THIS machine: clamscan given several
-    # paths at once exits non-zero as soon as ANY of them is missing, which
-    # would otherwise mark a full-disk/custom-target scan as ERROR even
-    # though every real directory scanned clean (these lists are configured
-    # once for a whole fleet, so not every machine has every path).
-    $targets = @($requestedTargets | Where-Object { Test-Path -LiteralPath $_ })
+# --- 5c) The scan itself, one detached process per command ------------------
+# Split out of poll-agent.ps1 (see the note above it) so a long scan can run
+# to completion without holding up the next heartbeat.
+$runCommandScriptBody = @'
+param(
+    [Parameter(Mandatory)] [int]$CommandId,
+    [Parameter(Mandatory)] [string]$TargetsFile,
+    [string]$Mode = ''
+)
+$ErrorActionPreference = 'Stop'
+$cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
+$base = $cfg.ConsoleUrl.TrimEnd('/')
 
-    # --recursive: clamscan.exe does not descend into subdirectories on its own
-    # (see the scheduled scan script above for why an earlier fix dropped it
-    # by mistake) - without it, a "full disk" scan of a whole directory tree
-    # only ever looks at the handful of files directly inside each target.
-    $scanArgs = @('--infected', '--recursive')
-    if ($mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
+$requestedTargets = @()
+if (Test-Path -LiteralPath $TargetsFile) {
+    $requestedTargets = @(Get-Content -LiteralPath $TargetsFile | Where-Object { $_.Trim() -ne '' })
+    Remove-Item -LiteralPath $TargetsFile -Force -ErrorAction SilentlyContinue
+}
 
-    try {
-        if ($targets.Count -eq 0) {
-            throw "None of the requested paths exist on this machine: $($requestedTargets -join ' ')"
-        }
-        # stderr must not be promoted to a terminating error, or a clean/warned
-        # scan would be reported as ERROR.
-        $ErrorActionPreference = 'Continue'
-        $output = & $cfg.ClamScan @scanArgs $targets 2>&1
-        $exit = $LASTEXITCODE
-        $ErrorActionPreference = 'Stop'
-        foreach ($line in $output) {
-            if ($line -match ' FOUND$') { $findings.Add([string]$line) }
-        }
-        if ($findings.Count -gt 0) {
-            $verdict = 'VIRUS_FOUND'
-            if ($mode -eq 'prevent') {
-                $stillThere = $findings | Where-Object {
-                    Test-Path -LiteralPath ($_ -replace '^(.*?): .*$', '$1')
-                }
-                if ($stillThere.Count -eq 0) {
-                    $remediation     = 'quarantined'
-                    $remediationPath = $quarantineDir
-                } else {
-                    $remediation = 'failed'
-                }
+$clamavVersion = ''
+try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Object -First 1) } catch { }
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows' }
+
+$verdict  = 'OK'
+$errorMsg = ''
+$findings = New-Object System.Collections.Generic.List[string]
+$remediation     = 'not_attempted'
+$remediationPath = ''
+$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
+if ($Mode -eq 'prevent') { New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null }
+
+# Drop targets that don't exist on THIS machine: clamscan given several paths
+# at once exits non-zero as soon as ANY of them is missing, which would
+# otherwise mark a full-disk/custom-target scan as ERROR even though every
+# real directory scanned clean (these lists are configured once for a whole
+# fleet, so not every machine has every path).
+$targets = @($requestedTargets | Where-Object { Test-Path -LiteralPath $_ })
+
+# --recursive: clamscan.exe does not descend into subdirectories on its own -
+# without it, a "full disk" scan of a whole directory tree only ever looks at
+# the handful of files directly inside each target.
+$scanArgs = @('--infected', '--recursive')
+if ($Mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
+
+try {
+    if ($targets.Count -eq 0) {
+        throw "None of the requested paths exist on this machine: $($requestedTargets -join ' ')"
+    }
+    # stderr must not be promoted to a terminating error, or a clean/warned
+    # scan would be reported as ERROR.
+    $ErrorActionPreference = 'Continue'
+    $output = & $cfg.ClamScan @scanArgs $targets 2>&1
+    $exit = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    foreach ($line in $output) {
+        if ($line -match ' FOUND$') { $findings.Add([string]$line) }
+    }
+    if ($findings.Count -gt 0) {
+        $verdict = 'VIRUS_FOUND'
+        if ($Mode -eq 'prevent') {
+            $stillThere = $findings | Where-Object {
+                Test-Path -LiteralPath ($_ -replace '^(.*?): .*$', '$1')
             }
-        } elseif ($exit -ne 0 -and ($output -join "`n") -notmatch '(?m)^Infected files: 0$') {
-            # clamscan exit 2 covers two different situations it cannot tell
-            # apart in its own exit code: the scan never really ran, and "it
-            # ran to completion, found nothing, but could not open some
-            # individual file along the way". The summary line only appears
-            # once a scan has actually finished, so its presence with zero
-            # infections ($verdict is already 'OK' from the top of this loop)
-            # means this is the harmless second case, not a real failure.
-            $verdict  = 'ERROR'
-            $errorMsg = "clamscan exit $exit`n" + ($output -join "`n")
+            if ($stillThere.Count -eq 0) {
+                $remediation     = 'quarantined'
+                $remediationPath = $quarantineDir
+            } else {
+                $remediation = 'failed'
+            }
         }
-    } catch {
+    } elseif ($exit -ne 0 -and ($output -join "`n") -notmatch '(?m)^Infected files: 0$') {
+        # clamscan exit 2 covers two different situations it cannot tell
+        # apart in its own exit code: the scan never really ran, and "it
+        # ran to completion, found nothing, but could not open some
+        # individual file along the way". The summary line only appears
+        # once a scan has actually finished, so its presence with zero
+        # infections ($verdict is already 'OK' from the top of this script)
+        # means this is the harmless second case, not a real failure.
         $verdict  = 'ERROR'
-        $errorMsg = $_.Exception.Message
+        $errorMsg = "clamscan exit $exit`n" + ($output -join "`n")
     }
+} catch {
+    $verdict  = 'ERROR'
+    $errorMsg = $_.Exception.Message
+}
 
-    $reportedTargets = if ($targets.Count -gt 0) { $targets } else { $requestedTargets }
-    $payload = @{
-        hostname        = $env:COMPUTERNAME
-        path            = ($reportedTargets -join ' ')
-        verdict         = $verdict
-        commandId       = $cmd.id
-        findings        = @($findings)
-        errorMessage    = $errorMsg
-        remediation     = $remediation
-        remediationPath = $remediationPath
-    } | ConvertTo-Json -Depth 4
+$reportedTargets = if ($targets.Count -gt 0) { $targets } else { $requestedTargets }
+$payload = @{
+    hostname        = $env:COMPUTERNAME
+    path            = ($reportedTargets -join ' ')
+    verdict         = $verdict
+    commandId       = $CommandId
+    findings        = @($findings)
+    errorMessage    = $errorMsg
+    remediation     = $remediation
+    remediationPath = $remediationPath
+} | ConvertTo-Json -Depth 4
 
-    try {
-        Invoke-RestMethod -Method Post -Uri "$base/api/scan/report" -Headers $headers `
-            -ContentType 'application/json' -Body $payload -TimeoutSec 30 | Out-Null
-    } catch {
-        # The console will time the command out: better than blocking the loop.
-    }
+try {
+    Invoke-RestMethod -Method Post -Uri "$base/api/scan/report" -Headers $headers `
+        -ContentType 'application/json' -Body $payload -TimeoutSec 30 | Out-Null
+} catch {
+    # The console will time the command out: better than leaving this process hung.
 }
 '@
 Set-Content -Path $PollScript -Value $pollScriptBody -Encoding UTF8
+Set-Content -Path $RunCommandScript -Value $runCommandScriptBody -Encoding UTF8
 Write-Ok "Agent installed at $PollScript"
 
 if ($wantCentral) {

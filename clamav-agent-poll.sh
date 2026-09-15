@@ -16,7 +16,7 @@
 #
 # USAGE:
 #   clamav-agent-poll.sh --loop     # service: keeps polling the console
-#   clamav-agent-poll.sh --once     # a single pass (useful for debugging)
+#   clamav-agent-poll.sh --once     # a single pass, scan run synchronously (useful for debugging)
 #
 # CONFIGURATION: /etc/clamav/console-report.conf (chmod 600)
 #   DASHBOARD_URL='https://console.example.com'
@@ -430,6 +430,7 @@ run_command() {
 }
 
 poll_once() {
+  local background="${1:-false}"
   local response
   response="$(curl -sS -f --max-time "$CURL_TIMEOUT" \
       -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
@@ -463,18 +464,32 @@ poll_once() {
       log "command ${command_id}: undecodable targets, skipping"
       continue
     }
-    run_command "$command_id" "$targets_raw" "$desired_mode"
+    if [[ "$background" == true ]]; then
+      # Backgrounded so this loop goes straight back to sleep and polls again
+      # on schedule instead of blocking on the scan. It's the GET above that
+      # updates "last seen" on the console (AgentAuthenticationFilter.touchAgentSeen);
+      # a full-disk scan can easily run past AGENT_ALIVE_WINDOW (15 min, see
+      # ApiController), and without this a perfectly healthy agent that is
+      # actively scanning would get flagged offline for as long as it takes.
+      # Safe to fire and forget: GET /api/agent/commands claims a command
+      # (QUEUED -> DISPATCHED) the moment it's returned, so the next poll
+      # never re-picks the one already running here.
+      log "command ${command_id}: scanning in the background (poll loop keeps sending heartbeats)"
+      run_command "$command_id" "$targets_raw" "$desired_mode" &
+    else
+      run_command "$command_id" "$targets_raw" "$desired_mode"
+    fi
   done <<< "$response"
 }
 
 case "${1:---loop}" in
   --once)
-    poll_once
+    poll_once false
     ;;
   --loop)
     log "agent started: console ${DASHBOARD_URL%/}, polling every ${POLL_SECONDS}s"
     while true; do
-      poll_once
+      poll_once true
       sleep "$POLL_SECONDS"
     done
     ;;
