@@ -367,9 +367,23 @@ install_macos() {
 
   write_agent_config
 
+  # Dedicated copy of bash, used only to run this agent's own scripts under
+  # launchd - not a symlink, an actual copy on its own path. TCC's Full Disk
+  # Access is granted per executable path, and the LaunchDaemons below run
+  # their script as an argument to bash, so TCC sees the requester as
+  # /bin/bash: granting FDA there would hand disk access to every OTHER script
+  # anything on this machine runs through bash too (cron, Terminal, anything
+  # else), not just this agent. Nothing but the two plists below ever invokes
+  # this copy, so the admin only has to trust this agent with that access.
+  local agent_bash_dir="/usr/local/libexec/claimav"
+  local agent_bash="$agent_bash_dir/agent-bash"
+  mkdir -p "$agent_bash_dir"
+  cp -f "$(command -v bash)" "$agent_bash"
+  chmod 755 "$agent_bash"
+
   if [[ "$WANT_CENTRAL" == "1" ]]; then
     install -m 700 "$WORKDIR/clamav-agent-poll.sh" /usr/local/bin/clamav-agent-poll.sh
-    cat > /Library/LaunchDaemons/com.claimav.agent.poll.plist << 'PLIST'
+    cat > /Library/LaunchDaemons/com.claimav.agent.poll.plist << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -378,7 +392,7 @@ install_macos() {
     <string>com.claimav.agent.poll</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
+        <string>$agent_bash</string>
         <string>/usr/local/bin/clamav-agent-poll.sh</string>
         <string>--loop</string>
     </array>
@@ -397,7 +411,7 @@ PLIST
 
   if [[ "$WANT_SCHEDULED" == "1" ]]; then
     install -m 700 "$WORKDIR/clamav-scan-report.sh" /usr/local/bin/clamav-scan-report.sh
-    cat > /Library/LaunchDaemons/com.claimav.agent.scan.plist << 'PLIST'
+    cat > /Library/LaunchDaemons/com.claimav.agent.scan.plist << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -406,7 +420,7 @@ PLIST
     <string>com.claimav.agent.scan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
+        <string>$agent_bash</string>
         <string>/usr/local/bin/clamav-scan-report.sh</string>
     </array>
     <key>StartCalendarInterval</key>
@@ -437,7 +451,9 @@ PLIST
     # actually scanned almost nothing, with no visible failure anywhere.
     warn ""
     warn "IMPORTANT - macOS Full Disk Access required:"
-    warn "  System Settings > Privacy & Security > Full Disk Access > add /bin/bash"
+    warn "  System Settings > Privacy & Security > Full Disk Access > add $agent_bash"
+    warn "(a private copy of bash used only by this agent, not your system /bin/bash -"
+    warn "so this grant doesn't give disk access to every other bash script on the machine)."
     warn "Without it, scans of /Users will silently skip most real files and still"
     warn "report clean. After granting it, restart the agent:"
     warn "  sudo launchctl unload /Library/LaunchDaemons/com.claimav.agent.poll.plist"
