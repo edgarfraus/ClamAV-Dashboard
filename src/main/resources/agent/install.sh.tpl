@@ -309,6 +309,119 @@ install_linux() {
 # ---------------------------------------------------------------------------
 # macOS
 # ---------------------------------------------------------------------------
+
+# "loaded" is not "running": launchd keeps a job whose program dies instantly
+# listed exactly like a healthy one, with no PID and a nonzero LastExitStatus.
+# A KeepAlive daemon that can never be exec()ed looks perfectly installed.
+launchd_running() {
+  launchctl list "$1" 2>/dev/null | grep -qE '"PID" = [0-9]+'
+}
+
+# A calendar job is not supposed to have a process: between its runs, being
+# loaded IS its healthy state.
+launchd_loaded() { launchctl list "$1" >/dev/null 2>&1; }
+
+# Program the two LaunchDaemons run. Overwritten by build_agent_launcher; the
+# system shell is the fallback when no dedicated launcher can be built.
+AGENT_LAUNCHER="/bin/bash"
+
+# Builds the dedicated executable launchd runs this agent's scripts through.
+#
+# Why not just point the daemons at /bin/bash: TCC decides Full Disk Access per
+# executable, and it evaluates a request against the RESPONSIBLE process - for a
+# LaunchDaemon, its own main process - which every child it spawns inherits.
+# (That is the same mechanism by which a single grant on Terminal.app covers
+# every tool run from a terminal.) With /bin/bash as the daemon's program, the
+# grant has to sit on /bin/bash, and from then on it covers every other
+# bash-rooted chain on this machine - cron, Terminal, any script anyone runs -
+# not just this agent.
+#
+# Why a compiled launcher and not a copy of /bin/bash, which is what this used
+# to do: a copy of an Apple platform binary keeps Apple's code directory but
+# loses the signature that validated it, so the kernel SIGKILLs the copy the
+# moment launchd exec()s it - verified on this very path, exit 137. The plists
+# installed fine and reported "loaded", the daemon never ran a single time, and
+# the machine just sat there "offline" in the console for days with no error
+# anywhere. What we build instead is an ordinary third-party binary.
+#
+# It SPAWNS bash as a child instead of exec()ing it on purpose: after an exec
+# the process would BE /bin/bash again and TCC would identify it as such, which
+# is the whole thing being avoided here.
+build_agent_launcher() {
+  local src build_log rc
+  # Already there and working: leave it exactly as it is. Rebuilding changes the
+  # binary, and TCC ties the grant to the binary it was given - so a pointless
+  # rebuild can silently revoke the Full Disk Access the admin granted on an
+  # earlier run, with no prompt anywhere to hint at it (this is a daemon).
+  if [[ -x "$AGENT_LAUNCHER" ]] && "$AGENT_LAUNCHER" -c 'exit 0' >/dev/null 2>&1; then
+    ok "Agent launcher already in place: $AGENT_LAUNCHER"
+    return 0
+  fi
+  # "xcode-select -p", not "command -v clang": on a Mac without the Command Line
+  # Tools /usr/bin/clang exists anyway, as a stub whose only job is to pop up the
+  # GUI installer - not something to trigger from an unattended install.
+  if ! xcode-select -p >/dev/null 2>&1; then
+    warn "Command Line Tools are not installed, so the agent's own launcher"
+    warn "cannot be built (xcode-select --install, then re-run this script)."
+    return 1
+  fi
+  src="$WORKDIR/agent-launcher.c"
+  build_log="$WORKDIR/agent-launcher.log"
+  cat > "$src" << 'CSRC'
+/* Runs the ClaimAV agent's scripts under launchd from its own executable path,
+   so Full Disk Access can be granted to this agent alone. Spawns bash and waits
+   for it - it must NOT exec() bash; see build_agent_launcher() in install.sh. */
+#include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+static pid_t child = 0;
+
+/* Guarded on child > 0: kill(0, sig) would signal the whole process group, this
+   process included - and launchd sends SIGTERM to stop a service. */
+static void forward(int sig) { if (child > 0) kill(child, sig); }
+
+int main(int argc, char **argv) {
+    char *args[128];
+    int i, status = 0;
+    if (argc > 126) return 127;
+    args[0] = "/bin/bash";
+    for (i = 1; i < argc; i++) args[i] = argv[i];
+    args[argc] = 0;
+    signal(SIGTERM, forward);
+    signal(SIGINT, forward);
+    child = fork();
+    if (child < 0) return 127;
+    if (child == 0) { execv("/bin/bash", args); _exit(127); }
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) return 127;
+    }
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return WEXITSTATUS(status);
+}
+CSRC
+  if ! cc -O2 -o "$AGENT_LAUNCHER" "$src" > "$build_log" 2>&1; then
+    warn "The agent launcher could not be compiled:"
+    sed 's/^/    /' "$build_log" | head -10
+    return 1
+  fi
+  chmod 755 "$AGENT_LAUNCHER"
+  # Never install a service whose program cannot start - the previous version of
+  # this installer did exactly that. "exit 7" tests the whole contract at once:
+  # the launcher runs, it runs bash, and it hands bash's exit status back, which
+  # is what launchd reads.
+  rc=0
+  "$AGENT_LAUNCHER" -c 'exit 7' >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -ne 7 ]]; then
+    warn "The agent launcher was built but does not work (expected exit 7, got $rc)."
+    rm -f "$AGENT_LAUNCHER"
+    return 1
+  fi
+  ok "Agent launcher built: $AGENT_LAUNCHER"
+  return 0
+}
+
 install_macos() {
   # Homebrew's own bin directories: "sudo" on macOS does not always inherit
   # the invoking user's PATH (depends on /etc/sudoers secure_path), and this
@@ -367,19 +480,20 @@ install_macos() {
 
   write_agent_config
 
-  # Dedicated copy of bash, used only to run this agent's own scripts under
-  # launchd - not a symlink, an actual copy on its own path. TCC's Full Disk
-  # Access is granted per executable path, and the LaunchDaemons below run
-  # their script as an argument to bash, so TCC sees the requester as
-  # /bin/bash: granting FDA there would hand disk access to every OTHER script
-  # anything on this machine runs through bash too (cron, Terminal, anything
-  # else), not just this agent. Nothing but the two plists below ever invokes
-  # this copy, so the admin only has to trust this agent with that access.
-  local agent_bash_dir="/usr/local/libexec/claimav"
-  local agent_bash="$agent_bash_dir/agent-bash"
-  mkdir -p "$agent_bash_dir"
-  cp -f "$(command -v bash)" "$agent_bash"
-  chmod 755 "$agent_bash"
+  # The executable the LaunchDaemons below run; see build_agent_launcher().
+  local launcher_dir="/usr/local/libexec/claimav"
+  mkdir -p "$launcher_dir"
+  AGENT_LAUNCHER="$launcher_dir/agent-launcher"
+  if ! build_agent_launcher; then
+    AGENT_LAUNCHER="/bin/bash"
+    warn "Falling back to /bin/bash as the agent's program: it works, but the"
+    warn "Full Disk Access grant below then applies to every bash script on"
+    warn "this machine, not to this agent alone."
+  fi
+  # The copy of /bin/bash left by previous versions of this installer. It cannot
+  # execute at all, so leaving it behind only invites granting Full Disk Access
+  # to a binary that will never use it.
+  rm -f "$launcher_dir/agent-bash"
 
   if [[ "$WANT_CENTRAL" == "1" ]]; then
     install -m 700 "$WORKDIR/clamav-agent-poll.sh" /usr/local/bin/clamav-agent-poll.sh
@@ -392,7 +506,7 @@ install_macos() {
     <string>com.claimav.agent.poll</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$agent_bash</string>
+        <string>$AGENT_LAUNCHER</string>
         <string>/usr/local/bin/clamav-agent-poll.sh</string>
         <string>--loop</string>
     </array>
@@ -406,7 +520,15 @@ PLIST
     chmod 644 /Library/LaunchDaemons/com.claimav.agent.poll.plist
     launchctl unload /Library/LaunchDaemons/com.claimav.agent.poll.plist 2>/dev/null || true
     launchctl load  /Library/LaunchDaemons/com.claimav.agent.poll.plist
-    ok "Console-driven scans enabled: the console Scan button reaches this machine."
+    sleep 2
+    if launchd_running com.claimav.agent.poll; then
+      ok "Console-driven scans enabled: the console Scan button reaches this machine."
+    else
+      err "com.claimav.agent.poll did not start - this machine will show as"
+      err "offline in the console. launchd says:"
+      launchctl list com.claimav.agent.poll 2>&1 | grep -E '"(PID|LastExitStatus)"' | sed 's/^/    /' || true
+      tail -n 15 /var/log/clamav-agent.log 2>/dev/null | sed 's/^/    /' || true
+    fi
   fi
 
   if [[ "$WANT_SCHEDULED" == "1" ]]; then
@@ -420,7 +542,7 @@ PLIST
     <string>com.claimav.agent.scan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$agent_bash</string>
+        <string>$AGENT_LAUNCHER</string>
         <string>/usr/local/bin/clamav-scan-report.sh</string>
     </array>
     <key>StartCalendarInterval</key>
@@ -436,7 +558,11 @@ PLIST
     chmod 644 /Library/LaunchDaemons/com.claimav.agent.scan.plist
     launchctl unload /Library/LaunchDaemons/com.claimav.agent.scan.plist 2>/dev/null || true
     launchctl load  /Library/LaunchDaemons/com.claimav.agent.scan.plist
-    ok "Scheduled scan enabled (every night at 02:30)."
+    if launchd_loaded com.claimav.agent.scan; then
+      ok "Scheduled scan enabled (every night at 02:30)."
+    else
+      err "com.claimav.agent.scan could not be loaded: no scheduled scan will run."
+    fi
   fi
 
   if [[ "$WANT_CENTRAL" == "1" || "$WANT_SCHEDULED" == "1" ]]; then
@@ -451,9 +577,11 @@ PLIST
     # actually scanned almost nothing, with no visible failure anywhere.
     warn ""
     warn "IMPORTANT - macOS Full Disk Access required:"
-    warn "  System Settings > Privacy & Security > Full Disk Access > add $agent_bash"
-    warn "(a private copy of bash used only by this agent, not your system /bin/bash -"
-    warn "so this grant doesn't give disk access to every other bash script on the machine)."
+    warn "  System Settings > Privacy & Security > Full Disk Access > add $AGENT_LAUNCHER"
+    if [[ "$AGENT_LAUNCHER" != "/bin/bash" ]]; then
+      warn "(this agent's own launcher, not your system /bin/bash - so the grant does"
+      warn "not hand disk access to every other bash script on the machine)."
+    fi
     warn "Without it, scans of /Users will silently skip most real files and still"
     warn "report clean. After granting it, restart the agent:"
     warn "  sudo launchctl unload /Library/LaunchDaemons/com.claimav.agent.poll.plist"
@@ -494,7 +622,10 @@ service_state() {
   if [[ "$OS" == "Linux" ]]; then
     systemctl is-active --quiet "$1" 2>/dev/null && echo "active" || echo "NOT running"
   else
-    launchctl list 2>/dev/null | grep -q "$2" && echo "loaded" || echo "NOT loaded"
+    # Not "is it listed": launchd lists a job whose program dies on exec exactly
+    # like a healthy one, so "loaded" would report a permanently dead daemon as
+    # installed and fine. A live process is the only evidence worth printing.
+    launchd_running "$2" && echo "running" || echo "NOT running"
   fi
 }
 
@@ -513,7 +644,8 @@ if [[ "$WANT_SCHEDULED" == "1" ]]; then
     systemctl is-enabled --quiet clamav-scheduled-scan.timer 2>/dev/null \
       && SCHEDULED_STATE="enabled (02:30)" || SCHEDULED_STATE="NOT enabled"
   else
-    SCHEDULED_STATE="$(service_state - com.claimav.agent.scan)"
+    launchd_loaded com.claimav.agent.scan \
+      && SCHEDULED_STATE="scheduled (02:30)" || SCHEDULED_STATE="NOT loaded"
   fi
 else
   SCHEDULED_STATE="not installed"

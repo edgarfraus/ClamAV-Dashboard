@@ -247,6 +247,17 @@ process_line() {
   local sig="${body##*: }"
   [[ -n "$path" && -n "$sig" ]] || return 0
 
+  # Never report a file that is already in quarantine. The dedup below is keyed
+  # on path+signature, so it does not cover this: quarantining renames the file,
+  # and a detection on the new path looks like a brand new threat. Moving a file
+  # into quarantine on the same filesystem is a pure rename that opens nothing,
+  # so clamonacc should not see it at all - but anything that later touches the
+  # quarantine (a backup, a file manager, an admin looking around) would
+  # otherwise raise a fresh alert about a threat already dealt with.
+  case "$path" in
+    */.claimav-quarantine/*) return 0 ;;
+  esac
+
   local now key marker last
   now=$(date +%s)
   # File-based deduplication rather than an associative array: works on bash 3.x

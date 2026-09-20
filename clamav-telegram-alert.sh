@@ -91,12 +91,20 @@ if [[ ${#MISSING_SCAN_PATHS[@]} -gt 0 ]]; then
 fi
 SCAN_PATHS=("${EXISTING_SCAN_PATHS[@]}")
 
-# Paths to exclude (regexes, as accepted by clamdscan --exclude-dir)
+# Paths to exclude (regexes, as accepted by clamscan's --exclude-dir).
+#
+# These only take effect when clamscan is the scanner: clamdscan - preferred
+# below, because clamd already holds the signatures in memory - does not support
+# --exclude-dir at all and answers "WARNING: Ignoring unsupported option". To
+# exclude a path from a clamd-backed scan for real, use ExcludePath in
+# clamd.conf. The quarantine entry is therefore belt and braces: what actually
+# keeps quarantined files from being reported again is the filter below.
 EXCLUDE_DIRS=(
   "^/var/lib/docker"
   "\.git"
   "node_modules"
   "^/home/[^/]+/\.cache"
+  "\.claimav-quarantine"
 )
 
 # Local log file (history, independent of the dashboard)
@@ -180,6 +188,33 @@ echo "[$TIMESTAMP] scan finished with exit code $EXIT_CODE" >> "$LOG_FILE"
 
 # Keep only the lines reporting infected files (format: "path: SIGNATURE FOUND")
 INFECTED_LINES="$(echo "$SCAN_OUTPUT" | grep "FOUND$" || true)"
+
+# Files already sitting in quarantine are re-detections of something ClamAV has
+# already dealt with: the scan simply walked over the quarantine directory, which
+# lives on the same filesystem as the files it holds and so sits inside a scanned
+# tree by construction. Reporting them makes the console alert again, on every
+# scheduled scan, forever, about a threat that was neutralised the first time.
+# Filtered here rather than by --exclude-dir above because that option does
+# nothing whenever clamdscan is the scanner.
+if [ -n "$INFECTED_LINES" ]; then
+  KEPT_LINES=""
+  SKIPPED_QUARANTINED=0
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "${line%%: *}" in
+      */.claimav-quarantine/*)
+        SKIPPED_QUARANTINED=$((SKIPPED_QUARANTINED + 1))
+        continue
+        ;;
+    esac
+    [ -n "$KEPT_LINES" ] && KEPT_LINES+=$'\n'
+    KEPT_LINES+="$line"
+  done <<< "$INFECTED_LINES"
+  if [ "$SKIPPED_QUARANTINED" -gt 0 ]; then
+    echo "[$TIMESTAMP] ignoring ${SKIPPED_QUARANTINED} detection(s) already in quarantine" >> "$LOG_FILE"
+  fi
+  INFECTED_LINES="$KEPT_LINES"
+fi
 
 json_escape() {
   local s="$1"

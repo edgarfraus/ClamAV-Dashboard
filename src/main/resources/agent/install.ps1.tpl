@@ -342,7 +342,13 @@ $quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
 # warning, which killed recursion along with the warning; the warning itself
 # is now harmless on its own (see the ErrorActionPreference note below), so
 # it can go back in.
-$scanArgs = @('--infected', '--recursive')
+# --exclude-dir: the quarantine directory lives under ProgramData, which is a
+# scan target (and is also reachable as "C:\Users\All Users" through the legacy
+# junction, so it sits under C:\Users too). Without this the scan finds every
+# file ClamAV already moved there, --move moves it again - appending .001, then
+# .001.001, forever - and the console raises a fresh alert every time for a
+# threat that was already dealt with.
+$scanArgs = @('--infected', '--recursive', '--exclude-dir=ClaimAV[\\/]quarantine')
 if ($mode -eq 'prevent') {
     New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null
     $scanArgs += "--move=$quarantineDir"
@@ -363,9 +369,15 @@ try {
     $exit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     foreach ($line in $output) {
-        if ($line -match ' FOUND$') { $findings.Add([string]$line) }
+        if ($line -notmatch ' FOUND$') { continue }
+        # A hit inside the quarantine itself is a re-detection of a file ClamAV
+        # already moved there. --exclude-dir keeps the scan out of it; this also
+        # covers a quarantine left behind by an older install, whose path the
+        # exclusion above may not match.
+        if ($line -match 'ClaimAV[\\/]quarantine') { continue }
+        $findings.Add([string]$line)
     }
-    if ($exit -eq 1) {
+    if ($exit -eq 1 -and $findings.Count -gt 0) {
         $verdict = 'VIRUS_FOUND'
         if ($mode -eq 'prevent') {
             # clamscan's own --move already did the work; verify against the
@@ -381,6 +393,12 @@ try {
                 $remediation = 'failed'
             }
         }
+    } elseif ($exit -eq 1) {
+        # clamscan exited 1 ("infected files found") and counted those files in
+        # its summary, but every one of them was already in quarantine: this
+        # machine is clean, and reporting VIRUS_FOUND here - or falling through
+        # to the ERROR branch below - would alert about nothing.
+        $verdict = 'OK'
     } elseif ($exit -ne 0) {
         if (($output -join "`n") -match '(?m)^Infected files: 0$') {
             # clamscan exit 2 covers two different situations it cannot tell
@@ -534,7 +552,13 @@ $targets = @($requestedTargets | Where-Object { Test-Path -LiteralPath $_ })
 # --recursive: clamscan.exe does not descend into subdirectories on its own -
 # without it, a "full disk" scan of a whole directory tree only ever looks at
 # the handful of files directly inside each target.
-$scanArgs = @('--infected', '--recursive')
+# --exclude-dir: the quarantine directory lives under ProgramData, which is a
+# scan target (and is also reachable as "C:\Users\All Users" through the legacy
+# junction, so it sits under C:\Users too). Without this the scan finds every
+# file ClamAV already moved there, --move moves it again - appending .001, then
+# .001.001, forever - and the console raises a fresh alert every time for a
+# threat that was already dealt with.
+$scanArgs = @('--infected', '--recursive', '--exclude-dir=ClaimAV[\\/]quarantine')
 if ($Mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
 
 try {
@@ -548,7 +572,11 @@ try {
     $exit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     foreach ($line in $output) {
-        if ($line -match ' FOUND$') { $findings.Add([string]$line) }
+        if ($line -notmatch ' FOUND$') { continue }
+        # See the nightly scan script above: a hit inside the quarantine is a
+        # re-detection of something already dealt with.
+        if ($line -match 'ClaimAV[\\/]quarantine') { continue }
+        $findings.Add([string]$line)
     }
     if ($findings.Count -gt 0) {
         $verdict = 'VIRUS_FOUND'
@@ -563,6 +591,10 @@ try {
                 $remediation = 'failed'
             }
         }
+    } elseif ($exit -eq 1) {
+        # Infections counted by clamscan, but all of them already in quarantine:
+        # clean. $verdict stays 'OK' rather than falling into the ERROR branch.
+        $verdict = 'OK'
     } elseif ($exit -ne 0 -and ($output -join "`n") -notmatch '(?m)^Infected files: 0$') {
         # clamscan exit 2 covers two different situations it cannot tell
         # apart in its own exit code: the scan never really ran, and "it

@@ -205,6 +205,31 @@ sync_onaccess_mode() {
 # unavailable, falling back to unlink() (rm) keeps the same guarantee -
 # deleting is metadata-only too - and getting the file off disk matters more
 # here than preserving a copy for forensics.
+# The directory name quarantine_file() moves infected files into. Also the name
+# in_quarantine() looks for, so the two can never drift apart.
+QUARANTINE_DIRNAME=".claimav-quarantine"
+
+# True for a detection whose file is already sitting in a quarantine directory.
+#
+# Scan targets are whole directory trees, and quarantine_file() has to keep the
+# file on the SAME filesystem as the original (see its comment below), so the
+# quarantine always lands INSIDE something that later gets scanned. Without this
+# check the same file is found again by every scan, quarantined again, and
+# reported to the console again - which notifies about it again, forever, for a
+# threat ClamAV dealt with the first time. On Windows, where the agent uses
+# clamscan's own --move, that loop is also what grows the endless
+# "eicar_com.zip.001.001.001..." names.
+#
+# Filtered on the findings rather than with --exclude-dir because clamdscan -
+# the scanner this script prefers - does not support that option at all: it
+# prints "WARNING: Ignoring unsupported option --exclude-dir" and scans anyway.
+in_quarantine() {
+  case "$1" in
+    */"$QUARANTINE_DIRNAME"/*) return 0 ;;
+  esac
+  return 1
+}
+
 quarantine_file() {
   local path="$1" mnt qdir dest
   [[ -e "$path" ]] || return 1
@@ -259,7 +284,7 @@ pick_scanner() {
       fi
       return 0
     elif command -v clamscan >/dev/null 2>&1; then
-      SCANNER=(clamscan --recursive --infected)
+      SCANNER=(clamscan --recursive --infected --exclude-dir="\\.claimav-quarantine")
       return 0
     else
       SCANNER_ERROR="clamdscan is installed but clamd is not responding to --ping"
@@ -268,7 +293,7 @@ pick_scanner() {
       return 1
     fi
   elif command -v clamscan >/dev/null 2>&1; then
-    SCANNER=(clamscan --recursive --infected)
+    SCANNER=(clamscan --recursive --infected --exclude-dir="\\.claimav-quarantine")
     return 0
   fi
   SCANNER_ERROR="Neither clamdscan nor clamscan is installed on this machine."
@@ -362,6 +387,28 @@ run_command() {
   local infected
   infected="$(printf '%s\n' "$output" | grep 'FOUND$' || true)"
 
+  # Detections that are only this machine's own quarantine being scanned again:
+  # see in_quarantine(). Dropped before anything else looks at them, so they are
+  # neither re-quarantined, nor reported, nor notified.
+  local quarantine_only=false
+  if [[ -n "$infected" ]]; then
+    local kept="" skipped=0
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      if in_quarantine "${line%%: *}"; then
+        skipped=$((skipped + 1))
+        continue
+      fi
+      [[ -n "$kept" ]] && kept+=$'\n'
+      kept+="$line"
+    done <<< "$infected"
+    if [[ "$skipped" -gt 0 ]]; then
+      log "command ${command_id}: ignoring ${skipped} detection(s) already in quarantine"
+      [[ -z "$kept" ]] && quarantine_only=true
+    fi
+    infected="$kept"
+  fi
+
   local findings_json="[]"
   if [[ -n "$infected" ]]; then
     findings_json="["
@@ -407,6 +454,14 @@ run_command() {
       fi
     fi
     report_result "$command_id" "VIRUS_FOUND" "${existing[*]}" "$findings_json" "" "$remediation" "$remediation_paths"
+  elif [[ "$quarantine_only" == true ]]; then
+    # Everything this scan found was already in quarantine. The scanner still
+    # exited 1 ("infected files found") and its summary still counts those files,
+    # so without this branch neither of the two checks below would match and a
+    # genuinely clean scan would be reported as an ERROR - which notifies as
+    # well, just with a different icon.
+    log "command ${command_id}: only files already in quarantine were found - reporting clean"
+    report_result "$command_id" "OK" "${existing[*]}" "[]" ""
   elif [[ "$exit_code" -eq 0 ]]; then
     # No virus: a clean result still has to be reported, because somebody
     # started this scan from the console and is waiting for the answer.
