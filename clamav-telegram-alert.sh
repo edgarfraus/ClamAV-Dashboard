@@ -226,11 +226,22 @@ json_escape() {
 
 # ClamAV version, so the console can show the signature database age without
 # connecting to this machine.
+# The version string the console displays as this machine's signature level.
+#
+# Prefer whichever tool reports the SIGNATURES and not just the engine:
+# "ClamAV 1.5.4/28129/Sat Sep 20 ..." carries the database version and its date,
+# a bare "ClamAV 1.5.4" carries neither. clamdscan prints the bare form whenever
+# clamd is not answering - it is then reporting itself, the client - and clamscan
+# prints the bare form when no database is loaded at all. Taking the first
+# non-empty answer would therefore show a healthy-looking version number for a
+# machine whose signatures are months old, or missing entirely.
 clamav_version() {
-  local v=""
+  local v="" w=""
   command -v clamdscan >/dev/null 2>&1 && v="$(clamdscan --version 2>/dev/null | head -1)"
-  [[ -z "$v" ]] && command -v clamscan >/dev/null 2>&1 && v="$(clamscan --version 2>/dev/null | head -1)"
-  printf '%s' "$v"
+  command -v clamscan  >/dev/null 2>&1 && w="$(clamscan  --version 2>/dev/null | head -1)"
+  case "$v" in */*) printf '%s' "$v"; return ;; esac
+  case "$w" in */*) printf '%s' "$w"; return ;; esac
+  printf '%s' "${v:-$w}"
 }
 
 # So the console knows what this machine actually is - see
@@ -280,7 +291,14 @@ send_report() {
     > /dev/null
 }
 
-if [ -n "$INFECTED_LINES" ]; then
+if printf '%s\n' "$SCAN_OUTPUT" | grep -qE '^Known viruses: 0$'; then
+  # No signatures loaded: clamscan exits 2 but still prints "Infected files: 0",
+  # so without this the branch below would file it as an ordinary clean scan and
+  # this machine would look protected while scanning against nothing at all.
+  send_report "ERROR" "No signature database on this machine (Known viruses: 0): ${SCAN_PATHS[*]} was not actually scanned. Run freshclam here."
+  echo "[$TIMESTAMP] NO signature database - error report sent" >> "$LOG_FILE"
+
+elif [ -n "$INFECTED_LINES" ]; then
   COUNT="$(echo "$INFECTED_LINES" | wc -l)"
   send_report "VIRUS_FOUND" ""
   echo "[$TIMESTAMP] report sent to the dashboard (${COUNT} infected files)" >> "$LOG_FILE"

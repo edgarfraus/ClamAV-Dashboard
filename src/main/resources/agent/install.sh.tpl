@@ -422,6 +422,115 @@ CSRC
   return 0
 }
 
+# A database is present only when BOTH daily and main are there, in any of their
+# forms - the same AND-of-two-globs rule systemd uses to decide whether clamd may
+# start on Linux. Accepting either one declares success over a half-downloaded
+# database.
+db_present_macos() {
+  local d="$1" daily=0 main=0 f
+  for f in "$d"/daily.cvd "$d"/daily.cld; do [[ -f "$f" ]] && daily=1; done
+  for f in "$d"/main.cvd "$d"/main.cld; do [[ -f "$f" ]] && main=1; done
+  [[ "$daily" -eq 1 && "$main" -eq 1 ]]
+}
+
+# Nothing on macOS updates ClamAV's signatures on its own. Homebrew installs the
+# binaries and no service: freshclam runs when somebody runs it. On Linux the
+# distro package ships clamav-freshclam and the database stays current by itself,
+# which is why only the Macs and the Windows boxes go stale.
+#
+# This also has to run when ClamAV was ALREADY installed, which is the bug it
+# fixes: the bootstrap used to sit inside the "ClamAV not found" branch, so a Mac
+# where ClamAV had been installed by hand (or by an earlier run of this script)
+# got no freshclam.conf, no database and no updater - and nothing said so,
+# because a clamscan with no database does not fail in any way the agent can see.
+# It prints "Known viruses: 0", exits 2, and its summary still says "Infected
+# files: 0", which reads as a clean scan. The agents now treat that as an error.
+install_freshclam_daemon_macos() {
+  local conf="$1" fc plist="/Library/LaunchDaemons/com.claimav.freshclam.plist"
+  fc="$(command -v freshclam)"
+  cat > "$plist" << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claimav.freshclam</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$fc</string>
+        <string>--config-file=$conf</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>3</integer>
+        <key>Minute</key><integer>15</integer>
+    </dict>
+    <key>StandardErrorPath</key><string>/var/log/clamav-freshclam.log</string>
+    <key>StandardOutPath</key><string>/var/log/clamav-freshclam.log</string>
+</dict>
+</plist>
+PLIST
+  chmod 644 "$plist"
+  launchctl unload "$plist" 2>/dev/null || true
+  launchctl load "$plist"
+  # Deliberately no RunAtLoad: the database was just dealt with above, and
+  # refreshing a working one is the one thing freshclam must not be told to do
+  # here (it deletes the old files before fetching the new ones).
+  if launchd_loaded com.claimav.freshclam; then
+    ok "Signature updates scheduled (freshclam, every night at 03:15)."
+  else
+    err "com.claimav.freshclam could not be loaded: signatures will NOT update."
+  fi
+}
+
+ensure_signatures_macos() {
+  local brew_prefix clamav_etc freshclam_conf freshclam_sample db_dir
+  if ! command -v freshclam >/dev/null 2>&1; then
+    warn "freshclam is not installed: this machine cannot update its signatures."
+    return 1
+  fi
+  brew_prefix="$(brew --prefix 2>/dev/null || echo /usr/local)"
+  clamav_etc="$brew_prefix/etc/clamav"
+  freshclam_conf="$clamav_etc/freshclam.conf"
+  freshclam_sample="$clamav_etc/freshclam.conf.sample"
+  db_dir="$brew_prefix/var/lib/clamav"
+  mkdir -p "$clamav_etc" "$db_dir"
+
+  # freshclam refuses to run at all while the "Example" placeholder line from the
+  # shipped sample is still in place.
+  if [[ ! -f "$freshclam_conf" ]]; then
+    if [[ -f "$freshclam_sample" ]]; then
+      grep -v '^Example$' "$freshclam_sample" > "$freshclam_conf"
+      ok "freshclam.conf created from the shipped sample."
+    else
+      printf 'DatabaseMirror database.clamav.net\n' > "$freshclam_conf"
+      warn "No freshclam.conf.sample found: wrote a minimal freshclam.conf."
+    fi
+  fi
+  grep -qE '^[[:space:]]*DatabaseDirectory' "$freshclam_conf" || \
+    printf 'DatabaseDirectory %s\n' "$db_dir" >> "$freshclam_conf"
+
+  if db_present_macos "$db_dir"; then
+    # Never refresh a database that already works: a failed download - a proxy,
+    # or ClamAV's very common 429 - leaves the machine with no signatures at all,
+    # because freshclam removes the old files first. Keeping it current from here
+    # on is the scheduled updater's job.
+    ok "Signature database already present: left alone."
+  else
+    log "No signature database on this machine - downloading it (can take a minute)..."
+    freshclam --config-file="$freshclam_conf" || true
+    if db_present_macos "$db_dir"; then
+      ok "Signature database downloaded."
+    else
+      err "The signature database is STILL missing. Until it is there, every scan"
+      err "from this machine reports clean without examining anything."
+      err "Run it by hand and read the error:  sudo freshclam --config-file=\"$freshclam_conf\""
+    fi
+  fi
+
+  install_freshclam_daemon_macos "$freshclam_conf"
+}
+
 install_macos() {
   # Homebrew's own bin directories: "sudo" on macOS does not always inherit
   # the invoking user's PATH (depends on /etc/sudoers secure_path), and this
@@ -453,30 +562,11 @@ install_macos() {
       exit 1
     fi
     ok "ClamAV installed via Homebrew."
-
-    # A fresh Homebrew install ships no signature database, and freshclam
-    # refuses to run until the "Example" placeholder line is removed from
-    # freshclam.conf - the same bootstrap install.ps1.tpl does for the Windows
-    # package. Only done here, right after a fresh install: per the freshclam
-    # gotcha elsewhere in this project, never touch a database that already
-    # works, since a failed refresh (proxy, or ClamAV's own 429s) deletes the
-    # old files before the new ones ever land.
-    local brew_prefix clamav_etc freshclam_conf freshclam_sample
-    brew_prefix="$(brew --prefix 2>/dev/null || echo /usr/local)"
-    clamav_etc="$brew_prefix/etc/clamav"
-    freshclam_conf="$clamav_etc/freshclam.conf"
-    freshclam_sample="$clamav_etc/freshclam.conf.sample"
-    if [[ ! -f "$freshclam_conf" && -f "$freshclam_sample" ]]; then
-      grep -v '^Example$' "$freshclam_sample" > "$freshclam_conf"
-    fi
-    if [[ -f "$freshclam_conf" ]] && command -v freshclam >/dev/null 2>&1; then
-      log "Downloading the virus database (freshclam, first run - can take a minute)..."
-      freshclam --config-file="$freshclam_conf" || \
-        warn "freshclam failed - check network/proxy, then run it manually: freshclam --config-file=\"$freshclam_conf\""
-    else
-      warn "freshclam.conf could not be prepared - update the virus database manually."
-    fi
   fi
+
+  # Signatures, and something that keeps them current from here on. Runs whether
+  # or not this script installed ClamAV itself - see the function.
+  ensure_signatures_macos || true
 
   write_agent_config
 
@@ -615,6 +705,21 @@ if /usr/local/bin/clamav-onacc-report.sh --test; then
   CONSOLE_OK=1
 fi
 
+# The signature level, read back from the scanner itself. clamscan puts the
+# database version in its --version string only when a database is actually
+# loaded ("ClamAV 1.5.4/28129/Sat Sep 20 ..."); with none it prints a bare
+# "ClamAV 1.5.4". So the presence of the "/" is the honest test, and printing
+# this in the summary makes "no signatures" impossible to miss.
+signature_state() {
+  local v
+  v="$(clamscan --version 2>/dev/null | head -1)"
+  case "$v" in
+    */*) printf '%s' "$v" ;;
+    "")  printf 'unknown (clamscan did not answer)' ;;
+    *)   printf 'NO DATABASE (%s) - scans would report clean without scanning!' "$v" ;;
+  esac
+}
+
 # Report what is actually running, not what was requested: a summary claiming
 # "active" over a service that failed to start hides a real gap in coverage.
 service_state() {
@@ -656,6 +761,7 @@ ok "Agent '${ENDPOINT_NAME}' installed."
 echo "    Realtime (on-access):    ${REALTIME_STATE}"
 echo "    Console-driven scans:    ${CENTRAL_STATE}"
 echo "    Scheduled scan:          ${SCHEDULED_STATE}"
+echo "    Signatures:              $(signature_state)"
 echo "    Console connection:      $([[ "$CONSOLE_OK" == "1" ]] && echo 'OK' || echo 'FAILED (see above)')"
 echo "    Configuration:           $CONFIG_FILE"
 echo

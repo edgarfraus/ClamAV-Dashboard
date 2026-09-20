@@ -95,15 +95,22 @@ agent_os() {
 # clamd/ClamAV version on this machine, as "ClamAV 1.0.3/27263/Tue Sep  2 ...".
 # Attached to every request so the console can display the signature database
 # version and age without connecting to this machine, which it no longer does.
+# The version string the console displays as this machine's signature level.
+#
+# Prefer whichever tool reports the SIGNATURES and not just the engine:
+# "ClamAV 1.5.4/28129/Sat Sep 20 ..." carries the database version and its date,
+# a bare "ClamAV 1.5.4" carries neither. clamdscan prints the bare form whenever
+# clamd is not answering - it is then reporting itself, the client - and clamscan
+# prints the bare form when no database is loaded at all. Taking the first
+# non-empty answer would therefore show a healthy-looking version number for a
+# machine whose signatures are months old, or missing entirely.
 clamav_version() {
-  local v=""
-  if command -v clamdscan >/dev/null 2>&1; then
-    v="$(clamdscan --version 2>/dev/null | head -1)"
-  fi
-  if [[ -z "$v" ]] && command -v clamscan >/dev/null 2>&1; then
-    v="$(clamscan --version 2>/dev/null | head -1)"
-  fi
-  printf '%s' "$v"
+  local v="" w=""
+  command -v clamdscan >/dev/null 2>&1 && v="$(clamdscan --version 2>/dev/null | head -1)"
+  command -v clamscan  >/dev/null 2>&1 && w="$(clamscan  --version 2>/dev/null | head -1)"
+  case "$v" in */*) printf '%s' "$v"; return ;; esac
+  case "$w" in */*) printf '%s' "$w"; return ;; esac
+  printf '%s' "${v:-$w}"
 }
 
 # Reads OnAccessPrevention from THIS machine's own clamd.conf, when the
@@ -381,6 +388,20 @@ run_command() {
   local output exit_code
   output="$("${SCANNER[@]}" "${existing[@]}" 2>&1)"
   exit_code=$?
+
+  # A scan with no signatures loaded is not a clean scan, and nothing downstream
+  # would notice on its own: clamscan prints "Known viruses: 0", exits 2, and its
+  # summary still reads "Infected files: 0" - which the tolerance branch further
+  # down, written for individual unreadable files, then accepts as a clean
+  # result. That is exactly how a Mac whose signature database was never
+  # downloaded reported clean scans of /Users for days. Reported as an error
+  # because that is what it is: nothing was examined.
+  if printf '%s\n' "$output" | grep -qE '^Known viruses: 0$'; then
+    log "command ${command_id}: NO signature database loaded - nothing was scanned"
+    report_result "$command_id" "ERROR" "${existing[*]}" "[]" \
+      "No signature database on this machine (Known viruses: 0): nothing was actually scanned. Run freshclam here."
+    return
+  fi
 
   # Lines shaped "<path>: <SIGNATURE> FOUND": the same format the console
   # already knows how to parse, so they are forwarded verbatim.

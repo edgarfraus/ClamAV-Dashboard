@@ -81,10 +81,16 @@ public class SignatureReloadService {
         int port = ep.getPort();
 
         // Endpoint gestito da un agent: la console non lo raggiunge, e non deve.
-        // Li' e' freshclam sulla macchina a tenere aggiornate le firme.
+        // RELOAD serve a far rileggere a un clamd remoto un database che freshclam
+        // ha appena aggiornato: su una macchina con agent non c'e' nessun clamd da
+        // contattare, e l'aggiornamento lo pianifica l'installer sulla macchina
+        // stessa (clamav-freshclam su Linux, un LaunchDaemon su macOS, un task
+        // pianificato su Windows - tutti e tre di notte). Il messaggio lo dice
+        // esplicitamente: "SKIPPED" da solo si legge come "non ha funzionato".
         if (host == null || host.isBlank()) {
             log.debug("Skipping RELOAD for agent-managed endpoint '{}'", ep.getName());
-            return "SKIPPED (endpoint con agent — freshclam aggiorna in locale)";
+            return "SKIPPED (endpoint con agent: le firme si aggiornano sulla macchina, "
+                    + "freshclam pianificato di notte — questo pulsante non le tocca)";
         }
 
         // Unix socket endpoints: host is a file path — skip raw TCP reload

@@ -56,6 +56,7 @@ $PollScript = Join-Path $InstallDir 'poll-agent.ps1'
 $RunCommandScript = Join-Path $InstallDir 'run-command.ps1'
 $TaskName   = 'ClaimAV Agent Scan'
 $PollTask   = 'ClaimAV Agent Poll'
+$UpdateTask = 'ClaimAV Signature Update'
 
 # Paths scanned by the scheduled task. Change them here if needed.
 $ScanPaths = @("$env:SystemDrive\Users", "$env:SystemDrive\ProgramData")
@@ -237,30 +238,41 @@ if (-not $clamScan) {
 # "Example" placeholder line is removed from freshclam.conf.
 $clamDir  = Split-Path $clamScan -Parent
 $dbDir    = Join-Path $clamDir 'database'
+$freshclamExe  = Join-Path $clamDir 'freshclam.exe'
+$freshclamConf = Join-Path $clamDir 'freshclam.conf'
 $hasMain  = (Test-Path (Join-Path $dbDir 'main.cvd'))  -or (Test-Path (Join-Path $dbDir 'main.cld'))
 $hasDaily = (Test-Path (Join-Path $dbDir 'daily.cvd')) -or (Test-Path (Join-Path $dbDir 'daily.cld'))
 
-if (-not ($hasMain -and $hasDaily)) {
-    $freshclamExe    = Join-Path $clamDir 'freshclam.exe'
-    $freshclamConf   = Join-Path $clamDir 'freshclam.conf'
-    # Recent ClamAV Windows packages moved the .sample files out of the install
-    # root into a conf_examples subfolder; older ones kept them next to the
-    # binaries. Check both so the install root layout does not matter.
-    $freshclamSample = @(
-        (Join-Path $clamDir 'freshclam.conf.sample'),
-        (Join-Path $clamDir 'conf_examples\freshclam.conf.sample')
-    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+# freshclam.conf is prepared whether or not a database is already there: the
+# scheduled update task registered further down needs it on every machine, and
+# one where ClamAV was installed by hand can perfectly well have a database and
+# no usable config.
+#
+# Recent ClamAV Windows packages moved the .sample files out of the install root
+# into a conf_examples subfolder; older ones kept them next to the binaries.
+# Check both so the install root layout does not matter.
+$freshclamSample = @(
+    (Join-Path $clamDir 'freshclam.conf.sample'),
+    (Join-Path $clamDir 'conf_examples\freshclam.conf.sample')
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-    if (-not (Test-Path $freshclamConf) -and $freshclamSample) {
-        Get-Content $freshclamSample | Where-Object { $_.Trim() -ne 'Example' } |
-            Set-Content $freshclamConf -Encoding ASCII
-        if (-not (Select-String -Path $freshclamConf -Pattern '^\s*DatabaseDirectory' -Quiet)) {
-            Add-Content -Path $freshclamConf -Value "DatabaseDirectory $dbDir"
-        }
-    } elseif (-not (Test-Path $freshclamConf)) {
-        Write-Warn "No freshclam.conf.sample found next to $clamScan or in conf_examples - cannot generate freshclam.conf."
+if (-not (Test-Path $freshclamConf) -and $freshclamSample) {
+    Get-Content $freshclamSample | Where-Object { $_.Trim() -ne 'Example' } |
+        Set-Content $freshclamConf -Encoding ASCII
+    if (-not (Select-String -Path $freshclamConf -Pattern '^\s*DatabaseDirectory' -Quiet)) {
+        Add-Content -Path $freshclamConf -Value "DatabaseDirectory $dbDir"
     }
+} elseif (-not (Test-Path $freshclamConf)) {
+    Write-Warn "No freshclam.conf.sample found next to $clamScan or in conf_examples - cannot generate freshclam.conf."
+}
 
+if ($hasMain -and $hasDaily) {
+    # Never refresh a database that already works: freshclam deletes the old
+    # files before fetching the new ones, so a failed run (a proxy, or ClamAV's
+    # very common 429) would leave this machine with no signatures at all.
+    # Keeping it current is the scheduled task's job, not the installer's.
+    Write-Ok "Signature database already present: left alone."
+} else {
     if ((Test-Path $freshclamExe) -and (Test-Path $freshclamConf)) {
         New-Item -ItemType Directory -Force -Path $dbDir | Out-Null
         Write-Info "Downloading the virus database (freshclam, first run - can take a minute)..."
@@ -368,6 +380,12 @@ try {
     $output = & $cfg.ClamScan @scanArgs $cfg.ScanPaths 2>&1
     $exit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
+    # No signatures loaded is not a clean scan: clamscan prints "Known viruses: 0",
+    # exits 2, and its summary still says "Infected files: 0", which every branch
+    # below would read as "nothing wrong here".
+    if (($output -join "`n") -match '(?m)^Known viruses: 0$') {
+        throw "No signature database on this machine (Known viruses: 0): nothing was actually scanned. Run freshclam here."
+    }
     foreach ($line in $output) {
         if ($line -notmatch ' FOUND$') { continue }
         # A hit inside the quarantine itself is a re-detection of a file ClamAV
@@ -444,6 +462,30 @@ Write-Ok "Scan script installed at $ScanScript"
 # --- 5) Task programmato ----------------------------------------------------
 $principalTask = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+
+# --- 5a) Signature updates --------------------------------------------------
+# Nothing on Windows updates ClamAV's signatures by itself: the packages ship
+# freshclam.exe and no service, so without this task the database stays frozen
+# at whatever the install downloaded - one machine here sat 11 days behind while
+# the console displayed its version as if all were well. (On Linux the distro's
+# clamav-freshclam service does this, which is why only Windows and macOS went
+# stale.) Registered regardless of which components were chosen: every one of
+# them is worthless against a frozen database.
+if (Test-Path $freshclamExe) {
+    # RandomDelay: ClamAV's CDN answers bursts with 429, and a fleet that all
+    # updates at 03:15 sharp is exactly such a burst.
+    $fcSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+                      -RandomDelay (New-TimeSpan -Minutes 30)
+    $fcAction  = New-ScheduledTaskAction -Execute $freshclamExe `
+                      -Argument "--config-file=`"$freshclamConf`""
+    $fcTrigger = New-ScheduledTaskTrigger -Daily -At '03:15'
+    Unregister-ScheduledTask -TaskName $UpdateTask -Confirm:$false -ErrorAction SilentlyContinue
+    Register-ScheduledTask -TaskName $UpdateTask -Action $fcAction -Trigger $fcTrigger `
+        -Principal $principalTask -Settings $fcSettings | Out-Null
+    Write-Ok "Signature updates scheduled ('$UpdateTask', daily at 03:15)."
+} else {
+    Write-Warn "freshclam.exe not found: the signatures on this machine will NOT update."
+}
 
 if ($wantScheduled) {
     $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
@@ -571,6 +613,12 @@ try {
     $output = & $cfg.ClamScan @scanArgs $targets 2>&1
     $exit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
+    # No signatures loaded is not a clean scan: clamscan prints "Known viruses: 0",
+    # exits 2, and its summary still says "Infected files: 0", which every branch
+    # below would read as "nothing wrong here".
+    if (($output -join "`n") -match '(?m)^Known viruses: 0$') {
+        throw "No signature database on this machine (Known viruses: 0): nothing was actually scanned. Run freshclam here."
+    }
     foreach ($line in $output) {
         if ($line -notmatch ' FOUND$') { continue }
         # See the nightly scan script above: a hit inside the quarantine is a
@@ -674,4 +722,11 @@ Write-Host ''
 Write-Ok "Agent '$EndpointName' installed."
 Write-Host ("    Console-driven scans: " + $(if ($wantCentral)   { 'enabled (polls every 5 min)' } else { 'not installed' }))
 Write-Host ("    Scheduled scan:       " + $(if ($wantScheduled) { "enabled ($($scanTimeParsed.ToString('HH:mm')))" } else { 'not installed' }))
+# clamscan prints the database version in --version only when one is loaded
+# ("ClamAV 1.5.4/28129/..."); with none it prints a bare "ClamAV 1.5.4". The
+# "/" is therefore the honest test, and printing it here makes a machine with no
+# signatures impossible to mistake for a protected one.
+$sigVersion = Get-ClamavVersionString $clamScan
+Write-Host ("    Signatures:           " + $(if ($sigVersion -match '/') { $sigVersion } elseif ($sigVersion) { "NO DATABASE ($sigVersion) - scans would report clean without scanning!" } else { 'unknown' }))
+Write-Host ("    Signature updates:    " + $(if (Test-Path $freshclamExe) { "daily at 03:15 ('$UpdateTask')" } else { 'NOT scheduled (freshclam.exe missing)' }))
 Write-Warn "ClamAV realtime protection is not available on Windows."

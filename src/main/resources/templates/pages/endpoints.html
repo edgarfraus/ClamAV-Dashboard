@@ -430,6 +430,11 @@ document.addEventListener('DOMContentLoaded', function () {
             var stale = data.stale;
             dbage.innerHTML = '<span style="color:' + (stale ? 'var(--alert)' : 'var(--signal)') + ';">' +
               data.dbAgeDays + 'd ago' + (stale ? ' ⚠' : '') + '</span>';
+          } else if (dbage && !data.dbVersion && data.clamVersion) {
+            // Versione riportata senza la parte database: su quella macchina non
+            // c'e' nessun database di firme. Lo scanner gira e riporta pulito
+            // senza analizzare niente, quindi non va mostrato come un neutro '—'.
+            dbage.innerHTML = '<span style="color:var(--alert);" title="Nessun database di firme: esegui freshclam su quella macchina">nessun DB ⚠</span>';
           }
         } else {
           badge.className = 'badge-status badge-danger';
