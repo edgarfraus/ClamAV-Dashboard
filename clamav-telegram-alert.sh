@@ -46,6 +46,16 @@ DASHBOARD_API_PASSWORD="${DASHBOARD_API_PASSWORD:-}"
 DASHBOARD_CA_BUNDLE="${DASHBOARD_CA_BUNDLE:-}"
 DASHBOARD_INSECURE="${DASHBOARD_INSECURE:-0}"
 
+# Where the scanners actually live. ClamAV is not always on PATH: on an appliance
+# - a QNAP or Synology NAS, a router distro - it ships inside an application
+# package under a path nothing exports, e.g.
+# /share/CACHEDEV1_DATA/.qpkg/ClamAV/bin/clamscan. Without a way to name the
+# binary this script can only answer "Neither clamdscan nor clamscan is
+# installed" on a machine where ClamAV is installed and working perfectly well.
+# Set CLAMSCAN_BIN / CLAMDSCAN_BIN in the config file on those.
+CLAMDSCAN_BIN="${CLAMDSCAN_BIN:-clamdscan}"
+CLAMSCAN_BIN="${CLAMSCAN_BIN:-clamscan}"
+
 # Endpoint key (preferred) or, alternatively, an OPERATOR user.
 if [[ -n "$DASHBOARD_AGENT_KEY" ]]; then
   AUTH_ARGS=(-H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}")
@@ -132,22 +142,22 @@ if [[ ${#SCAN_PATHS[@]} -eq 0 ]]; then
 # clamdscan needs clamd to be running. Where it is not (typically macOS with
 # ClamAV from Homebrew, where the daemon does not start on its own) it falls
 # back to clamscan, which is self-contained: slower, but the scan still happens.
-elif command -v clamdscan >/dev/null 2>&1; then
-  if clamdscan --ping 1 >/dev/null 2>&1; then
+elif command -v "$CLAMDSCAN_BIN" >/dev/null 2>&1; then
+  if "$CLAMDSCAN_BIN" --ping 1 >/dev/null 2>&1; then
     # --fdpass needs a UNIX-domain socket to clamd (SCM_RIGHTS cannot cross
     # TCP at all, at the kernel level): a stock Homebrew clamd on macOS, or
     # any clamd without LocalSocket in its config, makes every --fdpass scan
     # fail outright and identically no matter what is targeted. Verified
     # against this very script (always present, readable, never infected).
     FDPASS_RC=0
-    clamdscan --fdpass "$0" >/dev/null 2>&1 || FDPASS_RC=$?
+    "$CLAMDSCAN_BIN" --fdpass "$0" >/dev/null 2>&1 || FDPASS_RC=$?
     if [ "$FDPASS_RC" -le 1 ]; then
-      SCANNER=(clamdscan --multiscan --fdpass --infected)
+      SCANNER=("$CLAMDSCAN_BIN" --multiscan --fdpass --infected)
     else
-      SCANNER=(clamdscan --multiscan --infected)
+      SCANNER=("$CLAMDSCAN_BIN" --multiscan --infected)
     fi
-  elif command -v clamscan >/dev/null 2>&1; then
-    SCANNER=(clamscan --recursive --infected)
+  elif command -v "$CLAMSCAN_BIN" >/dev/null 2>&1; then
+    SCANNER=("$CLAMSCAN_BIN" --recursive --infected)
     echo "[$TIMESTAMP] clamd unreachable: falling back to clamscan (slower)" >> "$LOG_FILE"
   else
     # Two different problems that need two different fixes (start the daemon
@@ -158,10 +168,10 @@ elif command -v clamdscan >/dev/null 2>&1; then
     echo "[$TIMESTAMP] $NO_SCANNER_REASON" >> "$LOG_FILE"
     NO_SCANNER=1
   fi
-elif command -v clamscan >/dev/null 2>&1; then
-  SCANNER=(clamscan --recursive --infected)
+elif command -v "$CLAMSCAN_BIN" >/dev/null 2>&1; then
+  SCANNER=("$CLAMSCAN_BIN" --recursive --infected)
 else
-  NO_SCANNER_REASON="Neither clamdscan nor clamscan is installed on this machine."
+  NO_SCANNER_REASON="Neither clamdscan nor clamscan was found ($CLAMDSCAN_BIN / $CLAMSCAN_BIN). On an appliance where ClamAV lives outside PATH, set CLAMSCAN_BIN in $CONFIG_FILE."
   echo "[$TIMESTAMP] $NO_SCANNER_REASON" >> "$LOG_FILE"
   NO_SCANNER=1
 fi
@@ -237,8 +247,8 @@ json_escape() {
 # machine whose signatures are months old, or missing entirely.
 clamav_version() {
   local v="" w=""
-  command -v clamdscan >/dev/null 2>&1 && v="$(clamdscan --version 2>/dev/null | head -1)"
-  command -v clamscan  >/dev/null 2>&1 && w="$(clamscan  --version 2>/dev/null | head -1)"
+  command -v "$CLAMDSCAN_BIN" >/dev/null 2>&1 && v="$("$CLAMDSCAN_BIN" --version 2>/dev/null | head -1)"
+  command -v "$CLAMSCAN_BIN"  >/dev/null 2>&1 && w="$("$CLAMSCAN_BIN"  --version 2>/dev/null | head -1)"
   case "$v" in */*) printf '%s' "$v"; return ;; esac
   case "$w" in */*) printf '%s' "$w"; return ;; esac
   printf '%s' "${v:-$w}"

@@ -193,6 +193,19 @@ Coverage differs by OS, and this is a ClamAV limit, not a missing feature:
 
 `server.forward-headers-strategy=framework` is set so the console URL baked into a generated installer is the public one when running behind a reverse proxy (the proxy must send `X-Forwarded-Proto`/`-Host`).
 
+## Third-party devices (NAS and other appliances)
+
+A box that cannot run any of the three installers — no systemd, no Homebrew, no PowerShell — can still be a full endpoint, because the console never needs to reach *in*. What it needs on the device is only `sh`, `curl` and a ClamAV binary.
+
+**Adding such a device by IP usually fails, and the failure mode is worth reading correctly.** A QNAP was configured as a TCP endpoint and reported offline: the cause was `Connection refused`, **immediately**, while ping and the QTS web ports answered fine. Refused means the packet arrived and the machine actively answered "nothing is listening here" — so it is *not* the firewall, there is simply no clamd on that port (QTS's Antivirus app uses ClamAV internally and exposes no network clamd). A firewall **drops** the packet and you get a timeout instead. `ConnectionDiagnosis.explain()` exists to say which of the two it was: the clamav-client library reports every network failure as the same `CommunicationException: Error while communicating with the server`, and that one sentence is what makes adding a device an afternoon of guessing.
+
+The way in is the agent model, driven by cron instead of a service manager:
+
+- **`clamav-agent-poll.sh --once` from cron** (every 5 min) is the heartbeat *and* the console-dispatched-scan mechanism in one: the `GET /api/agent/commands` carries `X-Agent-Key`/`X-Agent-Clamav`, which is what updates `agentLastSeenAt` and the signature version. With `--once` the scan runs synchronously in that cron invocation.
+- **`CLAMSCAN_BIN` / `CLAMDSCAN_BIN`** in the config file name the binary when ClamAV is not on `PATH`, which on an appliance it never is (it ships inside an application package, e.g. `…/.qpkg/ClamAV/bin/clamscan`). Without them the agents could only answer "Neither clamdscan nor clamscan is installed" on a device where ClamAV works perfectly well.
+- **The batch reporter alone is not enough to keep a device visible.** `clamav-telegram-alert.sh` deliberately stays silent when a scan is clean ("a scheduled scan whose whole point is to stay quiet"), so it never updates `agentLastSeenAt` on a healthy machine, and the console would show the device as offline between detections. Pair it with the poll above, or use the poll alone.
+- Generate the endpoint's agent key (Admin > Endpoints > the robot button) and **clear the host field**: `endpointStatus` checks `isAgentEnrolled()` first, so a leftover host is only misleading, never used.
+
 ## Agent command queue (console-dispatched scans)
 
 This is what makes "Scan" in the UI work for a machine whose clamd cannot read the target: **the agent scans locally**, so there is no TCP, no root/SELinux requirement, and no "path exists here but not on the clamd host".

@@ -54,6 +54,16 @@ DASHBOARD_URL="${DASHBOARD_URL:-}"
 DASHBOARD_AGENT_KEY="${DASHBOARD_AGENT_KEY:-}"
 DASHBOARD_CA_BUNDLE="${DASHBOARD_CA_BUNDLE:-}"
 DASHBOARD_INSECURE="${DASHBOARD_INSECURE:-0}"
+
+# Where the scanners actually live. ClamAV is not always on PATH: on an appliance
+# - a QNAP or Synology NAS, a router distro - it ships inside an application
+# package under a path nothing exports, e.g.
+# /share/CACHEDEV1_DATA/.qpkg/ClamAV/bin/clamscan. Without a way to name the
+# binary this script can only answer "Neither clamdscan nor clamscan is
+# installed" on a machine where ClamAV is installed and working perfectly well.
+# Set CLAMSCAN_BIN / CLAMDSCAN_BIN in the config file on those.
+CLAMDSCAN_BIN="${CLAMDSCAN_BIN:-clamdscan}"
+CLAMSCAN_BIN="${CLAMSCAN_BIN:-clamscan}"
 POLL_SECONDS="${AGENT_POLL_SECONDS:-30}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-15}"
 
@@ -106,8 +116,8 @@ agent_os() {
 # machine whose signatures are months old, or missing entirely.
 clamav_version() {
   local v="" w=""
-  command -v clamdscan >/dev/null 2>&1 && v="$(clamdscan --version 2>/dev/null | head -1)"
-  command -v clamscan  >/dev/null 2>&1 && w="$(clamscan  --version 2>/dev/null | head -1)"
+  command -v "$CLAMDSCAN_BIN" >/dev/null 2>&1 && v="$("$CLAMDSCAN_BIN" --version 2>/dev/null | head -1)"
+  command -v "$CLAMSCAN_BIN"  >/dev/null 2>&1 && w="$("$CLAMSCAN_BIN"  --version 2>/dev/null | head -1)"
   case "$v" in */*) printf '%s' "$v"; return ;; esac
   case "$w" in */*) printf '%s' "$w"; return ;; esac
   printf '%s' "${v:-$w}"
@@ -270,7 +280,7 @@ quarantine_file() {
 # present, always readable, never infected) rather than trying to read
 # clamd.conf, whose path this generic script does not always know.
 fdpass_available() {
-  clamdscan --fdpass "$0" >/dev/null 2>&1
+  "$CLAMDSCAN_BIN" --fdpass "$0" >/dev/null 2>&1
   [[ $? -le 1 ]]
 }
 
@@ -282,16 +292,16 @@ fdpass_available() {
 # reporting them as the same generic message sends whoever reads the job to
 # the wrong place.
 pick_scanner() {
-  if command -v clamdscan >/dev/null 2>&1; then
-    if clamdscan --ping 1 >/dev/null 2>&1; then
+  if command -v "$CLAMDSCAN_BIN" >/dev/null 2>&1; then
+    if "$CLAMDSCAN_BIN" --ping 1 >/dev/null 2>&1; then
       if fdpass_available; then
-        SCANNER=(clamdscan --multiscan --fdpass --infected)
+        SCANNER=("$CLAMDSCAN_BIN" --multiscan --fdpass --infected)
       else
-        SCANNER=(clamdscan --multiscan --infected)
+        SCANNER=("$CLAMDSCAN_BIN" --multiscan --infected)
       fi
       return 0
-    elif command -v clamscan >/dev/null 2>&1; then
-      SCANNER=(clamscan --recursive --infected --exclude-dir="\\.claimav-quarantine")
+    elif command -v "$CLAMSCAN_BIN" >/dev/null 2>&1; then
+      SCANNER=("$CLAMSCAN_BIN" --recursive --infected --exclude-dir="\\.claimav-quarantine")
       return 0
     else
       SCANNER_ERROR="clamdscan is installed but clamd is not responding to --ping"
@@ -299,11 +309,11 @@ pick_scanner() {
       SCANNER_ERROR+=" Check: systemctl status 'clamd@*' clamd"
       return 1
     fi
-  elif command -v clamscan >/dev/null 2>&1; then
-    SCANNER=(clamscan --recursive --infected --exclude-dir="\\.claimav-quarantine")
+  elif command -v "$CLAMSCAN_BIN" >/dev/null 2>&1; then
+    SCANNER=("$CLAMSCAN_BIN" --recursive --infected --exclude-dir="\\.claimav-quarantine")
     return 0
   fi
-  SCANNER_ERROR="Neither clamdscan nor clamscan is installed on this machine."
+  SCANNER_ERROR="Neither clamdscan nor clamscan was found ($CLAMDSCAN_BIN / $CLAMSCAN_BIN). On an appliance where ClamAV lives outside PATH, set CLAMSCAN_BIN in $CONFIG_FILE."
   return 1
 }
 

@@ -12,6 +12,7 @@ import info.trizub.clamav.webclient.service.EndpointService;
 import info.trizub.clamav.webclient.service.ScanJobService;
 import info.trizub.clamav.webclient.config.AgentAuthenticationFilter;
 import info.trizub.clamav.webclient.util.ClamVersionInfo;
+import info.trizub.clamav.webclient.util.ConnectionDiagnosis;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.MediaType;
@@ -92,8 +93,8 @@ public class ApiController {
                     "stale", info.stale
             );
         } catch (Exception e) {
-            String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-            return Map.of("online", false, "error", msg != null ? msg : "timeout");
+            return Map.of("online", false,
+                    "error", ConnectionDiagnosis.explain(ep.getHost(), ep.getPort(), e));
         }
     }
 

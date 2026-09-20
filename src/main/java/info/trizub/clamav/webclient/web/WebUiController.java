@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import info.trizub.clamav.webclient.util.ClamVersionInfo;
+import info.trizub.clamav.webclient.util.ConnectionDiagnosis;
 import xyz.capybara.clamav.ClamavClient;
 import xyz.capybara.clamav.Platform;
 
@@ -186,7 +187,8 @@ public class WebUiController {
             model.addAttribute("statsMap", parseStats(statsStr));
         } catch (Exception e) {
             model.addAttribute("pingOk", false);
-            model.addAttribute("error", e.getMessage());
+            model.addAttribute("error",
+                    ConnectionDiagnosis.explain(ep.getHost(), ep.getPort(), e));
         }
 
         return PAGE_MAIN;
