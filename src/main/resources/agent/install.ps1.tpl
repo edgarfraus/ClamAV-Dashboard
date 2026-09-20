@@ -54,9 +54,11 @@ $ConfigPath = Join-Path $InstallDir 'agent.conf.json'
 $ScanScript = Join-Path $InstallDir 'scan-report.ps1'
 $PollScript = Join-Path $InstallDir 'poll-agent.ps1'
 $RunCommandScript = Join-Path $InstallDir 'run-command.ps1'
+$BinaryUpdateScript = Join-Path $InstallDir 'update-clamav.ps1'
 $TaskName   = 'ClaimAV Agent Scan'
 $PollTask   = 'ClaimAV Agent Poll'
 $UpdateTask = 'ClaimAV Signature Update'
+$BinaryUpdateTask = 'ClaimAV Binary Update'
 
 # Paths scanned by the scheduled task. Change them here if needed.
 $ScanPaths = @("$env:SystemDrive\Users", "$env:SystemDrive\ProgramData")
@@ -473,12 +475,13 @@ $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
 # them is worthless against a frozen database.
 if (Test-Path $freshclamExe) {
     # RandomDelay: ClamAV's CDN answers bursts with 429, and a fleet that all
-    # updates at 03:15 sharp is exactly such a burst.
-    $fcSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
-                      -RandomDelay (New-TimeSpan -Minutes 30)
+    # updates at 03:15 sharp is exactly such a burst. RandomDelay belongs to
+    # the trigger, not the settings set.
+    $fcSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
     $fcAction  = New-ScheduledTaskAction -Execute $freshclamExe `
                       -Argument "--config-file=`"$freshclamConf`""
-    $fcTrigger = New-ScheduledTaskTrigger -Daily -At '03:15'
+    $fcTrigger = New-ScheduledTaskTrigger -Daily -At '03:15' `
+                      -RandomDelay (New-TimeSpan -Minutes 30)
     Unregister-ScheduledTask -TaskName $UpdateTask -Confirm:$false -ErrorAction SilentlyContinue
     Register-ScheduledTask -TaskName $UpdateTask -Action $fcAction -Trigger $fcTrigger `
         -Principal $principalTask -Settings $fcSettings | Out-Null
@@ -486,6 +489,121 @@ if (Test-Path $freshclamExe) {
 } else {
     Write-Warn "freshclam.exe not found: the signatures on this machine will NOT update."
 }
+
+# --- 5a2) Binary (engine) updates --------------------------------------------
+# Signatures are only half of it: ClamAV's own engine also has releases (bug
+# fixes, and eventually a minimum-engine-version bump that the signature
+# format itself starts requiring). Neither winget nor a hand-run MSI install
+# ever revisits itself later, so without this a Windows box sits on whatever
+# engine version the install happened to grab, indefinitely - the same class
+# of "frozen at install time" problem the signature task exists to avoid, just
+# on a slower clock. Weekly, not daily: engine releases are infrequent and
+# this is not the exposure that a stale signature database is. Registered
+# regardless of which components were chosen, same reasoning as the
+# signature task above.
+$updateScriptBody = @'
+$ErrorActionPreference = 'Stop'
+$cfg     = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
+$logPath = Join-Path $env:ProgramData 'ClaimAV\update-clamav.log'
+function Log($m) { "$(Get-Date -Format s)  $m" | Add-Content -Path $logPath }
+
+function Get-EngineVersion {
+    param([string]$ClamScanPath)
+    try {
+        $v = & $ClamScanPath --version 2>$null | Select-Object -First 1
+        if ($v -match '^ClamAV\s+([\d.]+)') { return $Matches[1] }
+    } catch { }
+    return $null
+}
+
+$installed = Get-EngineVersion $cfg.ClamScan
+if (-not $installed) {
+    Log "Could not determine the installed ClamAV version - skipping."
+    exit 0
+}
+
+try {
+    $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/Cisco-Talos/clamav/releases/latest' -TimeoutSec 30
+} catch {
+    Log "Could not reach GitHub to check the latest ClamAV release: $($_.Exception.Message)"
+    exit 0
+}
+$latest = $release.tag_name -replace '^clamav-', ''
+
+if ($latest -eq $installed) {
+    Log "ClamAV $installed is already the latest version."
+    exit 0
+}
+
+Log "Update available: $installed -> $latest"
+
+# Prefer winget when it manages this install: one command does the download
+# and the upgrade. winget's own exit code for "nothing to upgrade" is not
+# trustworthy across versions to branch on, so success here is measured the
+# same way the MSI fallback below measures it - by re-reading the installed
+# version afterwards, not by trusting the exit code.
+if (Get-Command winget.exe -ErrorAction SilentlyContinue) {
+    $listed = & winget.exe list --id Cisco.ClamAV -e --accept-source-agreements 2>$null
+    if ($listed -match 'Cisco\.ClamAV') {
+        Log "Trying winget upgrade..."
+        & winget.exe upgrade --id Cisco.ClamAV -e --silent `
+            --accept-source-agreements --accept-package-agreements 2>&1 |
+            ForEach-Object { Log "  $_" }
+        $installed = Get-EngineVersion $cfg.ClamScan
+        if ($installed -eq $latest) {
+            Log "Updated to $installed via winget."
+            exit 0
+        }
+        Log "winget did not bring the installed version to $latest (still $installed) - falling back to a direct MSI download."
+    }
+}
+
+$arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+    'ARM64' { 'arm64' }
+    'AMD64' { 'x64' }
+    default { 'win32' }
+}
+$asset = $release.assets | Where-Object { $_.name -like "*.win.$arch.msi" } | Select-Object -First 1
+if (-not $asset) {
+    Log "No Windows $arch MSI found in release $($release.tag_name) - cannot update."
+    exit 0
+}
+
+try {
+    $msiPath = Join-Path $env:TEMP $asset.name
+    Log "Downloading $($asset.name)..."
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $msiPath -TimeoutSec 300
+    $msiLog = Join-Path $env:TEMP 'clamav-update.log'
+    # /norestart: an unattended maintenance task must never reboot the machine
+    # on its own. The official MSI's upgrade code replaces the previous
+    # version in place, same as running the installer over itself by hand.
+    $p = Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart /l*v `"$msiLog`"" -Wait -PassThru
+    Remove-Item $msiPath -ErrorAction SilentlyContinue
+    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {
+        $installed = Get-EngineVersion $cfg.ClamScan
+        $rebootNote = if ($p.ExitCode -eq 3010) { ' A reboot is recommended.' } else { '' }
+        Log "Update installed (msiexec exit $($p.ExitCode)); clamscan now reports $installed.$rebootNote"
+    } else {
+        Log "msiexec exited with code $($p.ExitCode) (log: $msiLog) - update NOT applied."
+    }
+} catch {
+    Log "Update failed: $($_.Exception.Message)"
+}
+'@
+Set-Content -Path $BinaryUpdateScript -Value $updateScriptBody -Encoding UTF8
+
+$buSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+$buAction   = New-ScheduledTaskAction -Execute 'powershell.exe' `
+                  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BinaryUpdateScript`""
+# Sunday 04:30, clear of the signature task (03:15) and any midnight-ish scan
+# time, with its own RandomDelay so a fleet does not hit GitHub's API/winget's
+# source all at once.
+$buTrigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '04:30' `
+                  -RandomDelay (New-TimeSpan -Minutes 30)
+Unregister-ScheduledTask -TaskName $BinaryUpdateTask -Confirm:$false -ErrorAction SilentlyContinue
+Register-ScheduledTask -TaskName $BinaryUpdateTask -Action $buAction -Trigger $buTrigger `
+    -Principal $principalTask -Settings $buSettings | Out-Null
+Write-Ok "Binary updates scheduled ('$BinaryUpdateTask', weekly Sunday at 04:30)."
 
 if ($wantScheduled) {
     $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
@@ -729,4 +847,5 @@ Write-Host ("    Scheduled scan:       " + $(if ($wantScheduled) { "enabled ($($
 $sigVersion = Get-ClamavVersionString $clamScan
 Write-Host ("    Signatures:           " + $(if ($sigVersion -match '/') { $sigVersion } elseif ($sigVersion) { "NO DATABASE ($sigVersion) - scans would report clean without scanning!" } else { 'unknown' }))
 Write-Host ("    Signature updates:    " + $(if (Test-Path $freshclamExe) { "daily at 03:15 ('$UpdateTask')" } else { 'NOT scheduled (freshclam.exe missing)' }))
+Write-Host ("    Binary updates:       " + "weekly, Sunday at 04:30 ('$BinaryUpdateTask')")
 Write-Warn "ClamAV realtime protection is not available on Windows."

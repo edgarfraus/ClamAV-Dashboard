@@ -260,8 +260,12 @@ else
   if [[ "$INIT_SYS" == "systemd" ]]; then
     systemctl stop clamav-freshclam 2>/dev/null || true
   fi
-  FRESHCLAM_OUT="$(freshclam --stdout 2>&1)"
-  FRESHCLAM_RC=$?
+  # Assignment and exit-code capture are split from the || so that "set -e"
+  # does not kill the script here: a failing freshclam is exactly the case the
+  # diagnostics below exist for (proxy, the very common 429), and under
+  # set -e, "VAR=$(cmd); RC=$?" exits at the first line before RC is ever read.
+  FRESHCLAM_RC=0
+  FRESHCLAM_OUT="$(freshclam --stdout 2>&1)" || FRESHCLAM_RC=$?
   printf '%s\n' "$FRESHCLAM_OUT" | tail -5 | sed 's/^/    /'
 
   # Only wait when freshclam reported success: the files may still be landing.
