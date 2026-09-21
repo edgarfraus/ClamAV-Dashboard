@@ -4,12 +4,12 @@
 #
 # The key is valid for THIS endpoint only: it can download the agent and send
 # reports, nothing else. If it leaks, rotate it in the console
-# (Admin > Endpoints > Rotate) e reinstalla.
+# (Admin > Endpoints > Rotate) and reinstall.
 #
 # USAGE (PowerShell as Administrator):
-#   .\install-agent.ps1                        # ti chiede cosa installare
-#   .\install-agent.ps1 -All                   # installa tutto senza chiedere (default 02:30)
-#   .\install-agent.ps1 -All -ScanTime 03:15   # come sopra, con orario dello scan programmato
+#   .\install-agent.ps1                        # asks what to install
+#   .\install-agent.ps1 -All                   # installs everything without asking (default 02:30)
+#   .\install-agent.ps1 -All -ScanTime 03:15   # same as above, with a custom scheduled scan time
 #
 # NOTE: ClamAV has no realtime protection on Windows (on-access uses fanotify,
 # which is Linux-only). What gets installed here is a scheduled scan plus the
@@ -76,7 +76,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     exit 1
 }
 
-# --- 1b) Cosa installare ----------------------------------------------------
+# --- 1b) What to install -----------------------------------------------------
 # ClamAV has no realtime protection on Windows (on-access uses fanotify, which
 # is Linux-only), so there are two options.
 $wantCentral   = $false
@@ -817,7 +817,7 @@ Write-Info "Checking that the console accepts reports from this machine..."
 try {
     $testPayload = @{
         hostname     = $env:COMPUTERNAME
-        path         = 'installazione agent'
+        path         = 'agent installation'
         verdict      = 'ERROR'
         source       = 'batch'
         errorMessage = "Windows agent connectivity test: console and key are working."
@@ -832,7 +832,7 @@ try {
         -ContentType 'application/json' -Body $testPayload | Out-Null
     Write-Ok "Console reachable: look for the test job on the Jobs page."
 } catch {
-    Write-Warn "Test fallito: $($_.Exception.Message)"
+    Write-Warn "Test failed: $($_.Exception.Message)"
     Write-Warn "Check the console URL, the key and network connectivity."
 }
 

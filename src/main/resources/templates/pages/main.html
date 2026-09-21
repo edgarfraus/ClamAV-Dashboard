@@ -97,14 +97,14 @@
                         style="color:var(--signal);font-size:18px;font-weight:600;"
                         th:text="${versionInfo.dbAgeDays + 'd'}">fresh</span>
                 </div>
-                <!-- Una versione senza la parte database ("ClamAV 1.5.4" invece di
-                     "ClamAV 1.5.4/28129/...") significa che su quella macchina NON c'e'
-                     nessun database di firme: lo scanner parte, non trova niente perche'
-                     non sa cosa cercare, e riporta pulito. Mostrarlo come un neutro "—",
-                     identico a "dato non disponibile", e' il modo peggiore di dirlo. -->
+                <!-- A version with no database part ("ClamAV 1.5.4" instead of
+                     "ClamAV 1.5.4/28129/...") means that machine has NO signature
+                     database at all: the scanner starts, finds nothing because it
+                     doesn't know what to look for, and reports clean. Showing it as a
+                     neutral "—", identical to "no data available", is the worst way to say it. -->
                 <div th:if="${versionInfo != null and versionInfo.dbAgeDays lt 0 and versionInfo.dbVersion == null and versionInfo.clamVersion != null}"
                      style="color:var(--alert);font-size:18px;font-weight:600;"
-                     title="Nessun database di firme su questa macchina: gli scan risultano puliti senza analizzare niente. Esegui freshclam.">nessun DB ⚠</div>
+                     title="No signature database on this machine: scans come back clean without analyzing anything. Run freshclam.">no DB ⚠</div>
                 <div th:unless="${versionInfo != null and (versionInfo.dbAgeDays >= 0 or (versionInfo.dbVersion == null and versionInfo.clamVersion != null))}" class="muted">—</div>
               </div>
             </div>

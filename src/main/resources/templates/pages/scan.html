@@ -65,10 +65,10 @@
               <div class="muted mb-2" style="font-size:12px;"
                    th:if="${endpoints != null and #lists.size(endpoints) > 0}">
                 <i class="fa-solid fa-robot"></i>
-                Sugli endpoint con un agent installato la scansione viene eseguita
-                <strong>dalla macchina stessa</strong> (job di tipo <code>AGENT</code>): non passa da
-                clamd via TCP, quindi non fallisce per permessi o per path non presenti sull'host di clamd.
-                Sugli altri endpoint vale il comportamento diretto di sempre.
+                On endpoints with an agent installed, the scan runs
+                <strong>on the machine itself</strong> (a <code>AGENT</code>-type job): it doesn't go through
+                clamd over TCP, so it won't fail on permissions or on a path that doesn't exist on the clamd host.
+                Other endpoints keep the usual direct behavior.
               </div>
               <form th:action="@{/scan/path}" method="post">
                 <div class="mb-3">

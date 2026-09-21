@@ -119,7 +119,7 @@ REPORT_SCRIPT_SRC="${SCRIPT_DIR}/clamav-onacc-report.sh"
 
 if [[ $ON_ACCESS -eq 1 ]]; then
   if [[ -z "$CONSOLE_URL" ]]; then
-    err "--on-access richiede --console-url."
+    err "--on-access requires --console-url."
     exit 1
   fi
   if [[ -z "$CONSOLE_KEY" && ( -z "$CONSOLE_USER" || -z "$CONSOLE_PASS" ) ]]; then
@@ -205,9 +205,9 @@ if [[ $SKIP_INSTALL -eq 0 ]]; then
       apk add clamav clamav-daemon
       ;;
   esac
-  ok "Pacchetti installati."
+  ok "Packages installed."
 else
-  log "Salto installazione pacchetti (--skip-install)."
+  log "Skipping package installation (--skip-install)."
 fi
 
 # ---------------------------------------------------------------------------

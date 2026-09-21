@@ -459,6 +459,12 @@ label.form-label {
 /* (table-striped and table-hover overrides moved to Bootstrap Bridge section below) */
 .table code { font-size: 12.5px; }
 
+/* Dense admin grids (many columns of small inputs/badges): tighter padding so
+   the table fits the viewport instead of forcing horizontal scroll. */
+.table-compact td, .table-compact th { padding: 8px 5px; }
+.table-compact .form-control-sm, .table-compact .form-select-sm { font-size: 12px; padding: 3px 6px; }
+.table-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+
 /* ---------- Toggle switch ---------- */
 .switch {
   position: relative;
