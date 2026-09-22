@@ -95,7 +95,7 @@ pointing it at one of those can hang the scan.
 
 ## Reporting a vulnerability
 
-Please open a [security advisory](https://github.com/edgarfraus/ClaimAV-Dashboard/security/advisories/new)
+Please open a [security advisory](https://github.com/edgarfraus/ClamAV-Dashboard/security/advisories/new)
 rather than a public issue, and give us a chance to fix it before it is described publicly.
 
 ## Honest limitations

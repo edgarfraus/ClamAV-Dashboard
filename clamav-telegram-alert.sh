@@ -3,7 +3,7 @@
 # clamav-telegram-alert.sh
 #
 # Runs a scan through clamd (much faster than a cold clamscan) and, if infected
-# files are found (or the scan fails), sends the result to the ClaimAV Dashboard
+# files are found (or the scan fails), sends the result to the ClamAV Dashboard
 # via POST /api/scan/report. The dashboard is what sends the Telegram alert
 # (Admin > Settings > Telegram notifications), so the bot token and chat id live
 # in exactly one place.

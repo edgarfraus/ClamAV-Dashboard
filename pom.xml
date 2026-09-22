@@ -15,7 +15,7 @@
 	<packaging>jar</packaging>
 	<name>clamav-web-client</name>
 	<description>Web client for ClamAV antivirus service</description>
-	<url>https://github.com/edgarfraus/ClaimAV-Dashboard</url>
+	<url>https://github.com/edgarfraus/ClamAV-Dashboard</url>
 	<!--
 		Licensed under the LGPL-2.1, inherited from the upstream project this
 		one is derived from (see NOTICE). LICENSE carries the verbatim text
@@ -50,9 +50,9 @@
 		"go to sources", a release plugin — went to the wrong place.
 	-->
 	<scm>
-		<connection>scm:git:https://github.com/edgarfraus/ClaimAV-Dashboard.git</connection>
-		<developerConnection>scm:git:git@github.com:edgarfraus/ClaimAV-Dashboard.git</developerConnection>
-		<url>https://github.com/edgarfraus/ClaimAV-Dashboard</url>
+		<connection>scm:git:https://github.com/edgarfraus/ClamAV-Dashboard.git</connection>
+		<developerConnection>scm:git:git@github.com:edgarfraus/ClamAV-Dashboard.git</developerConnection>
+		<url>https://github.com/edgarfraus/ClamAV-Dashboard</url>
 		<tag>HEAD</tag>
 	</scm>
 	<properties>

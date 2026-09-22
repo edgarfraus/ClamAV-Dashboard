@@ -1,6 +1,6 @@
-<img width="80" height="80" alt="ClaimAV Dashboard" src="https://github.com/user-attachments/assets/8353cc36-5c0a-4ec1-a581-660ae9d4d03e" />
+<img width="80" height="80" alt="ClamAV Dashboard" src="https://github.com/user-attachments/assets/8353cc36-5c0a-4ec1-a581-660ae9d4d03e" />
 
-# ClaimAV Dashboard
+# ClamAV Dashboard
 
 A web console and **job tracker** for [ClamAV](https://www.clamav.net/). It runs scans across a
 fleet of machines — by talking to `clamd` directly, or through a lightweight agent installed on
@@ -61,8 +61,8 @@ feature of this project.
 ## Quick start
 
 ```bash
-git clone https://github.com/edgarfraus/ClaimAV-Dashboard.git
-cd ClaimAV-Dashboard
+git clone https://github.com/edgarfraus/ClamAV-Dashboard.git
+cd ClamAV-Dashboard
 docker compose up --build -d
 ```
 

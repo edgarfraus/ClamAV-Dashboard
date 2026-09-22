@@ -10,8 +10,8 @@ before the code exists than to ask for a rewrite afterwards.
 ## Getting set up
 
 ```bash
-git clone https://github.com/edgarfraus/ClaimAV-Dashboard.git
-cd ClaimAV-Dashboard
+git clone https://github.com/edgarfraus/ClamAV-Dashboard.git
+cd ClamAV-Dashboard
 docker compose up --build -d
 ```
 
@@ -55,7 +55,7 @@ docker compose logs --tail 200 clamav-web-client
 ```
 
 For anything security-sensitive, use a
-[security advisory](https://github.com/edgarfraus/ClaimAV-Dashboard/security/advisories/new)
+[security advisory](https://github.com/edgarfraus/ClamAV-Dashboard/security/advisories/new)
 rather than a public issue.
 
 ## Licence

@@ -39,7 +39,7 @@
     });
     // Charts read their colours from the CSS variables, so they have to be
     // told: a canvas keeps whatever it was painted with.
-    document.dispatchEvent(new CustomEvent('claimav:themechange'));
+    document.dispatchEvent(new CustomEvent('clamav-dashboard:themechange'));
   }
 
   function initTheme() {

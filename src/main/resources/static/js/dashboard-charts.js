@@ -232,7 +232,7 @@
   });
 
   // Repaint with the new palette when the theme changes.
-  document.addEventListener('claimav:themechange', function () {
+  document.addEventListener('clamav-dashboard:themechange', function () {
     if (lastData) render(lastData);
   });
 })();

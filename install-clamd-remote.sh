@@ -768,7 +768,7 @@ if [[ "$ON_ACCESS" -eq 1 ]]; then
   log "Creating the systemd units..."
   cat > /etc/systemd/system/clamav-onacc.service << EOF
 [Unit]
-Description=ClamAV on-access scanner (realtime) for the ClaimAV console
+Description=ClamAV on-access scanner (realtime) for the ClamAV Dashboard console
 StartLimitIntervalSec=300
 StartLimitBurst=3
 Documentation=man:clamonacc(8)
@@ -792,7 +792,7 @@ EOF
 
   cat > /etc/systemd/system/clamav-console-report.service << EOF
 [Unit]
-Description=Forwards ClamAV on-access detections to the ClaimAV console
+Description=Forwards ClamAV on-access detections to the ClamAV Dashboard console
 After=clamav-onacc.service network-online.target
 Wants=network-online.target
 

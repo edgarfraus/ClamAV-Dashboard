@@ -103,6 +103,6 @@
     poll();
   }
 
-  global.ClaimAV = global.ClaimAV || {};
-  global.ClaimAV.activeJobs = activeJobs;
+  global.ClamavDashboard = global.ClamavDashboard || {};
+  global.ClamavDashboard.activeJobs = activeJobs;
 })(window);

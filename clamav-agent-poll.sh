@@ -2,7 +2,7 @@
 #
 # clamav-agent-poll.sh
 #
-# ClaimAV Dashboard agent: asks the console whether there are scans to run on
+# ClamAV Dashboard agent: asks the console whether there are scans to run on
 # this machine, runs them locally and reports the outcome.
 #
 # Why polling instead of listening: the console must not need to reach this

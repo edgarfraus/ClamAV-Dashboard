@@ -12,8 +12,8 @@ To build outside Docker you need **JDK 17+** and Maven; see [architecture.md](ar
 ## First run
 
 ```bash
-git clone https://github.com/edgarfraus/ClaimAV-Dashboard.git
-cd ClaimAV-Dashboard
+git clone https://github.com/edgarfraus/ClamAV-Dashboard.git
+cd ClamAV-Dashboard
 docker compose up --build -d
 ```
 

@@ -3,7 +3,7 @@
 # clamav-onacc-report.sh
 #
 # Forwards every detection made by ClamAV's on-access scanner (clamonacc) to the
-# ClaimAV console in real time, via POST /api/scan/report.
+# ClamAV Dashboard console in real time, via POST /api/scan/report.
 #
 # Why it follows a log instead of using clamd's VirusEvent:
 #   VirusEvent does NOT fire for on-access scans. It has been deliberately
