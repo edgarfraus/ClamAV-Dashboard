@@ -32,7 +32,7 @@ info.trizub.clamav.webclient
 mvn clean package            # jar in target/, runs tests
 mvn spring-boot:run          # http://localhost:8080
 mvn -Dtest=SomeClass test    # one test class
-docker compose -f docker-compose-mac.yml up --build -d
+docker compose up --build -d
 ```
 
 The local build targets **JDK 17**; the Docker build compiles with JDK 21 and runs on a 21 JRE.

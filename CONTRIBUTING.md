@@ -12,7 +12,7 @@ before the code exists than to ask for a rewrite afterwards.
 ```bash
 git clone https://github.com/edgarfraus/ClaimAV-Dashboard.git
 cd ClaimAV-Dashboard
-docker compose -f docker-compose-mac.yml up --build -d
+docker compose up --build -d
 ```
 
 That needs only Docker — Maven runs inside the build container. With a local JDK 17+ you can also

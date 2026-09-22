@@ -9,3 +9,8 @@ conf/clamav-web-client.properties
 # uid resolves Java's user.home to "?" and drops the whole .m2 cache there.
 target/
 /?/
+
+# Per-host compose values (e.g. LAN_NETWORK for docker-compose.lan.yml).
+# Keeping them here instead of edited into a tracked file is what stops a
+# local customisation from colliding with every git pull.
+.env

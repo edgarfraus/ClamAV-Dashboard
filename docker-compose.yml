@@ -1,37 +1,42 @@
+# Standalone deployment: everything it needs, nothing it does not.
+#
+#   docker compose up --build -d      ->  http://localhost:8080
+#
+# To give the console its own address on your LAN instead of publishing a port
+# on the host, add the override:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+#
 services:
   clamav-web-client:
     build: .
     container_name: clamav-web-client
-    networks:
-      lan:
-        # Se vuoi un IP fisso invece che scelto dal pool, decommenta e imposta:
-        # ipv4_address: 192.168.1.221
-      default: {}
+    ports:
+      - "8080:8080"
     environment:
+      # Only used to seed the very first endpoint on an empty database.
       - CLAMAV_HOST=clamav-server
       - CLAMAV_PORT=3310
     volumes:
-      - ./conf:/app/conf
-      - ./data:/app/data
+      # The application state. Both are gitignored and do NOT travel with git:
+      # copy them by hand when moving an installation to another machine.
+      - ./conf:/app/conf      # settings written by the app
+      - ./data:/app/data      # H2 database, uploads, quarantine
+      # Anything you want reachable for a path scan has to be visible here AND
+      # in the clamav-server container below.
       - ./scandir:/scandir:ro
     depends_on:
       - clamav-server
+    restart: unless-stopped
 
   clamav-server:
     image: clamav/clamav-debian:stable
     container_name: clamav
-    networks:
-      - default
     volumes:
       - clamav-db:/var/lib/clamav
+      # Uncomment to let clamd read the same tree the console can see:
+      # - ./scandir:/scandir:ro
+    restart: unless-stopped
 
 volumes:
   clamav-db: {}
-
-networks:
-  default:
-    driver: bridge
-
-  lan:
-    external: true
-    name: lan   # <-- SOSTITUISCI con il nome reale (vedi: docker network ls)

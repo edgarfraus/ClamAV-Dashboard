@@ -174,7 +174,7 @@ The equivalent UI form endpoints (`POST /scan/upload`, `POST /scan/path`) are CS
 
 ## Deployment
 
-`docker-compose.yml` runs two containers: `clamav` (the clamd server, port 3310) and `clamav-web-client` (this app, port 8080, `build: .`). PATH/WATCH scans require the scan roots to be mounted into the web-client container. `install-clamd-remote.sh` provisions clamd on a remote host.
+`docker-compose.yml` runs two containers: `clamav` (the clamd server, port 3310) and `clamav-web-client` (this app, `build: .`, published on 8080). It is standalone and works on a fresh clone — it used to require an external macvlan network that the reader did not have, so `docker compose up` simply failed. That case is now `docker-compose.lan.yml`, an override whose network name comes from `LAN_NETWORK` in a gitignored `.env`: hardcoding it meant every host carried a local edit to a tracked file and collided with every `git pull`. PATH/WATCH scans require the scan roots to be mounted into the web-client container. `install-clamd-remote.sh` provisions clamd on a remote host.
 
 ## Direction of the connection
 

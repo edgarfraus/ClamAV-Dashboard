@@ -63,7 +63,7 @@ feature of this project.
 ```bash
 git clone https://github.com/edgarfraus/ClaimAV-Dashboard.git
 cd ClaimAV-Dashboard
-docker compose -f docker-compose-mac.yml up --build -d
+docker compose up --build -d
 ```
 
 This brings up two containers — the console and a `clamd` server it can talk to — and publishes
@@ -74,15 +74,15 @@ the console on port 8080. Open **http://localhost:8080** and sign in with **`adm
 > database console at `/h2` and serves plain HTTP. Read [docs/security.md](docs/security.md)
 > **before** putting this anywhere other people can reach.
 
-**There are two compose files, and the one to start with is not the default one:**
-
-| File | What it does |
-|---|---|
-| `docker-compose-mac.yml` | Standalone. Publishes `8080:8080`, no external network. **Start here** — despite the name, nothing in it is macOS-specific. |
-| `docker-compose.yml` | Attaches the console to an **existing** Docker network named `lan`, to give it its own address on your LAN. It publishes no port, and `docker compose up` fails unless that network already exists. |
-
 The first build compiles the application with Maven inside the container, so it takes a few
 minutes and needs no JDK on the host.
+
+To give the console its own address on your LAN instead of publishing a port, add the override:
+
+```bash
+echo 'LAN_NETWORK=my-lan' > .env
+docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+```
 
 ## Documentation
 

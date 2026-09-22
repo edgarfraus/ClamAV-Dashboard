@@ -1,0 +1,30 @@
+# Override: put the console on an existing LAN network instead of reaching it
+# through a published port, so it gets its own address on your network.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+#
+# The network must already exist and is NOT created here — it is usually a
+# macvlan bound to a physical interface:
+#
+#   docker network create -d macvlan \
+#     --subnet=192.168.1.0/24 --gateway=192.168.1.1 \
+#     -o parent=eth0 lan
+#
+# Its name comes from LAN_NETWORK in a .env file next to this one, which is
+# gitignored. That indirection is the point: it used to be hardcoded here, so
+# every host had a local edit to this file and every `git pull` collided with it.
+#
+#   echo 'LAN_NETWORK=my-lan' > .env
+#
+services:
+  clamav-web-client:
+    networks:
+      lan:
+        # For a fixed address instead of one from the pool, uncomment and set:
+        # ipv4_address: 192.168.1.221
+      default: {}
+
+networks:
+  lan:
+    external: true
+    name: ${LAN_NETWORK:-lan}

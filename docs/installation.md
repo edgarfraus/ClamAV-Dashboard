@@ -14,7 +14,7 @@ To build outside Docker you need **JDK 17+** and Maven; see [architecture.md](ar
 ```bash
 git clone https://github.com/edgarfraus/ClaimAV-Dashboard.git
 cd ClaimAV-Dashboard
-docker compose -f docker-compose-mac.yml up --build -d
+docker compose up --build -d
 ```
 
 Then open <http://localhost:8080> and sign in with **`admin` / `admin`**.
@@ -29,20 +29,31 @@ accepts connections. Until it does, the endpoint shows as offline. Watch it with
 docker compose logs -f clamav-server
 ```
 
-### Which compose file
+### Giving the console its own LAN address
 
-| File | Use it when |
-|---|---|
-| `docker-compose-mac.yml` | Always, unless you need the case below. Publishes `8080:8080` and needs nothing pre-existing. The name is historical — nothing in it is macOS-specific. |
-| `docker-compose.yml` | You want the console to have **its own address on your LAN** (a macvlan network named `lan` that you created yourself). It publishes no port and `up` fails if that network does not exist. |
-
-To create the `lan` network for the second case, adapt this to your interface and subnet:
+By default the console is reached through a published port on the host. To give it an address of
+its own on your network instead, create the network once:
 
 ```bash
 docker network create -d macvlan \
   --subnet=192.168.1.0/24 --gateway=192.168.1.1 \
-  -o parent=eth0 lan
+  -o parent=eth0 my-lan
 ```
+
+then name it in a `.env` file and add the override:
+
+```bash
+echo 'LAN_NETWORK=my-lan' > .env
+docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+```
+
+`.env` is gitignored on purpose. The network name used to be written into the compose file itself,
+which meant every host carried a local edit to a tracked file and every `git pull` collided with
+it.
+
+> [!NOTE]
+> A macvlan container is **not reachable from its own host** by default. If a reverse proxy runs on
+> the same machine, either put the proxy on that network too or keep the published port.
 
 ## What lives where
 
@@ -119,7 +130,7 @@ proxy uses a private CA, the agents need to trust it; see [agents.md](agents.md)
 
 ```bash
 git pull
-docker compose -f docker-compose-mac.yml up --build -d
+docker compose up --build -d
 ```
 
 The schema updates itself (`ddl-auto=update`, plus `SchemaFixup` for the constraint changes
@@ -132,7 +143,7 @@ across versions, so a cached copy produces a half-styled page.
 ## Uninstalling
 
 ```bash
-docker compose -f docker-compose-mac.yml down -v    # -v also drops the signature database volume
+docker compose down -v    # -v also drops the signature database volume
 ```
 
 `./data` and `./conf` are left behind on purpose. Delete them yourself if you mean it.
