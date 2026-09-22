@@ -15,23 +15,44 @@
 	<packaging>jar</packaging>
 	<name>clamav-web-client</name>
 	<description>Web client for ClamAV antivirus service</description>
-	<url />
+	<url>https://github.com/edgarfraus/ClaimAV-Dashboard</url>
+	<!--
+		Licensed under the LGPL-2.1, inherited from the upstream project this
+		one is derived from (see NOTICE). LICENSE carries the verbatim text
+		published by the FSF.
+	-->
 	<licenses>
 		<license>
-			<name>GNU LESSER GENERAL PUBLIC LICENSE Version 2.1</name>
+			<name>GNU Lesser General Public License, Version 2.1</name>
 			<url>https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt</url>
+			<distribution>repo</distribution>
 		</license>
 	</licenses>
 	<developers>
 		<developer>
 			<name>Ruslan Huzii</name>
 			<url>https://github.com/rguziy</url>
+			<roles>
+				<role>Author of the upstream clamav-web-client this project is derived from</role>
+			</roles>
+		</developer>
+		<developer>
+			<name>edgarfraus</name>
+			<url>https://github.com/edgarfraus</url>
+			<roles>
+				<role>Maintainer of this fork</role>
+			</roles>
 		</developer>
 	</developers>
+	<!--
+		These must point at THIS repository. They used to point at the upstream
+		one, so anything resolving the project from its Maven metadata — an IDE
+		"go to sources", a release plugin — went to the wrong place.
+	-->
 	<scm>
-		<connection>scm:git:git@github.com:rguziy/clamav-web-client.git</connection>
-		<developerConnection>scm:git:git@github.com:rguziy/clamav-web-client.git</developerConnection>
-		<url>git@github.com:rguziy/clamav-web-client.git</url>
+		<connection>scm:git:https://github.com/edgarfraus/ClaimAV-Dashboard.git</connection>
+		<developerConnection>scm:git:git@github.com:edgarfraus/ClaimAV-Dashboard.git</developerConnection>
+		<url>https://github.com/edgarfraus/ClaimAV-Dashboard</url>
 		<tag>HEAD</tag>
 	</scm>
 	<properties>

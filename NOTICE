@@ -1,0 +1,98 @@
+ClaimAV Dashboard
+Copyright (C) 2025-2026 the ClaimAV Dashboard contributors
+
+This program is free software; you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License, version 2.1, as published
+by the Free Software Foundation. The full text is in LICENSE.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+
+
+================================================================================
+Derived from
+================================================================================
+
+This project began as, and still contains code from:
+
+    clamav-web-client
+    Copyright (C) Ruslan Huzii
+    https://github.com/rguziy/clamav-web-client
+    Licensed under the GNU Lesser General Public License, version 2.1
+
+The Maven coordinates (info.trizub.clamav:clamav-web-client) and the classes
+named ClamAVWebClientController / ClamAVWebClientService come from there.
+
+Note on the licence text: the upstream repository ships an abridged rendering of
+the LGPL-2.1 rather than the verbatim text. The LICENSE file in this repository
+is the verbatim text as published by the Free Software Foundation at
+https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt — the licence itself does
+not permit distributing a modified copy of its own text. The licence identifier
+is unchanged: LGPL-2.1, as declared by the upstream project and by its pom.xml.
+
+
+================================================================================
+Bundled third-party components
+================================================================================
+
+The following are redistributed unmodified inside this repository and in the
+built jar. Each remains under its own licence and copyright.
+
+--------------------------------------------------------------------------------
+CoreUI 5.9.0                                                          MIT licence
+src/main/resources/static/css/coreui.min.css
+src/main/resources/static/js/coreui.bundle.min.js
+Copyright (c) 2026 creativeLabs Lukasz Holeczek
+https://github.com/coreui/coreui
+
+    Provides the admin UI: the sidebar, the sticky header, the theme system and
+    every Bootstrap-compatible component. CoreUI is a fork of Bootstrap, so its
+    own notice covers Bootstrap (Copyright The Bootstrap Authors, MIT).
+
+--------------------------------------------------------------------------------
+Chart.js 4.5.1                                                        MIT licence
+src/main/resources/static/js/chart.umd.min.js
+Copyright (c) 2014-2025 Chart.js Contributors
+https://github.com/chartjs/Chart.js
+
+    Draws the dashboard's activity chart and the widget sparklines.
+
+--------------------------------------------------------------------------------
+Font Awesome Free 6.7.2                                    multiple licences, see below
+src/main/resources/static/css/all.css
+src/main/resources/static/webfonts/*
+Copyright 2024 Fonticons, Inc.
+https://fontawesome.com  -  https://fontawesome.com/license/free
+
+    Icons:  CC BY 4.0 License   (https://creativecommons.org/licenses/by/4.0/)
+    Fonts:  SIL OFL 1.1 License (https://scripts.sil.org/OFL)
+    Code:   MIT License         (https://opensource.org/licenses/MIT)
+
+    The CC BY 4.0 terms on the icons require attribution; this file is it.
+
+--------------------------------------------------------------------------------
+flag-icons                                                            MIT licence
+src/main/resources/static/css/flag-icons.css
+src/main/resources/static/flags/**  (265 SVG files)
+Copyright (c) 2013 Panayiotis Lipiridis
+https://github.com/lipis/flag-icons
+
+    Country flags, used by the language selector inherited from upstream.
+
+--------------------------------------------------------------------------------
+Java dependencies
+
+    Resolved by Maven at build time and NOT redistributed in this repository.
+    They are listed with their licences in pom.xml and in the dependency tree
+    (`mvn dependency:tree`). The notable ones are Spring Boot (Apache-2.0),
+    Hibernate (LGPL-2.1), H2 (MPL-2.0 or EPL-1.0), the PostgreSQL JDBC driver
+    (BSD-2-Clause) and xyz.capybara:clamav-client (Apache-2.0).
+
+--------------------------------------------------------------------------------
+Not bundled: ClamAV itself
+
+    ClamAV is a separate program, licensed GPL-2.0, and a trademark of Cisco
+    Systems, Inc. This project talks to it over a socket and does not include,
+    link against or modify any part of it. It is not an official ClamAV product
+    and is not endorsed by Cisco.
