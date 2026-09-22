@@ -1,157 +1,252 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Dashboard · ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Dashboard')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Dashboard</div>
-        <div class="app-title__subtitle">Overview of endpoints, alerts, and scan activity</div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Dashboard')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+
+      <!--
+        The four headline widgets. Which four is a judgement about what an AV
+        console is for: fleet size, how much it scanned, what went wrong, and
+        what is still open. Schedules are configuration, so they moved down to
+        the summary card rather than taking a headline slot.
+      -->
+      <div class="row g-4 mb-4">
+        <div class="col-sm-6 col-xl-3">
+          <div class="card text-white bg-primary">
+            <div class="card-body pb-0 d-flex justify-content-between align-items-start">
+              <div>
+                <div class="fs-4 fw-semibold" th:text="${endpointsCount}">0</div>
+                <div>Endpoints</div>
+              </div>
+              <a href="/admin/endpoints" class="text-white opacity-75" title="Manage endpoints">
+                <i class="fa-solid fa-network-wired"></i>
+              </a>
+            </div>
+            <div class="chart-wrapper chart-sparkline mt-3">
+              <canvas id="sparkEndpoints"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-sm-6 col-xl-3">
+          <div class="card text-white bg-info">
+            <div class="card-body pb-0 d-flex justify-content-between align-items-start">
+              <div>
+                <div class="fs-4 fw-semibold">
+                  <span th:text="${jobsCount}">0</span>
+                  <span class="fs-6 fw-normal" id="deltaScans"></span>
+                </div>
+                <div>Scans tracked</div>
+              </div>
+              <a href="/jobs" class="text-white opacity-75" title="All jobs">
+                <i class="fa-solid fa-list-check"></i>
+              </a>
+            </div>
+            <div class="chart-wrapper chart-sparkline mt-3">
+              <canvas id="sparkScans"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-sm-6 col-xl-3">
+          <div class="card text-white bg-warning">
+            <div class="card-body pb-0 d-flex justify-content-between align-items-start">
+              <div>
+                <div class="fs-4 fw-semibold" th:text="${countError}">0</div>
+                <div>Scan errors</div>
+              </div>
+              <a href="/jobs?filter=error" class="text-white opacity-75" title="Failed scans">
+                <i class="fa-solid fa-circle-exclamation"></i>
+              </a>
+            </div>
+            <div class="chart-wrapper chart-sparkline mt-3">
+              <canvas id="sparkErrors"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-sm-6 col-xl-3">
+          <div class="card text-white bg-danger">
+            <div class="card-body pb-0 d-flex justify-content-between align-items-start">
+              <div>
+                <div class="fs-4 fw-semibold" th:text="${openAlertsCount}">0</div>
+                <div>Open threat alerts</div>
+              </div>
+              <a href="/alerts" class="text-white opacity-75" title="Alerts">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+              </a>
+            </div>
+            <div class="chart-wrapper chart-sparkline mt-3">
+              <canvas id="sparkThreats"></canvas>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="app-content">
+      <!-- Open threats banner -->
+      <div th:if="${openAlertsCount > 0}" class="alert alert-danger d-flex align-items-center gap-3 mb-4">
+        <i class="fa-solid fa-triangle-exclamation fa-lg"></i>
+        <div>
+          <div class="fw-semibold">
+            <span th:text="${openAlertsCount}">N</span> open threat alert<span th:if="${openAlertsCount > 1}">s</span> require review
+          </div>
+          <div class="small">Virus signatures detected — acknowledge after investigation.</div>
+        </div>
+        <a href="/alerts" class="btn btn-danger btn-sm ms-auto text-nowrap">
+          View alerts <i class="fa-solid fa-arrow-right"></i>
+        </a>
+      </div>
 
-      <!-- Top KPI row -->
-      <div class="row g-3 mb-3">
-        <div class="col-sm-3">
-          <div class="panel"><div class="panel-body">
-            <div class="section-title muted">Endpoints</div>
-            <div class="kpi" th:text="${endpointsCount}">0</div>
-          </div></div>
+      <!-- Scan activity -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+              <h4 class="card-title mb-0">Scan activity</h4>
+              <div class="small text-body-secondary">Jobs per day, by verdict — last 14 days</div>
+            </div>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Range">
+              <button type="button" class="btn btn-outline-secondary active" data-range="14">14 days</button>
+              <button type="button" class="btn btn-outline-secondary" data-range="30">30 days</button>
+              <button type="button" class="btn btn-outline-secondary" data-range="90">90 days</button>
+            </div>
+          </div>
+          <div class="chart-wrapper chart-main mt-3">
+            <canvas id="mainChart"></canvas>
+          </div>
         </div>
-        <div class="col-sm-3">
-          <a href="/jobs" style="text-decoration:none;">
-            <div class="panel"><div class="panel-body">
-              <div class="section-title muted">Total jobs</div>
-              <div class="kpi" th:text="${jobsCount}">0</div>
-            </div></div>
-          </a>
-        </div>
-        <div class="col-sm-3">
-          <a href="/alerts" style="text-decoration:none;">
-            <div class="panel" th:style="${openAlertsCount > 0} ? 'border-color:var(--alert);' : ''">
-              <div class="panel-body">
-                <div class="section-title muted">Open alerts</div>
-                <div class="kpi" th:style="${openAlertsCount > 0} ? 'color:var(--alert);' : ''"
-                     th:text="${openAlertsCount}">0</div>
+      </div>
+
+      <div class="row g-4 mb-4">
+        <!-- Verdict breakdown -->
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-body">
+              <h4 class="card-title mb-3">Verdict breakdown</h4>
+              <div class="progress-group mb-4" th:each="row : ${verdictRows}">
+                <div class="progress-group-header">
+                  <span class="badge-status" th:classappend="${'badge-' + row.badge}" th:text="${row.label}">OK</span>
+                  <span class="ms-auto fw-semibold" th:text="${row.count}">0</span>
+                  <span class="text-body-secondary small ms-2" th:text="'(' + ${row.percent} + '%)'">(0%)</span>
+                </div>
+                <div class="progress-group-bars">
+                  <div class="progress progress-thin">
+                    <div class="progress-bar" role="progressbar"
+                         th:classappend="${'bg-' + row.bar}"
+                         th:style="'width:' + ${row.percent} + '%'"
+                         th:aria-valuenow="${row.percent}" aria-valuemin="0" aria-valuemax="100"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="text-body-secondary small">
+                Every scan this console has ever tracked. Scans run directly against clamd
+                do not appear here.
               </div>
             </div>
-          </a>
-        </div>
-        <div class="col-sm-3">
-          <a href="/admin/schedules" style="text-decoration:none;">
-            <div class="panel"><div class="panel-body">
-              <div class="section-title muted">Active schedules</div>
-              <div class="kpi" th:text="${scheduledScansCount}">0</div>
-            </div></div>
-          </a>
-        </div>
-      </div>
-
-      <!-- Verdict summary bar -->
-      <div class="panel mb-3">
-        <div class="panel-body">
-          <div class="section-title muted mb-2">Scan results summary</div>
-          <div class="d-flex gap-3 flex-wrap">
-            <a href="/jobs?filter=ok" style="text-decoration:none;">
-              <div class="d-flex align-items-center gap-2">
-                <span class="badge-status badge-ok">OK</span>
-                <span class="fw-semibold" th:text="${countOk}">0</span>
-              </div>
-            </a>
-            <a href="/jobs?filter=virus" style="text-decoration:none;">
-              <div class="d-flex align-items-center gap-2">
-                <span class="badge-status badge-virus_found">VIRUS</span>
-                <span class="fw-semibold" th:text="${countVirus}">0</span>
-              </div>
-            </a>
-            <a href="/jobs?filter=error" style="text-decoration:none;">
-              <div class="d-flex align-items-center gap-2">
-                <span class="badge-status badge-error">ERROR</span>
-                <span class="fw-semibold" th:text="${countError}">0</span>
-              </div>
-            </a>
-            <a href="/jobs?filter=skipped" style="text-decoration:none;">
-              <div class="d-flex align-items-center gap-2">
-                <span class="badge-status badge-skipped">SKIPPED</span>
-                <span class="fw-semibold" th:text="${countSkipped}">0</span>
-              </div>
-            </a>
           </div>
         </div>
-      </div>
 
-      <!-- Alert banner -->
-      <div th:if="${openAlertsCount > 0}" class="panel mb-3"
-           style="border-color:var(--alert);background:color-mix(in srgb,var(--alert) 5%,var(--paper2));">
-        <div class="panel-body d-flex align-items-center gap-3">
-          <i class="fa-solid fa-triangle-exclamation" style="color:var(--alert);font-size:1.4rem;"></i>
-          <div>
-            <div style="font-weight:600;color:var(--alert);">
-              <span th:text="${openAlertsCount}">N</span> open threat alert<span th:if="${openAlertsCount > 1}">s</span> require review
+        <!-- Console state -->
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-body">
+              <h4 class="card-title mb-3">Console</h4>
+              <div class="d-flex align-items-center mb-3">
+                <span class="row-icon me-3"><i class="fa-solid fa-clock"></i></span>
+                <div>
+                  <div class="fw-semibold" th:text="${scheduledScansCount}">0</div>
+                  <div class="small text-body-secondary">scheduled scans configured</div>
+                </div>
+                <a href="/admin/schedules" class="btn btn-sm btn-outline-secondary ms-auto">Manage</a>
+              </div>
+              <div class="d-flex align-items-center mb-3">
+                <span class="row-icon me-3"><i class="fa-solid fa-server"></i></span>
+                <div>
+                  <div class="fw-semibold" th:text="${defaultEndpointName}">—</div>
+                  <div class="small text-body-secondary">default endpoint</div>
+                </div>
+                <a href="/main" class="btn btn-sm btn-outline-secondary ms-auto">Status</a>
+              </div>
+              <div class="d-flex align-items-center">
+                <span class="row-icon me-3" th:classappend="${openAlertsCount > 0} ? ' is-alert' : ' is-ok'">
+                  <i class="fa-solid fa-shield-halved"></i>
+                </span>
+                <div>
+                  <div class="fw-semibold" th:text="${openAlertsCount > 0} ? 'Action required' : 'All clear'">—</div>
+                  <div class="small text-body-secondary">threat status</div>
+                </div>
+                <a href="/alerts" class="btn btn-sm btn-outline-secondary ms-auto">Alerts</a>
+              </div>
             </div>
-            <div class="muted" style="font-size:13px;">Virus signatures detected — acknowledge after investigation</div>
           </div>
-          <a href="/alerts" class="btn btn-sm ms-auto" style="background:var(--alert);color:#fff;border:none;">
-            View alerts <i class="fa-solid fa-arrow-right"></i>
-          </a>
         </div>
       </div>
 
-      <!-- Recent jobs (last 10 only) -->
-      <div class="panel">
-        <div class="panel-body">
-          <div class="d-flex align-items-center mb-3">
-            <div class="card-title mb-0">Recent jobs <span class="muted" style="font-size:12px;font-weight:400;">(last 10)</span></div>
-            <a href="/jobs" class="ms-auto muted" style="font-size:13px;">View all <i class="fa-solid fa-arrow-right fa-xs"></i></a>
-          </div>
-          <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">
-            No scans yet. Go to <a href="/scan">Scan</a> to run one.
-          </div>
-          <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
-            <table class="table table-striped table-hover">
-              <thead>
-                <tr><th>ID</th><th>Type</th><th>Status</th><th>Verdict</th><th>Target</th><th>Endpoint</th><th>Submitted</th></tr>
-              </thead>
-              <tbody>
-                <tr th:each="j : ${jobs}">
-                  <td><a th:href="@{'/jobs/' + ${j.id}}" th:text="${#strings.substring(j.id,0,8)}" class="mono">id</a></td>
-                  <td th:text="${j.type}" class="mono" style="font-size:11px;">TYPE</td>
-                  <td><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.status)}" th:text="${j.status}">STATUS</span></td>
-                  <td>
-                    <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
-                    <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
-                  </td>
-                  <td th:text="${j.target}" class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">target</td>
-                  <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}" style="font-size:13px;">ep</td>
-                  <td th:text="${j.submittedAt}" class="mono muted" style="font-size:11px;">time</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+      <!-- Recent jobs -->
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center">
+          <span>Recent jobs</span>
+          <span class="small text-body-secondary ms-2" data-filter-count></span>
+          <a href="/jobs" class="ms-auto small">View all <i class="fa-solid fa-arrow-right fa-xs"></i></a>
+        </div>
+        <div class="card-body" th:if="${jobs == null or #lists.isEmpty(jobs)}">
+          <span class="text-body-secondary">No scans yet. Go to <a href="/scan">Scan</a> to run one.</span>
+        </div>
+        <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
+          <table class="table border align-middle mb-0" data-filterable>
+            <thead class="fw-semibold text-nowrap">
+              <tr class="align-middle">
+                <th class="bg-body-secondary text-center" style="width:56px;"><i class="fa-solid fa-circle-check"></i></th>
+                <th class="bg-body-secondary">Target</th>
+                <th class="bg-body-secondary">Endpoint</th>
+                <th class="bg-body-secondary">Status</th>
+                <th class="bg-body-secondary">Verdict</th>
+                <th class="bg-body-secondary text-nowrap">Submitted</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="align-middle" th:each="j : ${jobs}">
+                <td class="text-center">
+                  <span class="row-icon"
+                        th:classappend="${j.verdict == null} ? ' is-amber' : (${j.verdict.name() == 'OK'} ? ' is-ok' : (${j.verdict.name() == 'VIRUS_FOUND' or j.verdict.name() == 'ERROR'} ? ' is-alert' : ''))">
+                    <i th:class="${j.verdict == null} ? 'fa-solid fa-hourglass-half' : (${j.verdict.name() == 'VIRUS_FOUND'} ? 'fa-solid fa-virus' : (${j.verdict.name() == 'ERROR'} ? 'fa-solid fa-circle-exclamation' : 'fa-solid fa-check'))"></i>
+                  </span>
+                </td>
+                <td>
+                  <div class="mono cell-truncate" th:text="${j.target}">target</div>
+                  <div class="small text-body-secondary text-nowrap">
+                    <a class="mono" th:href="@{'/jobs/' + ${j.id}}" th:text="${#strings.substring(j.id,0,8)}">id</a>
+                    <span th:text="' | ' + ${j.type}"> | TYPE</span>
+                    <span th:if="${j.submittedBy}" th:text="' | ' + ${j.submittedBy}"> | by</span>
+                  </div>
+                </td>
+                <td class="text-nowrap" th:text="${j.endpoint != null ? j.endpoint.name : (j.sourceHost != null ? j.sourceHost : '—')}">ep</td>
+                <td><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.status)}" th:text="${j.status}">STATUS</span></td>
+                <td>
+                  <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
+                  <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+                </td>
+                <td class="small text-body-secondary mono text-nowrap" th:text="${j.submittedAt}">time</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
     </div>
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  </div>
+
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
+<script src="/js/chart.umd.min.js"></script>
+<script src="/js/dashboard-charts.js"></script>
 </body>
 </html>

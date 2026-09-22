@@ -1,75 +1,94 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Job detail · ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Job detail')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Job detail</div>
-        <div class="app-title__subtitle"><a href="/jobs">&larr; back to jobs</a></div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Job detail')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small"><a href="/jobs">&larr; back to jobs</a></div>
+        <div class="d-flex align-items-center gap-2" th:if="${job != null and job.verdict != null and job.verdict.name() == 'VIRUS_FOUND'}">
+        <a th:href="@{'/alerts/' + ${job.id}}" class="btn btn-danger btn-sm">
+          <i class="fa-solid fa-triangle-exclamation"></i> View as alert
+        </a>
+      </div>
       </div>
     </div>
-
-    <div class="app-content" th:if="${job != null}">
-      <div class="row g-3 mb-3">
-        <div class="col-sm-3">
-          <div class="panel"><div class="panel-body">
-            <div class="section-title muted">Status</div>
-            <div class="mt-2"><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(job.status)}" th:text="${job.status}">STATUS</span></div>
-          </div></div>
-        </div>
-        <div class="col-sm-3">
-          <div class="panel"><div class="panel-body">
-            <div class="section-title muted">Verdict</div>
-            <div class="mt-2">
-              <span th:if="${job.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(job.verdict)}" th:text="${job.verdict}">VERDICT</span>
-              <span th:unless="${job.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+<div class="container-lg px-4" th:if="${job != null}">
+      <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+          <div class="card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="small text-body-secondary text-uppercase fw-semibold">Status</div>
+                <div class="mt-2"><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(job.status)}" th:text="${job.status}">STATUS</span></div>
+              </div>
+              <span class="row-icon"><i class="fa-solid fa-hourglass-half"></i></span>
             </div>
           </div></div>
         </div>
-        <div class="col-sm-3">
-          <div class="panel"><div class="panel-body">
-            <div class="section-title muted">Type</div>
-            <div class="kpi-sm" th:text="${job.type}">TYPE</div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="small text-body-secondary text-uppercase fw-semibold">Verdict</div>
+                <div class="mt-2">
+                  <span th:if="${job.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(job.verdict)}" th:text="${job.verdict}">VERDICT</span>
+                  <span th:unless="${job.verdict != null}" class="badge-status badge-neutral">PENDING</span>
+                </div>
+              </div>
+              <span class="row-icon"
+                    th:classappend="${job.verdict == null} ? ' stat-tile--amber' : (${job.verdict.name() == 'OK'} ? ' stat-tile--signal' : (${job.verdict.name() == 'VIRUS_FOUND' or job.verdict.name() == 'ERROR'} ? ' stat-tile--alert' : ''))">
+                <i class="fa-solid fa-shield-halved"></i>
+              </span>
+            </div>
           </div></div>
         </div>
-        <div class="col-sm-3">
-          <div class="panel"><div class="panel-body">
-            <div class="section-title muted">Endpoint</div>
-            <div class="kpi-sm" th:text="${job.endpoint != null ? job.endpoint.name : (job.sourceHost != null ? job.sourceHost : '—')}">endpoint</div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="small text-body-secondary text-uppercase fw-semibold">Type</div>
+                <div class="fs-4 fw-semibold" style="font-size:19px;" th:text="${job.type}">TYPE</div>
+              </div>
+              <span class="row-icon"><i class="fa-solid fa-tag"></i></span>
+            </div>
+          </div></div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="small text-body-secondary text-uppercase fw-semibold">Endpoint</div>
+                <div class="fs-4 fw-semibold" style="font-size:19px;"
+                     th:text="${job.endpoint != null ? job.endpoint.name : (job.sourceHost != null ? job.sourceHost : '—')}">endpoint</div>
+              </div>
+              <span class="row-icon"><i class="fa-solid fa-network-wired"></i></span>
+            </div>
           </div></div>
         </div>
       </div>
 
-      <div class="panel mb-3">
-        <div class="panel-body">
-          <div class="card-title mb-2">Details</div>
-          <table class="table">
+      <div class="card mb-4">
+        <div class="card-body pb-0">
+          <div class="card-title mb-0">Details</div>
+        </div>
+        <div class="card-body p-0">
+          <table class="table mb-0">
             <tbody>
-              <tr><th style="width:220px;">Job ID</th><td th:text="${job.id}">id</td></tr>
-              <tr><th>Target</th><td th:text="${job.target}">target</td></tr>
-              <tr th:if="${job.storedPath}"><th>Stored path</th><td th:text="${job.storedPath}">path</td></tr>
+              <tr><th style="width:220px;">Job ID</th><td class="mono" th:text="${job.id}">id</td></tr>
+              <tr><th>Target</th><td class="mono" th:text="${job.target}">target</td></tr>
+              <tr th:if="${job.storedPath}"><th>Stored path</th><td class="mono" th:text="${job.storedPath}">path</td></tr>
               <tr th:if="${job.sha256}"><th>SHA-256</th><td><code th:text="${job.sha256}">sha</code></td></tr>
-              <tr th:if="${job.sizeBytes}"><th>Size (bytes)</th><td th:text="${job.sizeBytes}">size</td></tr>
+              <tr th:if="${job.sizeBytes}"><th>Size (bytes)</th><td class="mono" th:text="${job.sizeBytes}">size</td></tr>
               <tr><th>Submitted by</th><td th:text="${job.submittedBy}">user</td></tr>
-              <tr><th>Submitted at</th><td th:text="${job.submittedAt}">time</td></tr>
-              <tr th:if="${job.startedAt}"><th>Started at</th><td th:text="${job.startedAt}">time</td></tr>
-              <tr th:if="${job.finishedAt}"><th>Finished at</th><td th:text="${job.finishedAt}">time</td></tr>
+              <tr><th>Submitted at</th><td class="mono" th:text="${job.submittedAt}">time</td></tr>
+              <tr th:if="${job.startedAt}"><th>Started at</th><td class="mono" th:text="${job.startedAt}">time</td></tr>
+              <tr th:if="${job.finishedAt}"><th>Finished at</th><td class="mono" th:text="${job.finishedAt}">time</td></tr>
               <tr th:if="${job.remediationStatus != null}">
                 <th>Remediation</th>
                 <td>
@@ -77,34 +96,35 @@
                         th:text="${job.remediationStatus}">status</span>
                 </td>
               </tr>
-              <tr th:if="${job.quarantinePath}"><th>Quarantine path</th><td th:text="${job.quarantinePath}">path</td></tr>
+              <tr th:if="${job.quarantinePath}"><th>Quarantine path</th><td class="mono" th:text="${job.quarantinePath}">path</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <div class="panel mb-3" th:if="${job.foundVirusesJson}">
-        <div class="panel-body">
-          <div class="card-title mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Threats found</div>
+      <div class="card mb-4" th:if="${job.foundVirusesJson}">
+        <div class="card-body">
+          <div class="card-title mb-4"><i class="fa-solid fa-triangle-exclamation" style="color:var(--alert);"></i> Threats found</div>
           <pre th:text="${job.foundVirusesJson}">viruses</pre>
         </div>
       </div>
 
-      <div class="panel" th:if="${job.errorMessage}">
-        <div class="panel-body">
-          <div class="card-title mb-2 text-danger">Error</div>
+      <div class="card" th:if="${job.errorMessage}">
+        <div class="card-body">
+          <div class="card-title mb-4" style="color:var(--alert);">Error</div>
           <pre th:text="${job.errorMessage}">error</pre>
         </div>
       </div>
     </div>
 
-    <div class="app-content" th:unless="${job != null}">
+    <div class="container-lg px-4" th:unless="${job != null}">
       <div class="alert alert-warning">Job not found.</div>
     </div>
+  </div>
 
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
 </body>
 </html>

@@ -45,6 +45,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/agent/**").hasAnyRole("AGENT","ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/scan/report").hasAnyRole("AGENT","OPERATOR","ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/health").hasAnyRole("VIEWER","OPERATOR","ADMIN")
+                // The dashboard is a VIEWER page and its charts read from here,
+                // so this has to match /api/health, not the OPERATOR default below.
+                .requestMatchers(HttpMethod.GET, "/api/stats/**").hasAnyRole("VIEWER","OPERATOR","ADMIN")
                 .requestMatchers("/api/**").hasAnyRole("OPERATOR","ADMIN")
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .requestMatchers("/jobs/**", "/scan/**").hasAnyRole("OPERATOR","ADMIN")

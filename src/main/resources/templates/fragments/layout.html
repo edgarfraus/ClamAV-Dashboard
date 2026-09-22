@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+
+<!-- ============================================================
+     Sidebar — CoreUI's dark fixed sidebar, collapsible to icons.
+     ============================================================ -->
+<div class="sidebar sidebar-dark sidebar-fixed border-end" id="sidebar" th:fragment="sidebar">
+  <div class="sidebar-header border-bottom">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-logo" src="/images/logo.jpg" alt=""/>
+      <span class="sidebar-brand-full">ClamAV Web Client</span>
+    </div>
+  </div>
+
+  <ul class="sidebar-nav" data-coreui="navigation" data-coreui-dropdown-mode="close">
+    <li class="nav-title">Scan</li>
+    <li class="nav-item">
+      <a class="nav-link" th:classappend="${currentUri == '/dashboard'} ? ' active'" href="/dashboard">
+        <i class="fa-solid fa-gauge nav-icon"></i> Dashboard
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" th:classappend="${currentUri == '/main'} ? ' active'" href="/main">
+        <i class="fa-solid fa-server nav-icon"></i> Server status
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" th:classappend="${currentUri == '/scan'} ? ' active'" href="/scan">
+        <i class="fa-solid fa-magnifying-glass nav-icon"></i> Scan
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" th:classappend="${currentUri == '/jobs'} ? ' active'" href="/jobs">
+        <i class="fa-solid fa-list-check nav-icon"></i> Jobs
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" th:classappend="${currentUri == '/alerts'} ? ' active'" href="/alerts">
+        <i class="fa-solid fa-triangle-exclamation nav-icon"></i> Alerts
+        <span class="badge badge-sm bg-danger ms-auto"
+              th:if="${openAlertsCount != null and openAlertsCount > 0}"
+              th:text="${openAlertsCount}">0</span>
+      </a>
+    </li>
+
+    <li class="nav-title" sec:authorize="hasRole('ADMIN')">Admin</li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/endpoints'} ? ' active'" href="/admin/endpoints">
+        <i class="fa-solid fa-network-wired nav-icon"></i> Endpoints
+      </a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/groups'} ? ' active'" href="/admin/groups">
+        <i class="fa-solid fa-layer-group nav-icon"></i> Groups
+      </a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/schedules'} ? ' active'" href="/admin/schedules">
+        <i class="fa-solid fa-clock nav-icon"></i> Schedules
+      </a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/watch'} ? ' active'" href="/admin/watch">
+        <i class="fa-solid fa-eye nav-icon"></i> Watch dirs
+      </a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/exclusions'} ? ' active'" href="/admin/exclusions">
+        <i class="fa-solid fa-ban nav-icon"></i> Exclusions
+      </a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/users'} ? ' active'" href="/admin/users">
+        <i class="fa-solid fa-users nav-icon"></i> Users
+      </a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/audit'} ? ' active'" href="/admin/audit">
+        <i class="fa-solid fa-clipboard-list nav-icon"></i> Audit log
+      </a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:classappend="${currentUri == '/admin/settings'} ? ' active'" href="/admin/settings">
+        <i class="fa-solid fa-gear nav-icon"></i> Settings
+      </a>
+    </li>
+  </ul>
+
+  <div class="sidebar-footer border-top d-none d-md-flex">
+    <button class="sidebar-toggler" type="button" data-coreui-toggle="unfoldable" aria-label="Collapse sidebar"></button>
+  </div>
+</div>
+
+<!-- ============================================================
+     Header — toggler, table search, theme picker, account.
+     The second container-fluid is the breadcrumb row.
+     ============================================================ -->
+<header class="header header-sticky p-0 mb-4" th:fragment="header(pageTitle)">
+  <div class="container-fluid border-bottom px-4">
+    <button class="header-toggler" type="button" aria-label="Toggle sidebar"
+            onclick="coreui.Sidebar.getInstance(document.querySelector('#sidebar')).toggle()"
+            style="margin-inline-start:-14px;">
+      <i class="fa-solid fa-bars"></i>
+    </button>
+
+    <div class="header-search ms-3 flex-grow-1" style="max-width:320px;">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-transparent border-end-0"><i class="fa-solid fa-magnifying-glass"></i></span>
+        <input type="search" id="tableSearch" class="form-control border-start-0"
+               placeholder="Filter this page…" aria-label="Filter the table on this page"
+               autocomplete="off"/>
+      </div>
+    </div>
+
+    <ul class="header-nav ms-auto">
+      <li class="nav-item dropdown">
+        <button class="btn btn-link nav-link py-2 px-2 d-flex align-items-center" type="button"
+                data-coreui-toggle="dropdown" aria-expanded="false" aria-label="Theme">
+          <i class="fa-solid fa-circle-half-stroke" id="themeIcon"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-coreui-theme-value="light">
+            <i class="fa-solid fa-sun"></i> Light</button></li>
+          <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-coreui-theme-value="dark">
+            <i class="fa-solid fa-moon"></i> Dark</button></li>
+          <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-coreui-theme-value="auto">
+            <i class="fa-solid fa-circle-half-stroke"></i> Auto</button></li>
+        </ul>
+      </li>
+
+      <li class="nav-item py-1">
+        <div class="vr h-100 mx-2 text-body text-opacity-75"></div>
+      </li>
+
+      <li class="nav-item dropdown">
+        <button class="btn btn-link nav-link py-2 px-2 d-flex align-items-center gap-2" type="button"
+                data-coreui-toggle="dropdown" aria-expanded="false">
+          <i class="fa-solid fa-circle-user fa-lg"></i>
+          <span class="d-none d-md-inline" sec:authentication="name">user</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end pt-0">
+          <li class="dropdown-header bg-body-tertiary fw-semibold rounded-top py-2">Account</li>
+          <li><span class="dropdown-item-text small text-body-secondary" sec:authentication="name">user</span></li>
+          <li><hr class="dropdown-divider"/></li>
+          <li sec:authorize="hasRole('ADMIN')">
+            <a class="dropdown-item" href="/admin/users"><i class="fa-solid fa-users me-2"></i> Users</a>
+          </li>
+          <li sec:authorize="hasRole('ADMIN')">
+            <a class="dropdown-item" href="/admin/settings"><i class="fa-solid fa-gear me-2"></i> Settings</a>
+          </li>
+          <li><hr class="dropdown-divider"/></li>
+          <li>
+            <form th:action="@{/logout}" method="post" class="px-1">
+              <button type="submit" class="dropdown-item">
+                <i class="fa-solid fa-right-from-bracket me-2"></i> Logout
+              </button>
+            </form>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="container-fluid px-4">
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb my-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Home</a></li>
+        <li class="breadcrumb-item active"><span th:text="${pageTitle}">Page</span></li>
+      </ol>
+    </nav>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<footer class="footer px-4" th:fragment="footer">
+  <div>ClamAV Web Client</div>
+  <div class="ms-auto small text-body-secondary">scan console</div>
+</footer>
+
+<th:block th:fragment="scripts">
+  <script src="/js/coreui.bundle.min.js"></script>
+  <script src="/js/script.js"></script>
+</th:block>
+
+</body>
+</html>

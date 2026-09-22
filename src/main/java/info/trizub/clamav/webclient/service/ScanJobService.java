@@ -55,6 +55,16 @@ public class ScanJobService {
                 });
     }
 
+    /** Jobs submitted since an instant, oldest first — feeds the dashboard charts. */
+    public List<ScanJob> submittedSince(java.time.Instant since) {
+        return repo.findBySubmittedAtGreaterThanEqualOrderBySubmittedAtAsc(since);
+    }
+
+    /** When the most recent tracked scan was submitted, if there is one. */
+    public java.util.Optional<java.time.Instant> lastSubmittedAt() {
+        return repo.findTopByOrderBySubmittedAtDesc().map(ScanJob::getSubmittedAt);
+    }
+
     public List<ScanJob> latest() {
         return repo.findTop200ByOrderBySubmittedAtDesc();
     }

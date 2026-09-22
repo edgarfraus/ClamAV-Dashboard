@@ -1,87 +1,77 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Jobs · ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Jobs')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Jobs</div>
-        <div class="app-title__subtitle">All scan jobs tracked by this web client (top 200 per filter)</div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Jobs')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small">All scan jobs tracked by this web client (top 200 per filter)</div>
+        <div class="d-flex align-items-center gap-2">
+        <a href="/scan" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> New scan</a>
       </div>
-    </div>
+      </div>
 
-    <div class="app-content">
-      <div th:if="${errorMsg}" class="alert alert-danger mb-3" th:text="${errorMsg}">error</div>
+      <div th:if="${errorMsg}" class="alert alert-danger mb-4" th:text="${errorMsg}">error</div>
 
       <!-- Verdict filter tabs with counts -->
-      <div class="d-flex gap-2 flex-wrap mb-3">
+      <div class="filter-tabs">
         <a th:href="@{/jobs(filter='all')}"
-           th:class="${filter == 'all'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
-          All <span class="muted ms-1" style="font-size:11px;" th:text="${countAll}">0</span>
+           th:class="${filter == 'all'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm'">
+          All <span class="ms-1 mono" style="opacity:.75;" th:text="${countAll}">0</span>
         </a>
         <a th:href="@{/jobs(filter='ok')}"
-           th:class="${filter == 'ok'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+           th:class="${filter == 'ok'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm'">
           <span class="badge-status badge-ok me-1">OK</span>
-          <span th:text="${countOk}">0</span>
+          <span class="mono" th:text="${countOk}">0</span>
         </a>
         <a th:href="@{/jobs(filter='virus')}"
-           th:class="${filter == 'virus'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+           th:class="${filter == 'virus'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm'">
           <span class="badge-status badge-virus_found me-1">VIRUS</span>
-          <span th:text="${countVirus}">0</span>
+          <span class="mono" th:text="${countVirus}">0</span>
         </a>
         <a th:href="@{/jobs(filter='error')}"
-           th:class="${filter == 'error'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+           th:class="${filter == 'error'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm'">
           <span class="badge-status badge-error me-1">ERROR</span>
-          <span th:text="${countError}">0</span>
+          <span class="mono" th:text="${countError}">0</span>
         </a>
         <a th:href="@{/jobs(filter='skipped')}"
-           th:class="${filter == 'skipped'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-light btn-sm'">
+           th:class="${filter == 'skipped'} ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm'">
           <span class="badge-status badge-skipped me-1">SKIPPED</span>
-          <span th:text="${countSkipped}">0</span>
+          <span class="mono" th:text="${countSkipped}">0</span>
         </a>
       </div>
 
-      <div class="panel mb-3">
-        <div class="panel-body">
-          <div class="d-flex align-items-center gap-2 mb-3" style="flex-wrap:wrap;">
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-4" style="flex-wrap:wrap;">
             <div class="card-title mb-0">
-              <i class="fa-solid fa-circle-notch" id="active-spinner" style="font-size:14px;"></i> Running scans
+              <i class="fa-solid fa-circle-notch" id="active-spinner"></i> Running scans
             </div>
-            <span id="active-count" class="badge-status badge-neutral" style="display:none;"></span>
-            <span class="muted" style="font-size:12px;margin-left:auto;" id="active-last-updated"></span>
+            <span id="active-count" class="badge-status badge-pending" style="display:none;"></span>
+            <span class="text-body-secondary" style="font-size:12px;margin-left:auto;" id="active-last-updated"></span>
           </div>
           <div id="active-jobs-body">
-            <p class="muted">Checking for scans in progress...</p>
+            <p class="text-body-secondary mb-0">Checking for scans in progress…</p>
           </div>
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-body">
-          <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">
-            No jobs match this filter.
-          </div>
-          <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
-            <table class="table table-striped table-hover align-middle">
-              <thead>
+      <div class="card">
+        <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="card-body text-body-secondary">
+          No jobs match this filter.
+        </div>
+        <div class="card-body p-0" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
+          <div class="table-responsive">
+            <table class="table border table-hover align-middle mb-0" data-filterable>
+              <thead class="fw-semibold text-nowrap">
                 <tr>
-                  <th>ID</th><th>Type</th><th>Status</th><th>Verdict</th><th>Remediation</th>
-                  <th>Target</th><th>Endpoint</th><th>Submitted by</th><th>Submitted at</th>
+                  <th class="bg-body-secondary bg-body-secondary">ID</th><th class="bg-body-secondary bg-body-secondary">Type</th><th class="bg-body-secondary bg-body-secondary">Status</th><th class="bg-body-secondary bg-body-secondary">Verdict</th><th class="bg-body-secondary bg-body-secondary">Remediation</th>
+                  <th class="bg-body-secondary bg-body-secondary">Target</th><th class="bg-body-secondary bg-body-secondary">Endpoint</th><th class="bg-body-secondary bg-body-secondary">Submitted by</th><th class="bg-body-secondary bg-body-secondary">Submitted at</th>
                 </tr>
               </thead>
               <tbody>
@@ -97,12 +87,12 @@
                     <span th:if="${j.remediationStatus != null}" class="badge-status"
                           th:classappend="${j.remediationStatus.name() == 'FAILED'} ? 'badge-error' : (${j.remediationStatus.name() == 'NOT_ATTEMPTED'} ? 'badge-neutral' : 'badge-ok')"
                           th:text="${j.remediationStatus}">status</span>
-                    <span th:unless="${j.remediationStatus != null}" class="muted">—</span>
+                    <span th:unless="${j.remediationStatus != null}" class="text-body-secondary">—</span>
                   </td>
-                  <td th:text="${j.target}" class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">target</td>
-                  <td th:text="${j.endpoint != null ? j.endpoint.name : (j.sourceHost != null ? j.sourceHost : '—')}" style="font-size:13px;">ep</td>
-                  <td th:text="${j.submittedBy}" style="font-size:13px;">user</td>
-                  <td th:text="${j.submittedAt}" class="mono muted" style="font-size:11px;">time</td>
+                  <td th:text="${j.target}" class="mono cell-truncate" style="max-width:300px;font-size:12px;">target</td>
+                  <td th:text="${j.endpoint != null ? j.endpoint.name : (j.sourceHost != null ? j.sourceHost : '—')}">ep</td>
+                  <td th:text="${j.submittedBy}">user</td>
+                  <td th:text="${j.submittedAt}" class="mono text-body-secondary" style="font-size:11px;">time</td>
                 </tr>
               </tbody>
             </table>
@@ -110,79 +100,13 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
-<script>
-(function () {
-  var spinner = document.getElementById('active-spinner');
-  var countBadge = document.getElementById('active-count');
-  var body = document.getElementById('active-jobs-body');
-  var lastUpdated = document.getElementById('active-last-updated');
-  var pollTimer = null;
-  var seenIds = null;
 
-  function fmt(ts) {
-    if (!ts) return '';
-    try { return new Date(ts).toLocaleTimeString(); } catch (e) { return ts; }
-  }
-
-  function pollActive() {
-    fetch('/api/jobs/active')
-      .then(function (r) { return r.json(); })
-      .then(function (jobs) {
-        lastUpdated.textContent = 'updated ' + new Date().toLocaleTimeString();
-
-        var ids = (jobs || []).map(function (j) { return j.id; });
-        // A job that was active on the previous poll and no longer is has just
-        // finished: reload so the filtered table below picks up its verdict.
-        if (seenIds && seenIds.some(function (id) { return ids.indexOf(id) === -1; })) {
-          location.reload();
-          return;
-        }
-        seenIds = ids;
-
-        if (!jobs || jobs.length === 0) {
-          spinner.classList.remove('fa-spin');
-          countBadge.style.display = 'none';
-          body.innerHTML = '<p class="muted">No scans currently running or queued.</p>';
-          pollTimer = setTimeout(pollActive, 8000);
-          return;
-        }
-
-        spinner.classList.add('fa-spin');
-        countBadge.style.display = '';
-        countBadge.textContent = jobs.length + ' active';
-
-        var rows = jobs.map(function (j) {
-          var sc = 'badge-' + (j.status || '').toLowerCase();
-          var target = (j.target || '').replace(/</g, '&lt;');
-          return '<tr>' +
-            '<td><a href="/jobs/' + j.id + '" class="mono">' + (j.idShort || '') + '</a></td>' +
-            '<td class="mono" style="font-size:11px;">' + (j.type || '') + '</td>' +
-            '<td><span class="badge-status ' + sc + '">' + (j.status || '') + '</span></td>' +
-            '<td class="mono" style="font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + target + '</td>' +
-            '<td style="font-size:13px;">' + (j.endpointName || '—') + '</td>' +
-            '<td class="mono muted" style="font-size:11px;">' + fmt(j.submittedAt) + '</td>' +
-            '</tr>';
-        }).join('');
-
-        body.innerHTML = '<div class="table-responsive"><table class="table table-striped align-middle">' +
-          '<thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Target</th><th>Endpoint</th><th>Submitted</th></tr></thead>' +
-          '<tbody>' + rows + '</tbody></table></div>';
-
-        pollTimer = setTimeout(pollActive, 3000);
-      })
-      .catch(function () {
-        lastUpdated.textContent = 'poll error';
-        pollTimer = setTimeout(pollActive, 10000);
-      });
-  }
-
-  pollActive();
-})();
-</script>
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
+<script src="/js/active-jobs.js"></script>
+<script>ClaimAV.activeJobs({ reloadOnFinish: true });</script>
 </body>
 </html>

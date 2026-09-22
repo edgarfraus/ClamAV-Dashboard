@@ -1,34 +1,24 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Endpoint Groups - ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Endpoint groups')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Endpoint Groups</div>
-        <div class="app-title__subtitle">Organise endpoints into groups for bulk scheduled scans</div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Endpoint groups')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small">Organise endpoints into groups for bulk scheduled scans</div>
       </div>
-    </div>
 
-    <div class="app-content">
-      <div class="panel mb-3">
-        <div class="panel-body">
-          <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> Create group</div>
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-4">
+            <span class="row-icon is-ok"><i class="fa-solid fa-plus"></i></span>
+            <div class="card-title mb-0">Create group</div>
+          </div>
           <form th:action="@{/admin/groups/create}" method="post" class="row g-2 align-items-end">
             <div class="col-md-4">
               <label class="form-label">Name</label>
@@ -45,13 +35,13 @@
         </div>
       </div>
 
-      <div class="panel mb-3">
-        <div class="panel-body">
+      <div class="card mb-4">
+        <div class="card-body">
           <div class="card-title mb-2">Unassigned endpoints</div>
-          <div class="muted" style="font-size:12px;margin-bottom:8px;">Assign a group to an endpoint in the <a href="/admin/endpoints">Endpoints</a> page.</div>
+          <div class="text-body-secondary" style="font-size:12px;margin-bottom:8px;">Assign a group to an endpoint in the <a href="/admin/endpoints">Endpoints</a> page.</div>
           <div class="table-responsive">
-            <table class="table table-sm table-striped">
-              <thead><tr><th>Endpoint</th><th>Host</th><th>Port</th><th>Enabled</th></tr></thead>
+            <table class="table border align-middle mb-0 table-sm" data-filterable>
+              <thead class="fw-semibold text-nowrap"><tr><th class="bg-body-secondary bg-body-secondary">Endpoint</th><th class="bg-body-secondary bg-body-secondary">Host</th><th class="bg-body-secondary bg-body-secondary">Port</th><th class="bg-body-secondary bg-body-secondary">Enabled</th></tr></thead>
               <tbody>
                 <tr th:each="ep : ${endpoints}" th:if="${ep.group == null}">
                   <td><a th:href="@{/admin/endpoints}" th:text="${ep.name}">name</a></td>
@@ -68,47 +58,47 @@
         </div>
       </div>
 
-      <div th:if="${groups == null or #lists.isEmpty(groups)}" class="panel">
-        <div class="panel-body muted">No groups yet. Create one above.</div>
+      <div th:if="${groups == null or #lists.isEmpty(groups)}" class="card">
+        <div class="card-body text-body-secondary">No groups yet. Create one above.</div>
       </div>
 
-      <div class="panel mb-3" th:each="g : ${groups}">
-        <div class="panel-body">
-          <div class="d-flex align-items-center gap-3 mb-3" style="flex-wrap:wrap;">
+      <div class="card mb-4" th:each="g : ${groups}">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-4" style="flex-wrap:wrap;">
             <div>
               <div class="card-title mb-0" th:text="${g.name}">group</div>
-              <div class="muted" style="font-size:12px;" th:text="${g.description}"></div>
+              <div class="text-body-secondary" style="font-size:12px;" th:text="${g.description}"></div>
             </div>
 
             <div class="ms-auto d-flex align-items-center gap-2" style="flex-wrap:wrap;">
-              <span class="muted" style="font-size:12px;" title="Only affects Linux endpoints with realtime (on-access) already installed; the agent applies the change on its next poll, not immediately.">
+              <span class="text-body-secondary" style="font-size:12px;" title="Only affects Linux endpoints with realtime (on-access) already installed; the agent applies the change on its next poll, not immediately.">
                 Realtime:
               </span>
               <form th:action="@{'/admin/groups/' + ${g.id} + '/onaccess-mode'}" method="post" style="display:inline;">
                 <input type="hidden" name="prevent" value="false"/>
                 <button type="submit" class="btn btn-sm"
-                        th:classappend="${!g.onAccessPrevent} ? 'btn-primary' : 'btn-outline-light'">
+                        th:classappend="${!g.onAccessPrevent} ? 'btn-primary' : 'btn-outline-secondary'">
                   <i class="fa-solid fa-eye"></i> Detection
                 </button>
               </form>
               <form th:action="@{'/admin/groups/' + ${g.id} + '/onaccess-mode'}" method="post" style="display:inline;">
                 <input type="hidden" name="prevent" value="true"/>
                 <button type="submit" class="btn btn-sm"
-                        th:classappend="${g.onAccessPrevent} ? 'btn-primary' : 'btn-outline-light'">
+                        th:classappend="${g.onAccessPrevent} ? 'btn-primary' : 'btn-outline-secondary'">
                   <i class="fa-solid fa-shield-halved"></i> Prevention
                 </button>
               </form>
               <form th:action="@{'/admin/groups/' + ${g.id} + '/delete'}" method="post"
                     onsubmit="return confirm('Delete group? Endpoints will be unassigned.');">
-                <button type="submit" class="btn btn-outline-light btn-sm text-danger">
+                <button type="submit" class="btn btn-outline-secondary btn-sm text-danger">
                   <i class="fa-solid fa-trash"></i> Delete group
                 </button>
               </form>
             </div>
           </div>
           <div class="table-responsive">
-            <table class="table table-sm table-striped">
-              <thead><tr><th>Endpoint</th><th>Host</th><th>Port</th><th>Enabled</th><th>Realtime applied</th></tr></thead>
+            <table class="table border align-middle mb-0 table-sm" data-filterable>
+              <thead class="fw-semibold text-nowrap"><tr><th class="bg-body-secondary bg-body-secondary">Endpoint</th><th class="bg-body-secondary bg-body-secondary">Host</th><th class="bg-body-secondary bg-body-secondary">Port</th><th class="bg-body-secondary bg-body-secondary">Enabled</th><th class="bg-body-secondary bg-body-secondary">Realtime applied</th></tr></thead>
               <tbody>
                 <tr th:each="ep : ${endpoints}" th:if="${ep.group != null and ep.group.id == g.id}">
                   <td th:text="${ep.name}">name</td>
@@ -119,11 +109,11 @@
                     <span th:unless="${ep.enabled}" class="badge-status badge-neutral">Disabled</span>
                   </td>
                   <td>
-                    <span th:if="${ep.agentOnAccessMode == null}" class="muted" style="font-size:12px;">
+                    <span th:if="${ep.agentOnAccessMode == null}" class="text-body-secondary" style="font-size:12px;">
                       <span th:if="${!ep.agentEnrolled}">n/a</span>
                       <span th:if="${ep.agentEnrolled}">not reported yet</span>
                     </span>
-                    <span th:if="${ep.agentOnAccessMode == 'unsupported'}" class="muted" style="font-size:12px;"
+                    <span th:if="${ep.agentOnAccessMode == 'unsupported'}" class="text-body-secondary" style="font-size:12px;"
                           title="Realtime not available on this platform (fanotify is Linux-only): the Detection/Prevention choice still applies to scheduled and console-dispatched scans.">
                       n/a on this platform
                     </span>
@@ -134,7 +124,7 @@
                           th:text="${ep.agentOnAccessMode}">detect</span>
                     <span th:if="${(ep.agentOnAccessMode == 'prevent' or ep.agentOnAccessMode == 'detect')
                                    and ((ep.agentOnAccessMode == 'prevent') != g.onAccessPrevent)}"
-                          class="muted" style="font-size:11px;" title="Waiting for the agent to apply the change on its next poll">
+                          class="text-body-secondary" style="font-size:11px;" title="Waiting for the agent to apply the change on its next poll">
                       (pending)
                     </span>
                   </td>
@@ -145,10 +135,11 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
 </body>
 </html>

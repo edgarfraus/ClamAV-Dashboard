@@ -1,675 +1,423 @@
 /*
-  ClamAV Web Client - "Instrument Panel" theme
-  Diagnostic/lab console aesthetic: warm paper surfaces, clinical teal accent,
-  status colors that carry real meaning (verdict/status), IBM Plex type system.
-  Dark/light theme toggle via <html data-theme="dark|light">.
+  ClaimAV console — CoreUI layer
+  ------------------------------------------------------------------
+  The look comes from CoreUI itself (css/coreui.min.css, MIT), which is a
+  drop-in fork of Bootstrap 5. This file is only two things:
+
+    1. the CoreUI admin template's own layout layer, ported from its
+       src/scss/style.scss — the sidebar/wrapper offset, the header and
+       sidebar heights, the footer. Without it the fixed sidebar overlaps
+       the content, because CoreUI publishes --cui-sidebar-occupy-start
+       but leaves it to the template to consume.
+
+    2. the things that are ours and not CoreUI's: verdict and status
+       badges, the signature pills, the alert timeline, monospace cells.
+
+  Colour rule, unchanged from before: on this console colour carries state.
+  success = a clean verdict, danger = a threat or a failure, warning = work
+  still in flight. Those map onto CoreUI's own semantic tokens, so both
+  themes come from CoreUI and stay consistent with every other component.
+
+  Dark mode is CoreUI's native one: html[data-coreui-theme="dark"].
 */
 
-:root {
-  /* Light (paper/lab) surfaces */
-  --paper: #f6f5f1;
-  --paper2: #ffffff;
-  --ink: #14181c;
-  --muted: #5c6470;
-  --line: #dcd9d0;
-  --shadow: 0 1px 2px rgba(20, 24, 28, 0.04), 0 8px 24px rgba(20, 24, 28, 0.06);
-
-  /* Signal colors - meaningful, not decorative */
-  --signal: #0f6e5c;      /* clean / ok / primary accent */
-  --signal-ink: #ffffff;
-  --alert: #b3261e;       /* virus found / error */
-  --amber: #9a6b14;       /* queued / pending / running */
-
-  --radius: 14px;
-  --radius-sm: 9px;
-
-  --font-display: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-html[data-theme="dark"] {
-  --paper: #14181c;
-  --paper2: #1b2126;
-  --ink: #ecebe4;
-  --muted: #9aa2ab;
-  --line: rgba(255, 255, 255, 0.10);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
-
-  --signal: #2fbfa0;
-  --signal-ink: #06201b;
-  --alert: #ff6b61;
-  --amber: #e0ab4c;
-}
-
-/* Global */
-html, body { height: 100%; }
+/* =============================================================
+   1. Layout layer (ported from the CoreUI template's style.scss)
+   ============================================================= */
 
 body {
-  margin: 0;
-  color: var(--ink);
-  background: var(--paper);
-  font-family: var(--font-display);
-  font-size: 14.5px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
+  background-color: var(--cui-tertiary-bg);
 }
 
-a { color: var(--signal); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-code, pre, .mono { font-family: var(--font-mono); }
-
-.muted, .text-muted { color: var(--muted) !important; }
-
-pre {
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  overflow: auto;
-  font-size: 13px;
-  color: var(--ink);
+.wrapper {
+  width: 100%;
+  padding-inline: var(--cui-sidebar-occupy-start, 0) var(--cui-sidebar-occupy-end, 0);
+  will-change: auto;
+  transition: padding 0.15s;
 }
 
-h1, h2, h3, h4, h5, h6, .card-title, .panel-title, .section-title {
-  color: var(--ink);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-/* ---------- Shell layout ---------- */
-.app-shell {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 20px;
-  padding: 20px;
-  min-height: 100vh;
-  max-width: 1440px;
-  margin: 0 auto;
-}
-
-@media (max-width: 1100px) {
-  .app-shell { grid-template-columns: 1fr; }
-  .app-sidebar { position: sticky; top: 12px; z-index: 5; }
-}
-
-/* ---------- Sidebar: instrument nameplate ---------- */
-.app-sidebar {
-  background: var(--paper2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-}
-
+.header > .container-fluid,
 .sidebar-header {
+  min-height: calc(4rem + 1px);
+}
+
+.sidebar-brand-full {
+  margin-left: 3px;
+}
+
+.sidebar-header .nav-link {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-bottom: 16px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--line);
+  min-height: calc(4rem + 1px);
 }
 
-.sidebar-logo {
-  width: 40px;
-  height: 40px;
-  object-fit: cover;
-  border-radius: 10px;
-  border: 1px solid var(--line);
+.sidebar-toggler {
+  margin-inline-start: auto;
 }
 
-.sidebar-appname {
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: -0.01em;
+.sidebar-narrow .sidebar-toggler,
+.sidebar-narrow-unfoldable:not(:hover) .sidebar-toggler {
+  margin-inline-end: auto;
 }
 
-.sidebar-caption {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.header > .container-fluid + .container-fluid {
+  min-height: 3rem;
 }
 
-.sidebar-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 14px;
+.footer {
+  min-height: calc(3rem + 1px);
 }
 
-.sidebar-section__title {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  padding: 0 10px;
-  margin-bottom: 4px;
+html[data-coreui-theme="dark"] body {
+  background-color: var(--cui-dark-bg-subtle);
 }
 
-.sidebar-divider {
-  height: 1px;
-  background: var(--line);
-  margin: 16px 0;
-}
-
-.nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  text-decoration: none;
-  font-size: 13.5px;
-  font-weight: 500;
-  border-left: 2px solid transparent;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-
-.nav-btn i { width: 16px; text-align: center; color: var(--muted); font-size: 13px; }
-
-.nav-btn:hover {
-  background: color-mix(in srgb, var(--signal) 8%, transparent);
-  text-decoration: none;
-}
-
-.nav-btn.active {
-  background: color-mix(in srgb, var(--signal) 12%, transparent);
-  border-left-color: var(--signal);
-  font-weight: 600;
-}
-.nav-btn.active i { color: var(--signal); }
-
-.sidebar-footer {
-  margin-top: auto;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* ---------- Main / topbar ---------- */
-.app-main {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  min-width: 0;
-}
-
-.app-topbar {
-  position: relative;
-  background: var(--paper2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 18px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  overflow: hidden;
-}
-
-/* Signature element: scan line sweep under the topbar */
-.app-topbar::after {
-  content: "";
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--signal), transparent);
-  background-size: 200% 100%;
-  animation: scan-sweep 5s linear infinite;
-  opacity: 0.75;
+html[data-coreui-theme="dark"] .footer {
+  --cui-footer-bg: var(--cui-body-bg);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-topbar::after { animation: none; background-position: 40% 0; }
+  .wrapper { transition: none; }
 }
 
-@keyframes scan-sweep {
-  0%   { background-position: 120% 0; }
-  100% { background-position: -20% 0; }
-}
+/* =============================================================
+   2. Brand
+   ============================================================= */
 
-.app-title__name {
-  font-size: 21px;
-  font-weight: 700;
+.sidebar-brand {
+  gap: 10px;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.app-title__subtitle {
-  margin-top: 2px;
-  font-size: 12.5px;
-  color: var(--muted);
+.sidebar-brand-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  object-fit: cover;
 }
 
-.app-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.app-footer {
-  margin-top: 4px;
-  padding: 4px 4px 12px;
-  font-size: 12px;
-  color: var(--muted);
+/* The sidebar nav uses Font Awesome, not CoreUI Icons: give the glyph the
+   same box CoreUI reserves for its own svg icon so labels line up. */
+.sidebar-nav .nav-icon {
+  flex: 0 0 4rem;
+  height: 1.25rem;
+  font-size: 1rem;
   text-align: center;
+  transition: inherit;
 }
 
-/* ---------- Cards / panels ---------- */
-.card, .panel {
-  background: var(--paper2) !important;
-  border: 1px solid var(--line) !important;
-  border-radius: var(--radius) !important;
-  box-shadow: var(--shadow);
-}
+/* =============================================================
+   3. Status & verdict badges
+   Names match what the templates build dynamically, e.g.
+   th:classappend="'badge-' + #strings.toLowerCase(j.status)".
+   ============================================================= */
 
-.card .card-body, .panel-body { padding: 18px 20px; }
-
-.card-title, .panel .card-title { font-weight: 600; font-size: 14.5px; }
-
-.section-title {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-}
-
-.kpi {
-  font-family: var(--font-mono);
-  font-size: 32px;
-  font-weight: 600;
-  margin-top: 6px;
-  color: var(--ink);
-  letter-spacing: -0.01em;
-}
-
-.kpi-sm {
-  font-family: var(--font-mono);
-  font-size: 17px;
-  font-weight: 600;
-  margin-top: 6px;
-  color: var(--ink);
-}
-
-/* ---------- Forms ---------- */
-.form-control, .form-select {
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--paper2);
-  color: var(--ink);
-  font-family: var(--font-display);
-  font-size: 13.5px;
-}
-
-.form-control:focus, .form-select:focus {
-  border-color: var(--signal);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 18%, transparent);
-}
-
-label.form-label {
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 5px;
-}
-
-/* ---------- Buttons ---------- */
-.btn {
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-  font-size: 13px;
-  padding: 8px 14px;
-}
-
-.btn-primary {
-  background: var(--signal);
-  border: 1px solid var(--signal);
-  color: var(--signal-ink);
-}
-.btn-primary:hover, .btn-primary:focus {
-  background: color-mix(in srgb, var(--signal) 85%, black);
-  border-color: color-mix(in srgb, var(--signal) 85%, black);
-  color: var(--signal-ink);
-}
-
-.btn-outline-light {
-  border: 1px solid var(--line);
-  color: var(--ink);
-  background: transparent;
-}
-.btn-outline-light:hover {
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-  color: var(--ink);
-  border-color: var(--line);
-}
-
-.btn-sm { padding: 5px 10px; font-size: 12px; }
-
-/* ---------- Alerts ---------- */
-.alert {
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink) 3%, transparent);
-  color: var(--ink);
-  font-size: 13.5px;
-}
-.alert-danger {
-  border-color: color-mix(in srgb, var(--alert) 35%, var(--line));
-  background: color-mix(in srgb, var(--alert) 10%, transparent);
-  color: var(--alert);
-}
-.alert-success {
-  border-color: color-mix(in srgb, var(--signal) 35%, var(--line));
-  background: color-mix(in srgb, var(--signal) 10%, transparent);
-  color: var(--signal);
-}
-.alert-warning {
-  border-color: color-mix(in srgb, var(--amber) 35%, var(--line));
-  background: color-mix(in srgb, var(--amber) 10%, transparent);
-  color: var(--amber);
-}
-
-/* ---------- Status badges (verdict / job status) ---------- */
 .badge-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--cui-font-monospace);
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  padding: 3px 9px;
-  border-radius: 999px;
+  padding: 0.25rem 0.5rem;
+  border-radius: 10rem;
   border: 1px solid transparent;
   white-space: nowrap;
+  line-height: 1.3;
 }
 .badge-status::before {
   content: "";
-  width: 6px; height: 6px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
 }
+.badge-status:has(i)::before { display: none; }
 
 .badge-ok, .badge-finished {
-  color: var(--signal);
-  background: color-mix(in srgb, var(--signal) 12%, transparent);
-  border-color: color-mix(in srgb, var(--signal) 30%, transparent);
+  color: var(--cui-success-text-emphasis);
+  background-color: var(--cui-success-bg-subtle);
+  border-color: var(--cui-success-border-subtle);
 }
 .badge-danger, .badge-virus_found, .badge-error {
-  color: var(--alert);
-  background: color-mix(in srgb, var(--alert) 12%, transparent);
-  border-color: color-mix(in srgb, var(--alert) 30%, transparent);
+  color: var(--cui-danger-text-emphasis);
+  background-color: var(--cui-danger-bg-subtle);
+  border-color: var(--cui-danger-border-subtle);
 }
 .badge-pending, .badge-queued, .badge-running {
-  color: var(--amber);
-  background: color-mix(in srgb, var(--amber) 12%, transparent);
-  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+  color: var(--cui-warning-text-emphasis);
+  background-color: var(--cui-warning-bg-subtle);
+  border-color: var(--cui-warning-border-subtle);
 }
-.badge-neutral {
-  color: var(--muted);
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-  border-color: var(--line);
+.badge-neutral, .badge-skipped {
+  color: var(--cui-secondary-color);
+  background-color: var(--cui-secondary-bg);
+  border-color: var(--cui-border-color);
 }
-.badge-skipped {
-  color: var(--muted);
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
-  border-color: var(--line);
-  opacity: 0.7;
-}
+.badge-skipped { opacity: 0.8; }
 
-/* ---------- Tables ---------- */
-.table {
-  color: var(--ink);
-  font-size: 13.5px;
+/*
+  In dark mode CoreUI keeps the *-bg-subtle tokens light, which is right for
+  a filled badge but wrong for these outlined pills: dark text on a pale
+  chip fights everything around it. Rebuild them from the live colour.
+*/
+html[data-coreui-theme="dark"] .badge-ok,
+html[data-coreui-theme="dark"] .badge-finished {
+  color: var(--cui-success);
+  background-color: rgba(var(--cui-success-rgb), 0.15);
+  border-color: rgba(var(--cui-success-rgb), 0.3);
 }
-.table thead th {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
+html[data-coreui-theme="dark"] .badge-danger,
+html[data-coreui-theme="dark"] .badge-virus_found,
+html[data-coreui-theme="dark"] .badge-error {
+  color: var(--cui-danger);
+  background-color: rgba(var(--cui-danger-rgb), 0.15);
+  border-color: rgba(var(--cui-danger-rgb), 0.3);
 }
-.table td, .table th {
-  border-top-color: var(--line);
-  padding: 10px 8px;
-  vertical-align: middle;
-}
-/* (table-striped and table-hover overrides moved to Bootstrap Bridge section below) */
-.table code { font-size: 12.5px; }
-
-/* Dense admin grids (many columns of small inputs/badges): tighter padding so
-   the table fits the viewport instead of forcing horizontal scroll. */
-.table-compact td, .table-compact th { padding: 8px 5px; }
-.table-compact .form-control-sm, .table-compact .form-select-sm { font-size: 12px; padding: 3px 6px; }
-.table-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-
-/* ---------- Toggle switch ---------- */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 38px;
-  height: 21px;
-  flex-shrink: 0;
-}
-.switch input { display: none; }
-.switch .slider {
-  position: absolute;
-  inset: 0;
-  background: var(--line);
-  border-radius: 999px;
-  transition: background 0.15s ease;
-  cursor: pointer;
-}
-.switch .slider:before {
-  content: "";
-  position: absolute;
-  height: 15px; width: 15px;
-  left: 3px; top: 3px;
-  background: var(--paper2);
-  border-radius: 50%;
-  transition: transform 0.15s ease;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-}
-.switch input:checked + .slider { background: var(--signal); }
-.switch input:checked + .slider:before { transform: translateX(17px); }
-
-/* ---------- Dropdowns ---------- */
-.dropdown-menu {
-  background-color: var(--paper2);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  border-radius: var(--radius-sm);
-}
-.dropdown-item { color: var(--ink); }
-.dropdown-item:hover, .dropdown-item:focus {
-  background-color: color-mix(in srgb, var(--signal) 10%, transparent);
-  color: var(--ink);
-}
-
-/* ---------- Login page ---------- */
-body[data-theme] .card { max-width: 100%; }
-
-/* Focus visibility (accessibility floor) */
-a:focus-visible, button:focus-visible, input:focus-visible,
-select:focus-visible, .nav-btn:focus-visible {
-  outline: 2px solid var(--signal);
-  outline-offset: 2px;
+html[data-coreui-theme="dark"] .badge-pending,
+html[data-coreui-theme="dark"] .badge-queued,
+html[data-coreui-theme="dark"] .badge-running {
+  color: var(--cui-warning);
+  background-color: rgba(var(--cui-warning-rgb), 0.15);
+  border-color: rgba(var(--cui-warning-rgb), 0.3);
 }
 
 /* =============================================================
-   BOOTSTRAP THEME BRIDGE
-   Override Bootstrap's own CSS variables so every component
-   (tables, inputs, buttons, alerts) uses our theme colours.
-   Without these, Bootstrap reads its own defaults and produces
-   black/white flickers in dark mode and wrong colours in light.
+   4. Tables
    ============================================================= */
 
-/* -- Body & typography -- */
-html[data-theme="dark"] {
-  --bs-body-color: #ecebe4;
-  --bs-body-bg: #14181c;
-  --bs-secondary-color: #9aa2ab;
-  --bs-heading-color: #ecebe4;
-  --bs-link-color: #2fbfa0;
-  --bs-link-hover-color: #3fd4b5;
-  --bs-border-color: rgba(255,255,255,0.10);
-  --bs-secondary-bg: #1b2126;
-  --bs-tertiary-bg: #22282f;
-  --bs-emphasis-color: #ecebe4;
+.mono, code, pre, .table .mono {
+  font-family: var(--cui-font-monospace);
 }
 
-/* -- Tables -- */
-.table {
-  --bs-table-color: var(--ink);
-  --bs-table-bg: transparent;
-  --bs-table-border-color: var(--line);
-  --bs-table-striped-color: var(--ink);
-  --bs-table-striped-bg: color-mix(in srgb, var(--ink) 3.5%, transparent);
-  --bs-table-hover-color: var(--ink);
-  --bs-table-hover-bg: color-mix(in srgb, var(--signal) 7%, transparent);
-  --bs-table-active-color: var(--ink);
-  --bs-table-active-bg: color-mix(in srgb, var(--ink) 6%, transparent);
-  color: var(--ink);
-  border-color: var(--line);
-}
-.table > :not(caption) > * > * {
-  color: var(--ink);
-}
-.table-striped > tbody > tr:nth-of-type(odd) > td,
-.table-striped > tbody > tr:nth-of-type(odd) > th {
-  background-color: color-mix(in srgb, var(--ink) 3.5%, transparent);
-  color: var(--ink);
-}
-.table-hover > tbody > tr:hover > td,
-.table-hover > tbody > tr:hover > th {
-  background-color: color-mix(in srgb, var(--signal) 7%, transparent);
-  color: var(--ink);
-}
-/* Form controls inside tables: consistent background regardless of row stripe */
-.table .form-control,
-.table .form-select {
-  background-color: color-mix(in srgb, var(--ink) 5%, var(--paper2));
-  border-color: color-mix(in srgb, var(--ink) 16%, transparent);
-  color: var(--ink);
-  font-size: 13px;
-}
-.table .form-control:focus,
-.table .form-select:focus {
-  background-color: var(--paper2);
-  border-color: var(--signal);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--signal) 20%, transparent);
-  color: var(--ink);
+/* Paths and targets are long and must not stretch a row open. */
+.cell-truncate {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* -- Form controls -- */
-.form-control,
-.form-select {
-  background-color: var(--paper2);
-  color: var(--ink);
-  border-color: var(--line);
-}
-.form-control:focus,
-.form-select:focus {
-  background-color: var(--paper2);
-  color: var(--ink);
-  border-color: var(--signal);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 18%, transparent);
-}
-.form-control::placeholder { color: var(--muted); }
-.form-control:disabled,
-.form-select:disabled {
-  background-color: color-mix(in srgb, var(--ink) 5%, var(--paper2));
-  color: var(--muted);
-}
-.form-label { color: var(--ink); }
-.form-check-label { color: var(--ink); }
-
-/* Input groups & number spinners */
-html[data-theme="dark"] input[type=number] { color-scheme: dark; }
-
-/* -- Buttons -- */
-.btn-outline-light {
-  --bs-btn-color: var(--ink);
-  --bs-btn-border-color: var(--line);
-  --bs-btn-hover-bg: color-mix(in srgb, var(--ink) 8%, transparent);
-  --bs-btn-hover-color: var(--ink);
-  --bs-btn-hover-border-color: color-mix(in srgb, var(--ink) 40%, transparent);
-  --bs-btn-active-bg: color-mix(in srgb, var(--ink) 12%, transparent);
-  --bs-btn-active-color: var(--ink);
-  --bs-btn-active-border-color: var(--line);
-  --bs-btn-focus-shadow-rgb: 108, 117, 125;
-}
-.btn-primary {
-  --bs-btn-bg: var(--signal);
-  --bs-btn-border-color: var(--signal);
-  --bs-btn-color: var(--signal-ink);
-  --bs-btn-hover-bg: color-mix(in srgb, var(--signal) 85%, black);
-  --bs-btn-hover-border-color: color-mix(in srgb, var(--signal) 85%, black);
-  --bs-btn-hover-color: var(--signal-ink);
-  --bs-btn-active-bg: color-mix(in srgb, var(--signal) 75%, black);
-  --bs-btn-active-color: var(--signal-ink);
+.table thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
-/* -- Alert component -- */
-.alert {
-  background-color: var(--paper2);
-  border-color: var(--line);
-  color: var(--ink);
+/* Dense admin grids (many small inputs per row) */
+.table-compact td, .table-compact th { padding: 0.5rem 0.375rem; }
+.table-compact .form-control-sm, .table-compact .form-select-sm { font-size: 0.75rem; }
+.table-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+
+/* A type/verdict marker that reads as an icon tile in the first cell */
+.row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--cui-secondary-bg);
+  color: var(--cui-secondary-color);
+  font-size: 0.8125rem;
+  flex-shrink: 0;
 }
-.alert-warning {
-  background-color: color-mix(in srgb, var(--amber) 12%, var(--paper));
-  border-color: color-mix(in srgb, var(--amber) 35%, transparent);
-  color: var(--amber);
-}
-.alert-danger {
-  background-color: color-mix(in srgb, var(--alert) 12%, var(--paper));
-  border-color: color-mix(in srgb, var(--alert) 35%, transparent);
-  color: var(--alert);
-}
-.alert-info {
-  background-color: color-mix(in srgb, var(--signal) 10%, var(--paper));
-  border-color: color-mix(in srgb, var(--signal) 30%, transparent);
-  color: var(--signal);
+.row-icon.is-ok     { background: rgba(var(--cui-success-rgb), 0.15); color: var(--cui-success); }
+.row-icon.is-alert  { background: rgba(var(--cui-danger-rgb), 0.15);  color: var(--cui-danger); }
+.row-icon.is-amber  { background: rgba(var(--cui-warning-rgb), 0.15); color: var(--cui-warning); }
+
+/* =============================================================
+   5. Alerts pages
+   ============================================================= */
+
+.sig-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: rgba(var(--cui-danger-rgb), 0.12);
+  color: var(--cui-danger);
+  border: 1px solid rgba(var(--cui-danger-rgb), 0.28);
+  border-radius: 10rem;
+  padding: 2px 9px;
+  font-size: 0.6875rem;
+  font-family: var(--cui-font-monospace);
+  font-weight: 600;
+  margin: 2px 2px 2px 0;
 }
 
-/* -- Badges -- */
-.badge.bg-secondary { background-color: var(--muted) !important; color: var(--paper); }
-
-/* -- Modals (future-proof) -- */
-.modal-content {
-  background-color: var(--paper2);
-  border-color: var(--line);
-  color: var(--ink);
+.group-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 10rem;
+  background-color: rgba(var(--cui-primary-rgb), 0.12);
+  color: var(--cui-primary);
+  border: 1px solid rgba(var(--cui-primary-rgb), 0.28);
 }
 
-/* -- Checkboxes & radios -- */
-html[data-theme="dark"] .form-check-input {
-  background-color: var(--paper2);
-  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+.expand-btn {
+  background: transparent;
+  border: 1px solid var(--cui-border-color);
+  border-radius: 0.375rem;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 0.6875rem;
+  color: var(--cui-secondary-color);
 }
-html[data-theme="dark"] .form-check-input:checked {
-  background-color: var(--signal);
-  border-color: var(--signal);
+.expand-btn:hover { border-color: var(--cui-primary); color: var(--cui-primary); }
+
+.alert-main-row { cursor: pointer; }
+.alert-row-detail { display: none; }
+.alert-row-detail.open { display: table-row; }
+.alert-row-detail > td { padding: 0 !important; background: var(--cui-tertiary-bg); }
+
+.alert-detail-inner {
+  padding: 1rem 1.25rem;
+  border-inline-start: 3px solid var(--cui-danger);
+  margin: 0 1rem 1rem 1rem;
+  background: var(--cui-body-bg);
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.detail-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cui-secondary-color);
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.sig-block {
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background-color: rgba(var(--cui-danger-rgb), 0.08);
+  border: 1px solid rgba(var(--cui-danger-rgb), 0.22);
+}
+.sig-name { font-family: var(--cui-font-monospace); font-size: 0.8125rem; font-weight: 600; color: var(--cui-danger); }
+.sig-path { font-family: var(--cui-font-monospace); font-size: 0.6875rem; color: var(--cui-secondary-color); margin-top: 2px; word-break: break-all; }
+
+.origin-card {
+  padding: 1rem;
+  border-radius: 0.375rem;
+  background-color: rgba(var(--cui-warning-rgb), 0.08);
+  border: 1px solid rgba(var(--cui-warning-rgb), 0.22);
+}
+
+.meta-row { display: flex; gap: 0.625rem; align-items: baseline; margin-bottom: 0.625rem; font-size: 0.8125rem; }
+.meta-label { color: var(--cui-secondary-color); min-width: 140px; font-size: 0.75rem; flex-shrink: 0; }
+
+.timeline-step { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.875rem; }
+.timeline-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--cui-success);
+  flex-shrink: 0;
+  margin-top: 5px;
+  box-shadow: 0 0 0 3px rgba(var(--cui-success-rgb), 0.2);
+}
+.timeline-dot.alert { background: var(--cui-danger); box-shadow: 0 0 0 3px rgba(var(--cui-danger-rgb), 0.2); }
+.timeline-dot.amber { background: var(--cui-warning); box-shadow: 0 0 0 3px rgba(var(--cui-warning-rgb), 0.2); }
+.timeline-dot.muted { background: var(--cui-secondary-color); box-shadow: none; }
+.timeline-line { width: 1px; background: var(--cui-border-color); flex-shrink: 0; margin: 4px auto 0; }
+
+/* =============================================================
+   6. /main: clamd stats grid
+   ============================================================= */
+
+.stat-row {
+  display: flex;
+  gap: 0.875rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--cui-border-color);
+  align-items: baseline;
+}
+.stat-row__key {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  min-width: 96px;
+  color: var(--cui-secondary-color);
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stat-row__val { font-family: var(--cui-font-monospace); font-size: 0.75rem; word-break: break-all; }
+
+/* =============================================================
+   7. Charts
+   ============================================================= */
+
+.chart-wrapper { position: relative; }
+.chart-sparkline { height: 70px; margin: 0 0.75rem; }
+.chart-main { height: 300px; }
+
+/* =============================================================
+   8. Modals (the hand-rolled ones on the Endpoints page)
+   ============================================================= */
+
+.ui-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1055;
+  background: rgba(8, 10, 12, 0.6);
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+.ui-modal.open { display: flex; }
+.ui-modal__box {
+  background: var(--cui-body-bg);
+  color: var(--cui-body-color);
+  border: 1px solid var(--cui-border-color);
+  border-radius: 0.5rem;
+  box-shadow: 0 1rem 3rem rgba(8, 10, 12, 0.3);
+  padding: 1.5rem;
+  width: min(520px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+}
+.ui-modal__box--wide { width: min(780px, 100%); }
+.ui-modal__title { font-size: 1rem; font-weight: 600; }
+.ui-modal__subtitle { font-size: 0.8125rem; color: var(--cui-secondary-color); margin-bottom: 1rem; }
+
+/* =============================================================
+   9. Login
+   ============================================================= */
+
+.login-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1.25rem;
+  background-color: var(--cui-tertiary-bg);
+}
+.login-logo { width: 56px; height: 56px; border-radius: 0.75rem; object-fit: cover; }
+
+/* =============================================================
+   10. Misc
+   ============================================================= */
+
+.filter-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+
+/* The header search filters the current page's table; hide it where a page
+   has nothing to filter (the input is only rendered when it is useful). */
+.header-search { max-width: 320px; }
+
+pre {
+  background: var(--cui-tertiary-bg);
+  border: 1px solid var(--cui-border-color);
+  border-radius: 0.375rem;
+  padding: 0.75rem 0.875rem;
+  font-size: 0.8125rem;
+  color: var(--cui-body-color);
 }

@@ -23,10 +23,14 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -73,7 +77,7 @@ public class ApiController {
         // Senza agent e senza host non c'e' proprio niente da contattare.
         if (ep.getHost() == null || ep.getHost().isBlank()) {
             return Map.of("online", false,
-                    "error", "Nessun host configurato e nessun agent installato su questo endpoint");
+                    "error", "No host configured and no agent installed on this endpoint");
         }
 
         try {
@@ -96,6 +100,58 @@ public class ApiController {
             return Map.of("online", false,
                     "error", ConnectionDiagnosis.explain(ep.getHost(), ep.getPort(), e));
         }
+    }
+
+    /**
+     * Daily counts for the dashboard charts.
+     *
+     * <p>One pass over the jobs submitted inside the window, grouped by day in
+     * the server's zone. Days with no scans are still present with a zero, so
+     * the chart's x axis is continuous — a sparkline that silently skips empty
+     * days draws a busy week and a quiet week identically.
+     */
+    @GetMapping("/stats/timeseries")
+    public Map<String, Object> timeseries(@RequestParam(name = "days", defaultValue = "14") int days) {
+        int window = Math.min(Math.max(days, 1), 90);
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate today = LocalDate.now(zone);
+        LocalDate first = today.minusDays(window - 1L);
+
+        List<String> labels = new ArrayList<>();
+        Map<LocalDate, Integer> total = new LinkedHashMap<>();
+        Map<LocalDate, Integer> ok = new LinkedHashMap<>();
+        Map<LocalDate, Integer> virus = new LinkedHashMap<>();
+        Map<LocalDate, Integer> error = new LinkedHashMap<>();
+        Map<LocalDate, Set<Long>> endpointsSeen = new LinkedHashMap<>();
+        for (LocalDate d = first; !d.isAfter(today); d = d.plusDays(1)) {
+            labels.add(d.toString());
+            total.put(d, 0); ok.put(d, 0); virus.put(d, 0); error.put(d, 0);
+            endpointsSeen.put(d, new HashSet<>());
+        }
+
+        Instant since = first.atStartOfDay(zone).toInstant();
+        for (ScanJob j : jobs.submittedSince(since)) {
+            if (j.getSubmittedAt() == null) continue;
+            LocalDate d = j.getSubmittedAt().atZone(zone).toLocalDate();
+            if (!total.containsKey(d)) continue;
+            total.merge(d, 1, Integer::sum);
+            if (j.getVerdict() == ScanVerdict.OK) ok.merge(d, 1, Integer::sum);
+            else if (j.getVerdict() == ScanVerdict.VIRUS_FOUND) virus.merge(d, 1, Integer::sum);
+            else if (j.getVerdict() == ScanVerdict.ERROR) error.merge(d, 1, Integer::sum);
+            if (j.getEndpoint() != null) endpointsSeen.get(d).add(j.getEndpoint().getId());
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("labels", labels);
+        out.put("total", new ArrayList<>(total.values()));
+        out.put("ok", new ArrayList<>(ok.values()));
+        out.put("virus", new ArrayList<>(virus.values()));
+        out.put("error", new ArrayList<>(error.values()));
+        out.put("endpoints", endpointsSeen.values().stream().map(Set::size).toList());
+        // Reported so an all-zero range can say *why* it is empty. A flat line
+        // at zero and a broken chart look identical otherwise.
+        out.put("lastScanAt", jobs.lastSubmittedAt().map(Instant::toString).orElse(null));
+        return out;
     }
 
     @GetMapping("/jobs")

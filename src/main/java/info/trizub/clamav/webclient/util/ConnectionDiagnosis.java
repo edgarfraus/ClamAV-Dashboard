@@ -36,31 +36,31 @@ public final class ConnectionDiagnosis {
         String where = host + ":" + port;
         for (Throwable t = e; t != null; t = t.getCause()) {
             if (t instanceof UnknownHostException) {
-                return "Host sconosciuto (" + host + "): la console non risolve questo nome";
+                return "Unknown host (" + host + "): the console cannot resolve this name";
             }
             if (t instanceof NoRouteToHostException) {
-                return "Nessuna route verso " + where + ": la console non raggiunge quella rete";
+                return "No route to " + where + ": the console cannot reach that network";
             }
-            // Il timeout della console stessa (il ping ha un tetto di pochi
-            // secondi): la connessione era ancora appesa, quindi i pacchetti non
-            // tornano - una porta chiusa risponderebbe subito.
+            // The console's own timeout (the ping is capped at a few seconds):
+            // the connection was still hanging, so the packets are not coming
+            // back — a closed port would answer immediately.
             if (t instanceof TimeoutException || t instanceof SocketTimeoutException) {
-                return "Nessuna risposta da " + where + ": i pacchetti vengono scartati, "
-                        + "tipicamente un firewall (una porta chiusa risponderebbe subito)";
+                return "No answer from " + where + ": packets are being dropped, "
+                        + "typically a firewall (a closed port would answer immediately)";
             }
             if (t instanceof ConnectException) {
                 String m = t.getMessage() == null ? "" : t.getMessage().toLowerCase(Locale.ROOT);
                 if (m.contains("timed out") || m.contains("timeout")) {
-                    return "Timeout su " + where + ": i pacchetti vengono scartati, tipicamente un firewall";
+                    return "Timed out on " + where + ": packets are being dropped, typically a firewall";
                 }
-                return "Connessione rifiutata su " + where + ": la macchina risponde ma non c'e' "
-                        + "nessun clamd in ascolto su quella porta (non e' il firewall). "
-                        + "Serve un clamd con TCPSocket/TCPAddr su quell'host, oppure un agent.";
+                return "Connection refused on " + where + ": the machine answers but nothing "
+                        + "is listening on that port (this is not the firewall). "
+                        + "That host needs a clamd with TCPSocket/TCPAddr, or an agent.";
             }
         }
-        // Nessuna causa di rete riconosciuta: si riporta comunque il messaggio
-        // originale invece di inventare una spiegazione.
+        // No recognised network cause: report the original message rather
+        // than inventing an explanation.
         String msg = e != null ? (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()) : null;
-        return (msg != null && !msg.isBlank() ? msg : "connessione non riuscita") + " (" + where + ")";
+        return (msg != null && !msg.isBlank() ? msg : "connection failed") + " (" + where + ")";
     }
 }

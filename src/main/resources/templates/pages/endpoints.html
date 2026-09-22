@@ -1,41 +1,30 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Endpoints - ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Endpoints')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Endpoints</div>
-        <div class="app-title__subtitle">Manage clamd endpoints — live status loads in background</div>
-      </div>
-    </div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Endpoints')}"></div>
 
-    <div class="app-content">
-      <div class="panel mb-3" th:if="${agentKeyMessage}">
-        <div class="panel-body" style="border-left:3px solid var(--accent, #4c8dff);">
-          <i class="fa-solid fa-key"></i> <span th:text="${agentKeyMessage}">message</span>
-        </div>
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small">Manage clamd endpoints — live status loads in background</div>
       </div>
 
-      <div class="panel mb-3">
-        <div class="panel-body">
-          <div class="card-title mb-1"><i class="fa-solid fa-plus"></i> Add endpoint</div>
-          <div class="muted mb-3" style="font-size:12px;">
+      <div class="alert d-flex align-items-center gap-3 alert-success mb-4" th:if="${agentKeyMessage}">
+        <span class="fa-lg"><i class="fa-solid fa-key"></i></span>
+        <div class="fw-semibold" th:text="${agentKeyMessage}">message</div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-4">
+            <span class="row-icon is-ok"><i class="fa-solid fa-plus"></i></span>
+            <div class="card-title mb-0">Add endpoint</div>
+          </div>
+          <div class="text-body-secondary mb-4" style="font-size:12px;">
             Host and port are only needed if you want the <strong>console to connect to clamd</strong>.
             If you install the agent instead, leave them empty: the machine contacts the console,
             so there's no need to know its address or open any ports.
@@ -46,7 +35,7 @@
               <input type="text" class="form-control" name="name" required="required"/>
             </div>
             <div class="col-md-2">
-              <label class="form-label">Host <span class="muted" style="font-weight:400;">(optional)</span></label>
+              <label class="form-label">Host <span class="text-body-secondary" style="font-weight:400;">(optional)</span></label>
               <input type="text" class="form-control" name="host" placeholder="leave empty if using the agent"/>
             </div>
             <div class="col-md-1">
@@ -81,25 +70,27 @@
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-body">
-          <div class="card-title mb-3">Configured endpoints</div>
-          <div th:if="${endpoints == null or #lists.isEmpty(endpoints)}" class="muted">No endpoints yet. Add one above.</div>
-          <div class="table-responsive" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
-            <table class="table table-hover align-middle table-compact">
-              <thead>
+      <div class="card">
+        <div class="card-body pb-0">
+          <div class="card-title mb-0">Configured endpoints</div>
+        </div>
+        <div th:if="${endpoints == null or #lists.isEmpty(endpoints)}" class="card-body text-body-secondary">No endpoints yet. Add one above.</div>
+        <div class="card-body p-0" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
+          <div class="table-responsive">
+            <table class="table table-compact border table-hover align-middle mb-0" data-filterable>
+              <thead class="fw-semibold text-nowrap">
                 <tr style="white-space:nowrap;">
-                  <th style="width:34px;">Status</th>
-                  <th style="min-width:120px;">Name</th>
-                  <th style="min-width:110px;">Host</th>
-                  <th style="width:60px;">Port</th>
-                  <th style="width:100px;">Platform</th>
-                  <th style="width:100px;">Group</th>
-                  <th style="width:50px;" title="Enabled">On</th>
-                  <th style="min-width:85px;">DB version</th>
-                  <th style="min-width:65px;">DB age</th>
-                  <th style="min-width:110px;">Agent / Realtime</th>
-                  <th style="min-width:150px;">Actions</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="width:34px;">Status</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="min-width:120px;">Name</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="min-width:110px;">Host</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="width:60px;">Port</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="width:100px;">Platform</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="width:100px;">Group</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="width:50px;" title="Enabled">On</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="min-width:85px;">DB version</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="min-width:65px;">DB age</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="min-width:110px;">Agent / Realtime</th>
+                  <th class="bg-body-secondary bg-body-secondary" style="min-width:150px;">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -131,7 +122,7 @@
                       <option value="WINDOWS" th:selected="${e.platform.name() == 'WINDOWS'}">WINDOWS</option>
                       <option value="JVM_PLATFORM" th:selected="${e.platform.name() == 'JVM_PLATFORM'}">JVM</option>
                     </select>
-                    <div th:if="${e.agentOs != null}" class="muted" style="font-size:10px;margin-top:2px;"
+                    <div th:if="${e.agentOs != null}" class="text-body-secondary" style="font-size:10px;margin-top:2px;"
                          title="Reported by the agent itself - used to pick folders for a full disk scan, does not depend on this selection">
                       agent: <span th:text="${e.agentOs}">linux</span>
                     </div>
@@ -147,16 +138,16 @@
                   <td style="width:50px;">
                     <input type="checkbox" th:form="${'ep-form-' + e.id}" name="enabled" value="true" th:checked="${e.enabled}"/>
                   </td>
-                  <td style="font-size:12px;" class="mono muted" th:id="${'dbver-' + e.id}">—</td>
+                  <td style="font-size:12px;" class="mono text-body-secondary" th:id="${'dbver-' + e.id}">—</td>
                   <td style="font-size:12px;" th:id="${'dbage-' + e.id}">—</td>
                   <td style="font-size:12px;">
-                    <span th:if="${!e.agentEnrolled}" class="muted">—</span>
+                    <span th:if="${!e.agentEnrolled}" class="text-body-secondary">—</span>
                     <span th:if="${e.agentEnrolled}" class="badge-status badge-neutral"
                           th:title="${e.agentLastSeenAt != null ? 'Last seen: ' + e.agentLastSeenAt : 'Key generated, agent never seen'}"
                           th:text="${e.agentLastSeenAt != null ? 'enrolled' : 'key ready'}">enrolled</span>
                     <br/>
-                    <span th:if="${e.agentOnAccessMode == null}" class="muted">—</span>
-                    <span th:if="${e.agentOnAccessMode == 'unsupported'}" class="muted"
+                    <span th:if="${e.agentOnAccessMode == null}" class="text-body-secondary">—</span>
+                    <span th:if="${e.agentOnAccessMode == 'unsupported'}" class="text-body-secondary"
                           title="Realtime not available on this platform (fanotify is Linux-only)">n/a on platform</span>
                     <span th:if="${e.agentOnAccessMode == 'prevent' or e.agentOnAccessMode == 'detect'}" class="badge-status"
                           th:classappend="${e.agentOnAccessMode == 'prevent'} ? 'badge-virus_found' : 'badge-ok'"
@@ -165,22 +156,22 @@
                   </td>
                   <td>
                     <div class="table-actions">
-                      <button type="submit" th:form="${'ep-form-' + e.id}" class="btn btn-outline-light btn-sm" title="Save">
+                      <button type="submit" th:form="${'ep-form-' + e.id}" class="btn btn-outline-secondary btn-sm" title="Save">
                         <i class="fa-solid fa-floppy-disk"></i>
                       </button>
                       <form th:action="@{'/admin/signatures/' + ${e.id} + '/reload'}" method="post" style="display:inline;"
                             title="Send RELOAD to clamd (reloads signature DB)">
-                        <button type="submit" class="btn btn-outline-light btn-sm">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">
                           <i class="fa-solid fa-rotate"></i>
                         </button>
                       </form>
-                      <button type="button" class="btn btn-outline-light btn-sm"
+                      <button type="button" class="btn btn-outline-secondary btn-sm"
                               title="Configure full disk scan targets"
                               th:attr="data-ep-id=${e.id}, data-ep-name=${e.name}, data-ep-targets=${e.fullDiskTargets}"
                               onclick="openTargetsModal(this)">
                         <i class="fa-solid fa-bullseye"></i>
                       </button>
-                      <button type="button" class="btn btn-outline-light btn-sm"
+                      <button type="button" class="btn btn-outline-secondary btn-sm"
                               title="Agent: enrollment key and install commands"
                               th:attr="data-ep-id=${e.id}, data-ep-name=${e.name}, data-ep-key=${e.agentKey}"
                               onclick="openAgentModal(this)">
@@ -188,7 +179,7 @@
                       </button>
                       <form th:action="@{'/admin/endpoints/' + ${e.id} + '/delete'}" method="post" style="display:inline;"
                             onsubmit="return confirm('Delete this endpoint?');">
-                        <button type="submit" class="btn btn-outline-light btn-sm text-danger">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm text-danger">
                           <i class="fa-solid fa-trash"></i>
                         </button>
                       </form>
@@ -217,11 +208,11 @@
     </div>
 
     <!-- Scan targets modal -->
-    <div id="targetsModal" style="display:none;position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.6);align-items:center;justify-content:center;">
-      <div style="background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:24px;width:min(480px,90vw);max-height:80vh;overflow:auto;">
-        <div style="font-size:15px;font-weight:600;margin-bottom:4px;">Full disk scan targets</div>
-        <div class="muted" style="font-size:13px;margin-bottom:12px;" id="modal-ep-name">endpoint</div>
-        <div class="muted" style="font-size:12px;margin-bottom:8px;">
+    <div id="targetsModal" class="ui-modal">
+      <div class="ui-modal__box">
+        <div class="ui-modal__title">Full disk scan targets</div>
+        <div class="ui-modal__subtitle" id="modal-ep-name">endpoint</div>
+        <div class="text-body-secondary" style="font-size:12px;margin-bottom:8px;">
           One path per line. Lines starting with <code>#</code> are comments. Leave empty to use the platform default
           (<code>/etc, /home, /var, /usr, /opt, /tmp…</code> for Linux; <code>/Users, /Applications, /Library</code> for
           macOS, detected from the agent itself; on Windows the whole <code>C:\</code> with an agent, otherwise
@@ -232,7 +223,7 @@
                     style="height:180px;font-size:13px;resize:vertical;"
                     placeholder="# UNIX example&#10;/etc&#10;/home&#10;/var&#10;/usr&#10;/opt&#10;/tmp"></textarea>
           <div class="d-flex gap-2 mt-3 justify-content-end">
-            <button type="button" class="btn btn-outline-light btn-sm" onclick="closeTargetsModal()">Cancel</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeTargetsModal()">Cancel</button>
             <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-floppy-disk"></i> Save targets</button>
           </div>
         </form>
@@ -240,13 +231,13 @@
     </div>
 
     <!-- Agent modal -->
-    <div id="agentModal" style="display:none;position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.6);align-items:center;justify-content:center;">
-      <div style="background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:24px;width:min(760px,92vw);max-height:85vh;overflow:auto;">
-        <div style="font-size:15px;font-weight:600;margin-bottom:4px;">Agent</div>
-        <div class="muted" style="font-size:13px;margin-bottom:16px;" id="agent-ep-name">endpoint</div>
+    <div id="agentModal" class="ui-modal">
+      <div class="ui-modal__box ui-modal__box--wide">
+        <div class="ui-modal__title">Agent</div>
+        <div class="ui-modal__subtitle" id="agent-ep-name">endpoint</div>
 
         <div id="agent-nokey">
-          <div class="muted" style="font-size:13px;margin-bottom:12px;">
+          <div class="text-body-secondary" style="font-size:13px;margin-bottom:12px;">
             This endpoint has no key yet. Generating one lets you install the agent
             on the machine with a single command: the key is valid only for this endpoint
             and only allows downloading the agent and sending reports.
@@ -254,21 +245,21 @@
         </div>
 
         <div id="agent-haskey" style="display:none;">
-          <div class="muted" style="font-size:12px;margin-bottom:4px;">Enrollment key</div>
-          <div class="d-flex gap-2 mb-3">
+          <div class="text-body-secondary" style="font-size:12px;margin-bottom:4px;">Enrollment key</div>
+          <div class="d-flex gap-2 mb-4">
             <input type="text" id="agent-key-value" class="form-control form-control-sm mono" readonly="readonly"/>
-            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-key-value')">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyAgentText('agent-key-value')">
               <i class="fa-solid fa-copy"></i>
             </button>
           </div>
 
           <div style="font-size:13px;font-weight:600;margin-bottom:6px;">1. Download the installer</div>
-          <div class="muted" style="font-size:12px;margin-bottom:8px;">
+          <div class="text-body-secondary" style="font-size:12px;margin-bottom:8px;">
             The file already contains the key and every agent script: download it and run it,
             nothing else needed. On first run it asks what to enable (realtime, console-dispatched
             scans, scheduled scan).
           </div>
-          <div class="d-flex gap-2 mb-3 flex-wrap">
+          <div class="d-flex gap-2 mb-4 flex-wrap">
             <a id="agent-dl-sh" href="#" class="btn btn-primary btn-sm">
               <i class="fa-brands fa-linux"></i> <i class="fa-brands fa-apple"></i>
               Linux / macOS — install-agent.sh
@@ -279,32 +270,32 @@
           </div>
 
           <div style="font-size:13px;font-weight:600;margin-bottom:6px;">2. Run it on the machine</div>
-          <div class="d-flex gap-2 mb-3">
+          <div class="d-flex gap-2 mb-4">
             <input type="text" id="agent-cmd-run" class="form-control form-control-sm mono" readonly="readonly"/>
-            <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-run')">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyAgentText('agent-cmd-run')">
               <i class="fa-solid fa-copy"></i>
             </button>
           </div>
 
           <details>
-            <summary class="muted" style="font-size:12px;cursor:pointer;">
+            <summary class="text-body-secondary" style="font-size:12px;cursor:pointer;">
               Alternative: one-command install (installs everything without asking)
             </summary>
-            <div class="muted" style="font-size:12px;margin:8px 0 4px;">Linux / macOS</div>
+            <div class="text-body-secondary" style="font-size:12px;margin:8px 0 4px;">Linux / macOS</div>
             <div class="d-flex gap-2 mb-2">
               <input type="text" id="agent-cmd-linux" class="form-control form-control-sm mono" readonly="readonly"/>
-              <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-linux')">
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyAgentText('agent-cmd-linux')">
                 <i class="fa-solid fa-copy"></i>
               </button>
             </div>
-            <div class="muted" style="font-size:12px;margin-bottom:4px;">Windows (PowerShell as Administrator)</div>
+            <div class="text-body-secondary" style="font-size:12px;margin-bottom:4px;">Windows (PowerShell as Administrator)</div>
             <div class="d-flex gap-2">
               <input type="text" id="agent-cmd-windows" class="form-control form-control-sm mono" readonly="readonly"/>
-              <button type="button" class="btn btn-outline-light btn-sm" onclick="copyAgentText('agent-cmd-windows')">
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyAgentText('agent-cmd-windows')">
                 <i class="fa-solid fa-copy"></i>
               </button>
             </div>
-            <div class="muted" style="font-size:11px;margin-top:8px;">
+            <div class="text-body-secondary" style="font-size:11px;margin-top:8px;">
               A pipe has no terminal to read answers from, so the installer enables everything.
               On macOS realtime is skipped either way: it doesn't exist there.
             </div>
@@ -312,8 +303,8 @@
         </div>
 
         <div class="d-flex gap-2 mt-4 justify-content-end">
-          <button type="button" class="btn btn-outline-light btn-sm" onclick="closeAgentModal()">Close</button>
-          <button type="button" class="btn btn-outline-light btn-sm text-danger" id="agent-revoke-btn"
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeAgentModal()">Close</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm text-danger" id="agent-revoke-btn"
                   onclick="submitAgentForm('agent-rev-')">
             <i class="fa-solid fa-ban"></i> Revoke
           </button>
@@ -324,11 +315,12 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
 <script>
   // Endpoint currently open in the Agent modal.
   var agentModalEpId = null;
@@ -361,12 +353,11 @@
       document.getElementById('agent-dl-ps1').href = base + '/agent/install.ps1?key=' + enc;
     }
 
-    var modal = document.getElementById('agentModal');
-    modal.style.display = 'flex';
+    document.getElementById('agentModal').classList.add('open');
   }
 
   function closeAgentModal() {
-    document.getElementById('agentModal').style.display = 'none';
+    document.getElementById('agentModal').classList.remove('open');
     agentModalEpId = null;
   }
 
@@ -399,11 +390,10 @@ function openTargetsModal(btn) {
   document.getElementById('modal-ep-name').textContent = name;
   document.getElementById('modal-targets').value = targets;
   document.getElementById('targets-form').action = '/admin/endpoints/' + id + '/scan-targets';
-  var modal = document.getElementById('targetsModal');
-  modal.style.display = 'flex';
+  document.getElementById('targetsModal').classList.add('open');
 }
 function closeTargetsModal() {
-  document.getElementById('targetsModal').style.display = 'none';
+  document.getElementById('targetsModal').classList.remove('open');
 }
 document.getElementById('targetsModal').addEventListener('click', function(e) {
   if (e.target === this) closeTargetsModal();

@@ -145,10 +145,24 @@ public class WebUiController {
         model.addAttribute("openAlertsCount", openAlerts);
         model.addAttribute("scheduledScansCount", scheduledScanService.all().size());
         // Verdict summary counts
-        model.addAttribute("countOk",      scanJobRepo.countByVerdict(ScanVerdict.OK));
-        model.addAttribute("countError",   scanJobRepo.countByVerdict(ScanVerdict.ERROR));
-        model.addAttribute("countSkipped", scanJobRepo.countByVerdict(ScanVerdict.SKIPPED));
-        model.addAttribute("countVirus",   scanJobRepo.countByVerdict(ScanVerdict.VIRUS_FOUND));
+        long countOk      = scanJobRepo.countByVerdict(ScanVerdict.OK);
+        long countError   = scanJobRepo.countByVerdict(ScanVerdict.ERROR);
+        long countSkipped = scanJobRepo.countByVerdict(ScanVerdict.SKIPPED);
+        long countVirus   = scanJobRepo.countByVerdict(ScanVerdict.VIRUS_FOUND);
+        model.addAttribute("countOk",      countOk);
+        model.addAttribute("countError",   countError);
+        model.addAttribute("countSkipped", countSkipped);
+        model.addAttribute("countVirus",   countVirus);
+
+        // Breakdown bars. The denominator is the sum of the verdicts, not the
+        // job count: a queued job has no verdict yet and would otherwise make
+        // every bar shrink for a reason the user cannot see.
+        long decided = countOk + countVirus + countError + countSkipped;
+        model.addAttribute("verdictRows", List.of(
+                VerdictRow.of("Clean",   countOk,      decided, "ok",           "success"),
+                VerdictRow.of("Threats", countVirus,   decided, "virus_found",  "danger"),
+                VerdictRow.of("Errors",  countError,   decided, "error",        "warning"),
+                VerdictRow.of("Skipped", countSkipped, decided, "skipped",      "secondary")));
         return PAGE_DASHBOARD;
     }
 
@@ -169,9 +183,9 @@ public class WebUiController {
         if (ep.getHost() == null || ep.getHost().isBlank()) {
             model.addAttribute("pingOk", false);
             model.addAttribute("error", ep.isAgentEnrolled()
-                    ? "Endpoint gestito dall'agent: la console non si collega a clamd. "
-                      + "Stato e versione firme sono in Admin > Endpoints."
-                    : "Nessun host configurato per questo endpoint.");
+                    ? "Agent-managed endpoint: the console does not connect to clamd. "
+                      + "Status and signature version are in Admin > Endpoints."
+                    : "No host configured for this endpoint.");
             return PAGE_MAIN;
         }
 

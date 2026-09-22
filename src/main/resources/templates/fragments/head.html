@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<!--
+  One <head> for every page.
+  Usage: <head th:replace="~{fragments/head :: head('Dashboard')}"></head>
+
+  Note there is no webfont link: CoreUI uses the system font stack, so the
+  console renders identically on a machine with no route to the internet —
+  which an isolated AV console may well be.
+-->
+<head th:fragment="head(pageTitle)">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title th:text="${pageTitle} + ' · ClamAV Web Client'">ClamAV Web Client</title>
+  <link rel="stylesheet" href="/css/coreui.min.css"/>
+  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
+  <link rel="stylesheet" href="/css/all.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <link rel="icon" href="/favicon.ico"/>
+  <!--
+    Resolve the theme before the first paint. Without this the page renders
+    light and is then swapped to dark, which is a white flash on every
+    navigation. "auto" follows the OS.
+  -->
+  <script>
+    (function () {
+      var stored = null;
+      try { stored = localStorage.getItem('coreui-theme'); } catch (e) {}
+      var theme = stored || 'auto';
+      var effective = theme;
+      if (theme === 'auto') {
+        effective = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-coreui-theme', effective);
+      document.documentElement.dataset.themePreference = theme;
+      try {
+        if (localStorage.getItem('sidebar-unfoldable') === '1') {
+          document.documentElement.dataset.sidebarUnfoldable = '1';
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body></body>
+</html>

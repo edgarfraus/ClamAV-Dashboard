@@ -1,36 +1,26 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Scan Exclusions · ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Scan exclusions')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Scan Exclusions</div>
-        <div class="app-title__subtitle">Paths excluded from full disk scan — global or per-endpoint</div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Scan exclusions')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small">Paths excluded from full disk scan — global or per-endpoint</div>
       </div>
-    </div>
 
-    <div class="app-content">
 
       <!-- Add exclusion form -->
-      <div class="panel mb-3">
-        <div class="panel-body">
-          <div class="card-title mb-3"><i class="fa-solid fa-plus"></i> Add exclusion</div>
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-4">
+            <span class="row-icon"><i class="fa-solid fa-plus"></i></span>
+            <div class="card-title mb-0">Add exclusion</div>
+          </div>
           <form th:action="@{/admin/exclusions/create}" method="post" class="row g-2 align-items-end">
             <div class="col-md-3">
               <label class="form-label">Scope</label>
@@ -44,7 +34,7 @@
               <input type="text" name="path" class="form-control mono" placeholder="/proc" required="required"/>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Reason <span class="muted">(optional)</span></label>
+              <label class="form-label">Reason <span class="text-body-secondary">(optional)</span></label>
               <input type="text" name="reason" class="form-control" placeholder="Virtual filesystem, always empty"/>
             </div>
             <div class="col-md-2">
@@ -55,16 +45,16 @@
       </div>
 
       <!-- Exclusions table -->
-      <div class="panel mb-3">
-        <div class="panel-body">
-          <div class="card-title mb-3"><i class="fa-solid fa-ban"></i> Configured exclusions</div>
-          <div th:if="${exclusions == null or #lists.isEmpty(exclusions)}" class="muted">
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="card-title mb-4"><i class="fa-solid fa-ban"></i> Configured exclusions</div>
+          <div th:if="${exclusions == null or #lists.isEmpty(exclusions)}" class="text-body-secondary">
             No exclusions configured yet. Add one above.
           </div>
           <div class="table-responsive" th:unless="${exclusions == null or #lists.isEmpty(exclusions)}">
-            <table class="table table-hover align-middle">
-              <thead>
-                <tr><th>Scope</th><th>Path</th><th>Reason</th><th>Added by</th><th style="width:80px;"></th></tr>
+            <table class="table border table-hover align-middle mb-0" data-filterable>
+              <thead class="fw-semibold text-nowrap">
+                <tr><th class="bg-body-secondary bg-body-secondary">Scope</th><th class="bg-body-secondary bg-body-secondary">Path</th><th class="bg-body-secondary bg-body-secondary">Reason</th><th class="bg-body-secondary bg-body-secondary">Added by</th><th class="bg-body-secondary bg-body-secondary" style="width:80px;"></th></tr>
               </thead>
               <tbody>
                 <tr th:each="ex : ${exclusions}">
@@ -73,12 +63,12 @@
                     <span th:unless="${ex.endpoint != null}" class="badge-status badge-neutral" style="font-style:italic;">Global</span>
                   </td>
                   <td class="mono" th:text="${ex.path}">path</td>
-                  <td class="muted" style="font-size:13px;" th:text="${ex.reason != null ? ex.reason : '—'}">reason</td>
-                  <td class="muted" style="font-size:12px;" th:text="${ex.createdBy != null ? ex.createdBy : '—'}">user</td>
+                  <td class="text-body-secondary" style="font-size:13px;" th:text="${ex.reason != null ? ex.reason : '—'}">reason</td>
+                  <td class="text-body-secondary" style="font-size:12px;" th:text="${ex.createdBy != null ? ex.createdBy : '—'}">user</td>
                   <td>
                     <form th:action="@{'/admin/exclusions/' + ${ex.id} + '/delete'}" method="post"
                           onsubmit="return confirm('Remove this exclusion?');">
-                      <button type="submit" class="btn btn-outline-light btn-sm text-danger">
+                      <button type="submit" class="btn btn-outline-secondary btn-sm text-danger">
                         <i class="fa-solid fa-trash"></i>
                       </button>
                     </form>
@@ -91,37 +81,36 @@
       </div>
 
       <!-- clamd.conf snippet -->
-      <div class="panel" th:if="${exclusions != null and !#lists.isEmpty(exclusions)}">
-        <div class="panel-body">
+      <div class="card" th:if="${exclusions != null and !#lists.isEmpty(exclusions)}">
+        <div class="card-body">
           <div class="d-flex align-items-center gap-2 mb-2">
             <div class="card-title mb-0"><i class="fa-solid fa-file-code"></i> clamd.conf snippet</div>
-            <button class="btn btn-outline-light btn-sm" style="margin-left:auto;" onclick="copySnippet()">
+            <button class="btn btn-outline-secondary btn-sm" style="margin-left:auto;" onclick="copySnippet()">
               <i class="fa-solid fa-copy"></i> Copy
             </button>
           </div>
-          <p class="muted mb-2" style="font-size:12px;">
+          <p class="text-body-secondary mb-2" style="font-size:12px;">
             Add these <code>ExcludePath</code> directives to <code>/etc/clamav/clamd.conf</code> on each clamd host
             and restart clamd. This makes clamd skip those paths even during recursive scans it performs autonomously.
             The web client exclusions above filter which directories are <em>sent</em> to clamd; the clamd.conf rules
             filter what clamd reads <em>internally</em> — both layers are needed for full coverage.
           </p>
-          <pre id="clamd-snippet" class="mono" th:text="${clamdSnippet}"
-               style="font-size:12px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:12px;white-space:pre;overflow-x:auto;">snippet</pre>
+          <pre id="clamd-snippet" class="mono" th:text="${clamdSnippet}">snippet</pre>
         </div>
       </div>
 
       <!-- Help note when no exclusions -->
-      <div class="panel" th:unless="${exclusions != null and !#lists.isEmpty(exclusions)}">
-        <div class="panel-body">
+      <div class="card" th:unless="${exclusions != null and !#lists.isEmpty(exclusions)}">
+        <div class="card-body">
           <div class="card-title mb-2"><i class="fa-solid fa-circle-info"></i> How exclusions work</div>
-          <div class="muted" style="font-size:13px;line-height:1.7;">
+          <div class="text-body-secondary" style="font-size:13px;line-height:1.7;">
             <p><strong>Web client layer</strong> — exclusions added here prevent the web client from sending those paths
               to clamd during a full disk scan. For example, adding <code>/proc</code> means the web client will never
               create a scan job targeting <code>/proc</code>.</p>
             <p><strong>clamd.conf layer</strong> — for recursive scans (e.g. scanning <code>/var</code> which contains
               <code>/var/run</code>), clamd itself decides which subdirectories to enter. To exclude subdirectories at
               that level, add <code>ExcludePath</code> directives to <code>/etc/clamav/clamd.conf</code>:</p>
-            <pre class="mono" style="font-size:12px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:12px;">ExcludePath ^/proc
+            <pre class="mono">ExcludePath ^/proc
 ExcludePath ^/sys
 ExcludePath ^/dev
 ExcludePath ^/run
@@ -132,10 +121,12 @@ ExcludePath ^/snap</pre>
       </div>
 
     </div>
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  </div>
+
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
 <script>
 function copySnippet() {
   var pre = document.getElementById('clamd-snippet');

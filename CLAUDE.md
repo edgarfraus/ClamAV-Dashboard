@@ -73,6 +73,43 @@ Any path-based scan or watch dir must pass `PathPolicy.isUnderAllowedRoots()` ag
 - `ClamAVWebClientController` / `ClamAVWebClientService` are **legacy** carryovers from the upstream `rguziy/clamav-web-client` project; the active paths are the two controllers above.
 - `UiModelAdvice` / `WebUiController.addCommonModelAttributes` inject non-null `settings` + health flags into every model so fragments never NPE.
 
+### The UI is CoreUI, and the shell lives in two fragments
+
+The front end is **CoreUI 5 (vendored, MIT)**, not plain Bootstrap: `css/coreui.min.css`
+replaces `bootstrap.min.css` (CoreUI is a drop-in Bootstrap fork, so every Bootstrap
+class still works) and `js/coreui.bundle.min.js` drives the sidebar and the dropdowns.
+Charts are Chart.js (also vendored — nothing is loaded from a CDN, and there is no
+webfont link, so the console renders identically on a machine with no route out).
+
+Every page is the same four lines around its content:
+
+```html
+<head th:replace="~{fragments/head :: head('Page title')}"></head>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
+<div th:replace="~{fragments/layout :: header('Page title')}"></div>
+<div th:replace="~{fragments/layout :: footer}"></div>
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
+```
+
+`static/css/style.css` is deliberately thin: the CoreUI admin template's own layout
+layer (ported from its `src/scss/style.scss` — the `.wrapper` sidebar offset that
+CoreUI publishes as `--cui-sidebar-occupy-start` but leaves the template to consume)
+plus what is ours: `.badge-status` and its verdict variants, `.sig-pill`, the alert
+timeline, `.row-icon`. **Add page styling as CoreUI classes first**; reach for
+`style.css` only for something CoreUI has no vocabulary for.
+
+Dark mode is CoreUI's native `data-coreui-theme` on `<html>`, resolved by an inline
+script in the head fragment *before the first paint* — set it after load and every
+navigation flashes white first. `script.js` owns the theme picker, the sidebar
+collapse (CoreUI collapses it but does not remember it), and the header filter, which
+narrows the rows of any `table[data-filterable]` on the current page and nothing more.
+
+Two things a template must not do: define a CSS variable name that `style.css` does
+not (an undefined `var()` makes the whole declaration invalid, which is how the
+Endpoints modals ended up with no background at all), and use `btn-outline-light`,
+which is a *white* outline meant for dark backgrounds and is invisible on CoreUI's
+light theme — `btn-outline-secondary` is the neutral button in both themes.
+
 ## Security (`SecurityConfig`)
 
 BCrypt, DB-backed auth (`DbUserDetailsService`), form login + HTTP Basic (Basic is what `/api/**` uses). Three cumulative roles — a user is granted all roles up to their level (see `WebUiController.adminUsersCreate`):
@@ -99,6 +136,10 @@ curl -sS -u admin:admin http://HOST:8080/api/jobs/<jobId>
 
 # Health (endpoint names)
 curl -sS -u admin:admin http://HOST:8080/api/health
+
+# Dashboard charts: jobs per day by verdict, days with none included
+# (VIEWER+, like /api/health, because the dashboard is a VIEWER page)
+curl -sS -u admin:admin 'http://HOST:8080/api/stats/timeseries?days=14'
 
 # Upload scan — fields MUST be `files` (repeatable) and `endpointId` (numeric)
 curl -u admin:admin \

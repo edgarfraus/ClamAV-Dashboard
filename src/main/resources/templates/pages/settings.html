@@ -1,45 +1,35 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Settings · ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Settings')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Settings</div>
-        <div class="app-title__subtitle">Application-wide scan, storage, and automation configuration</div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Settings')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small">Application-wide scan, storage, and automation configuration</div>
       </div>
-    </div>
 
-    <div class="app-content">
       <div class="alert alert-warning" style="font-size:13px;">
         Note: unchecked checkboxes are not submitted by browsers — unticking and saving will not persist
         unless the form is re-submitted with the checkbox explicitly unticked.
       </div>
 
       <form th:action="@{/admin/settings}" method="post">
-        <div class="panel mb-3">
-          <div class="panel-body">
-            <div class="card-title mb-3">Scan roots &amp; uploads</div>
-            <div class="mb-3">
+        <div class="card mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-4">
+              <span class="row-icon"><i class="fa-solid fa-folder-tree"></i></span>
+              <div class="card-title mb-0">Scan roots &amp; uploads</div>
+            </div>
+            <div class="mb-4">
               <label class="form-label">Allowed scan roots (comma-separated absolute paths)</label>
               <input type="text" class="form-control mono" name="app.allowedScanRoots"
                      th:value="${settings['app.allowedScanRoots']}"/>
-              <div class="muted mt-1" style="font-size:12px;">To allow full-disk scans on Linux add <code>/</code> here (e.g. <code>/,/scandir</code>).</div>
+              <div class="text-body-secondary mt-1" style="font-size:12px;">To allow full-disk scans on Linux add <code>/</code> here (e.g. <code>/,/scandir</code>).</div>
             </div>
             <div class="row g-3">
               <div class="col-md-4">
@@ -61,10 +51,13 @@
           </div>
         </div>
 
-        <div class="panel mb-3">
-          <div class="panel-body">
-            <div class="card-title mb-3">Quarantine</div>
-            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+        <div class="card mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-4">
+              <span class="row-icon is-amber"><i class="fa-solid fa-box-archive"></i></span>
+              <div class="card-title mb-0">Quarantine</div>
+            </div>
+            <div class="mb-4 d-flex align-items-center" style="gap:10px;">
               <label class="switch">
                 <input type="checkbox" name="app.quarantine.enabled" value="true"
                        th:checked="${settings['app.quarantine.enabled'] == 'true'}"/>
@@ -80,10 +73,13 @@
           </div>
         </div>
 
-        <div class="panel mb-3">
-          <div class="panel-body">
-            <div class="card-title mb-3">Webhook notifications</div>
-            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+        <div class="card mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-4">
+              <span class="row-icon"><i class="fa-solid fa-bolt"></i></span>
+              <div class="card-title mb-0">Webhook notifications</div>
+            </div>
+            <div class="mb-4 d-flex align-items-center" style="gap:10px;">
               <label class="switch">
                 <input type="checkbox" name="app.webhook.enabled" value="true"
                        th:checked="${settings['app.webhook.enabled'] == 'true'}"/>
@@ -99,10 +95,13 @@
           </div>
         </div>
 
-        <div class="panel mb-3">
-          <div class="panel-body">
-            <div class="card-title mb-3">Telegram notifications</div>
-            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+        <div class="card mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-4">
+              <span class="row-icon"><i class="fa-solid fa-paper-plane"></i></span>
+              <div class="card-title mb-0">Telegram notifications</div>
+            </div>
+            <div class="mb-4 d-flex align-items-center" style="gap:10px;">
               <label class="switch">
                 <input type="checkbox" name="app.telegram.enabled" value="true"
                        th:checked="${settings['app.telegram.enabled'] == 'true'}"/>
@@ -120,14 +119,17 @@
               <input type="text" class="form-control" name="app.telegram.chatId"
                      th:value="${settings['app.telegram.chatId']}"/>
             </div>
-            <div class="muted" style="font-size:12px;">Sent for VIRUS_FOUND and ERROR jobs only (including external reports via /api/scan/report).</div>
+            <div class="text-body-secondary" style="font-size:12px;">Sent for VIRUS_FOUND and ERROR jobs only (including external reports via /api/scan/report).</div>
           </div>
         </div>
 
-        <div class="panel mb-3">
-          <div class="panel-body">
-            <div class="card-title mb-3">Watch directories</div>
-            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+        <div class="card mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-4">
+              <span class="row-icon"><i class="fa-solid fa-eye"></i></span>
+              <div class="card-title mb-0">Watch directories</div>
+            </div>
+            <div class="mb-4 d-flex align-items-center" style="gap:10px;">
               <label class="switch">
                 <input type="checkbox" name="app.watch.enabled" value="true"
                        th:checked="${settings['app.watch.enabled'] == 'true'}"/>
@@ -143,14 +145,17 @@
           </div>
         </div>
 
-        <div class="panel mb-3">
-          <div class="panel-body">
-            <div class="card-title mb-3"><i class="fa-solid fa-rotate"></i> Signature DB reload</div>
-            <p class="muted" style="font-size:13px;">
+        <div class="card mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-4">
+              <span class="row-icon is-ok"><i class="fa-solid fa-rotate"></i></span>
+              <div class="card-title mb-0">Signature DB reload</div>
+            </div>
+            <p class="text-body-secondary" style="font-size:13px;">
               Sends a <code>RELOAD</code> command to all enabled endpoints, telling clamd to reload its signature
               database from disk. Useful after <code>freshclam</code> has downloaded new definitions.
             </p>
-            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+            <div class="mb-4 d-flex align-items-center" style="gap:10px;">
               <label class="switch">
                 <input type="checkbox" name="app.signatureReload.enabled" value="true"
                        th:checked="${settings['app.signatureReload.enabled'] == 'true'}"/>
@@ -158,33 +163,39 @@
               </label>
               <span>Enable scheduled reload</span>
             </div>
-            <div class="mb-3">
-              <label class="form-label">Reload cron expression <span class="muted" style="font-size:11px;">(6-field Spring cron)</span></label>
+            <div class="mb-4">
+              <label class="form-label">Reload cron expression <span class="text-body-secondary" style="font-size:11px;">(6-field Spring cron)</span></label>
               <input type="text" class="form-control mono" name="app.signatureReload.cron"
                      th:value="${settings['app.signatureReload.cron']}"
                      placeholder="0 0 2 * * *"/>
-              <div class="muted mt-1" style="font-size:12px;">Default: <code>0 0 2 * * *</code> = every day at 02:00</div>
+              <div class="text-body-secondary mt-1" style="font-size:12px;">Default: <code>0 0 2 * * *</code> = every day at 02:00</div>
             </div>
-            <div th:if="${lastReloadAt != null}" class="muted mb-2" style="font-size:12px;">
+            <div th:if="${lastReloadAt != null}" class="text-body-secondary mb-2" style="font-size:12px;">
               Last reload: <span th:text="${lastReloadAt}" class="mono">—</span>
               <span th:if="${lastReloadResults != null}">&nbsp;|&nbsp;<span th:text="${lastReloadResults}">results</span></span>
             </div>
           </div>
         </div>
 
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save settings</button>
+        <div class="card">
+          <div class="card-body d-flex gap-2 flex-wrap align-items-center">
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save settings</button>
+            <span class="text-body-secondary" style="font-size:12px;">Concurrency changes need an app restart to resize the live pool.</span>
+          </div>
+        </div>
       </form>
 
       <form th:action="@{/admin/signatures/reload-now}" method="post" class="mt-3">
-        <button type="submit" class="btn btn-outline-light">
+        <button type="submit" class="btn btn-outline-secondary">
           <i class="fa-solid fa-rotate"></i> Reload signatures now (all endpoints)
         </button>
       </form>
     </div>
+  </div>
 
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
 </body>
 </html>

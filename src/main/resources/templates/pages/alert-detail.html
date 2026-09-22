@@ -1,84 +1,43 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Alert Detail · ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-  <style>
-    .timeline-step { display:flex;align-items:flex-start;gap:12px;margin-bottom:14px; }
-    .timeline-dot { width:10px;height:10px;border-radius:50%;background:var(--signal);flex-shrink:0;margin-top:4px; }
-    .timeline-dot.alert { background:var(--alert); }
-    .timeline-dot.muted { background:var(--muted); }
-    .timeline-line { width:1px;background:var(--line);flex-shrink:0;margin:4px auto 0; }
-    .sig-block { padding:10px 14px;border-radius:var(--radius-sm);
-      background:color-mix(in srgb,var(--alert) 8%,transparent);
-      border:1px solid color-mix(in srgb,var(--alert) 25%,transparent); }
-    .sig-name { font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--alert); }
-    .sig-path { font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:2px;word-break:break-all; }
-    .origin-card { padding:14px 16px;border-radius:var(--radius-sm);
-      background:color-mix(in srgb,var(--amber) 8%,transparent);
-      border:1px solid color-mix(in srgb,var(--amber) 25%,transparent); }
-    .meta-row { display:flex;gap:8px;align-items:baseline;margin-bottom:8px;font-size:13px; }
-    .meta-label { color:var(--muted);min-width:140px;font-size:12px;flex-shrink:0; }
-    .acked-banner { padding:12px 16px;border-radius:var(--radius-sm);
-      background:color-mix(in srgb,var(--signal) 10%,transparent);
-      border:1px solid color-mix(in srgb,var(--signal) 30%,transparent);
-      color:var(--signal); }
-    .open-banner { padding:12px 16px;border-radius:var(--radius-sm);
-      background:color-mix(in srgb,var(--alert) 10%,transparent);
-      border:1px solid color-mix(in srgb,var(--alert) 30%,transparent);
-      color:var(--alert); }
-  </style>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Alert detail')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Alert Detail</div>
-        <div class="app-title__subtitle"><a href="/alerts">&larr; back to alerts</a></div>
-      </div>
-      <div th:if="${job != null}" sec:authorize="hasAnyRole('OPERATOR','ADMIN')">
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Alert detail')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small"><a href="/alerts">&larr; back to alerts</a></div>
+        <div th:if="${job != null}" sec:authorize="hasAnyRole('OPERATOR','ADMIN')">
         <form th:if="${!job.acknowledged}" th:action="@{'/alerts/' + ${job.id} + '/ack'}" method="post">
           <button type="submit" class="btn btn-primary">
             <i class="fa-solid fa-check"></i> Acknowledge alert
           </button>
         </form>
       </div>
+      </div>
     </div>
-
-    <div th:if="${job == null}" class="app-content">
-      <div class="alert alert-warning" th:text="${errorMsg}">Alert not found.</div>
-    </div>
-
-    <div class="app-content" th:if="${job != null}">
+<div class="container-lg px-4" th:if="${job != null}">
 
       <!-- Status banner -->
-      <div th:if="${job.acknowledged}" class="acked-banner mb-3 d-flex align-items-center gap-3">
-        <i class="fa-solid fa-check-circle fa-lg"></i>
+      <div th:if="${job.acknowledged}" class="alert d-flex align-items-center gap-3 alert-success mb-4">
+        <span class="fa-lg"><i class="fa-solid fa-check"></i></span>
         <div>
           <div class="fw-semibold">Alert acknowledged</div>
-          <div style="font-size:12px;opacity:.8;">
+          <div class="small">
             Reviewed by <strong th:text="${job.acknowledgedBy}">user</strong>
             on <span th:text="${job.acknowledgedAt}">—</span>
           </div>
         </div>
       </div>
-      <div th:unless="${job.acknowledged}" class="open-banner mb-3 d-flex align-items-center gap-3">
-        <i class="fa-solid fa-triangle-exclamation fa-lg"></i>
+      <div th:unless="${job.acknowledged}" class="alert d-flex align-items-center gap-3 alert-danger mb-4">
+        <span class="fa-lg"><i class="fa-solid fa-triangle-exclamation"></i></span>
         <div>
           <div class="fw-semibold">Open alert — requires review</div>
-          <div style="font-size:12px;opacity:.8;">Virus signature detected. Investigate and acknowledge when resolved.</div>
+          <div class="small">Virus signature detected. Investigate and acknowledge when resolved.</div>
         </div>
       </div>
 
@@ -88,15 +47,15 @@
         <div class="col-md-8">
 
           <!-- Signatures detected -->
-          <div class="panel mb-3">
-            <div class="panel-body">
-              <div class="card-title mb-3">
+          <div class="card mb-4">
+            <div class="card-body">
+              <div class="card-title mb-4">
                 <i class="fa-solid fa-triangle-exclamation" style="color:var(--alert);"></i>
                 Detected signatures
               </div>
 
               <div th:if="${virusEntries == null or #maps.isEmpty(virusEntries)}"
-                   class="muted">No signature data available.</div>
+                   class="text-body-secondary">No signature data available.</div>
 
               <div th:each="entry : ${virusEntries}" class="sig-block mb-2">
                 <div th:each="sig : ${entry.value}" class="sig-name">
@@ -111,9 +70,9 @@
           </div>
 
           <!-- File forensics -->
-          <div class="panel mb-3">
-            <div class="panel-body">
-              <div class="card-title mb-3"><i class="fa-solid fa-file-shield"></i> File forensics</div>
+          <div class="card mb-4">
+            <div class="card-body">
+              <div class="card-title mb-4"><i class="fa-solid fa-file-shield"></i> File forensics</div>
               <div class="meta-row">
                 <span class="meta-label">Infected path</span>
                 <code style="font-size:12px;word-break:break-all;" th:text="${job.target}">target</code>
@@ -137,14 +96,14 @@
               </div>
               <div class="meta-row" th:unless="${job.quarantinePath}">
                 <span class="meta-label">Quarantine</span>
-                <span class="muted">Not quarantined</span>
+                <span class="text-body-secondary">Not quarantined</span>
               </div>
             </div>
           </div>
 
           <!-- Error info if any -->
-          <div class="panel mb-3" th:if="${job.errorMessage}">
-            <div class="panel-body">
+          <div class="card mb-4" th:if="${job.errorMessage}">
+            <div class="card-body">
               <div class="card-title mb-2" style="color:var(--alert);">Scan error</div>
               <pre th:text="${job.errorMessage}">error</pre>
             </div>
@@ -156,15 +115,15 @@
         <div class="col-md-4">
 
           <!-- Origin / Parent service -->
-          <div class="panel mb-3">
-            <div class="panel-body">
-              <div class="card-title mb-3"><i class="fa-solid fa-circle-nodes"></i> Origin</div>
-              <div class="origin-card mb-3">
+          <div class="card mb-4">
+            <div class="card-body">
+              <div class="card-title mb-4"><i class="fa-solid fa-circle-nodes"></i> Origin</div>
+              <div class="origin-card mb-4">
                 <div style="font-size:12px;color:var(--amber);font-weight:600;margin-bottom:4px;">
                   <i class="fa-solid fa-diagram-project fa-xs"></i> Triggered by
                 </div>
                 <div style="font-size:14px;font-weight:500;" th:text="${parentService}">service</div>
-                <div class="muted mt-1" style="font-size:11px;">
+                <div class="text-body-secondary mt-1" style="font-size:11px;">
                   Scan type: <span th:text="${job.type}">TYPE</span>
                 </div>
               </div>
@@ -184,17 +143,21 @@
           </div>
 
           <!-- Endpoint + group -->
-          <div class="panel mb-3">
-            <div class="panel-body">
-              <div class="card-title mb-3"><i class="fa-solid fa-network-wired"></i> Endpoint</div>
+          <div class="card mb-4">
+            <div class="card-body">
+              <div class="card-title mb-4"><i class="fa-solid fa-network-wired"></i> Endpoint</div>
               <div th:if="${job.endpoint != null}">
                 <div class="meta-row">
                   <span class="meta-label">Name</span>
                   <span class="fw-semibold" th:text="${job.endpoint.name}">ep</span>
                 </div>
-                <div class="meta-row">
+                <div class="meta-row" th:if="${job.endpoint.host != null and !job.endpoint.host.isBlank()}">
                   <span class="meta-label">Host</span>
                   <code style="font-size:12px;" th:text="${job.endpoint.host + ':' + job.endpoint.port}">host</code>
+                </div>
+                <div class="meta-row" th:if="${job.endpoint.host == null or job.endpoint.host.isBlank()}">
+                  <span class="meta-label">Host</span>
+                  <span class="text-body-secondary"><i class="fa-solid fa-robot"></i> agent-managed</span>
                 </div>
                 <div class="meta-row">
                   <span class="meta-label">Platform</span>
@@ -202,42 +165,40 @@
                 </div>
                 <div class="meta-row" th:if="${job.endpoint.group != null}">
                   <span class="meta-label">Group</span>
-                  <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;
-                               background:color-mix(in srgb,var(--signal) 12%,transparent);
-                               color:var(--signal);border:1px solid color-mix(in srgb,var(--signal) 30%,transparent);">
+                  <span class="group-tag">
                     <i class="fa-solid fa-layer-group fa-xs"></i>
                     <span th:text="${job.endpoint.group.name}">group</span>
                   </span>
                 </div>
                 <div class="meta-row" th:unless="${job.endpoint.group != null}">
                   <span class="meta-label">Group</span>
-                  <span class="muted">Ungrouped</span>
+                  <span class="text-body-secondary">Ungrouped</span>
                 </div>
               </div>
-              <div th:unless="${job.endpoint != null}" class="muted">Endpoint removed</div>
+              <div th:unless="${job.endpoint != null}" class="text-body-secondary">Endpoint removed</div>
             </div>
           </div>
 
           <!-- Timeline -->
-          <div class="panel mb-3">
-            <div class="panel-body">
-              <div class="card-title mb-3"><i class="fa-solid fa-clock-rotate-left"></i> Timeline</div>
+          <div class="card mb-4">
+            <div class="card-body">
+              <div class="card-title mb-4"><i class="fa-solid fa-clock-rotate-left"></i> Timeline</div>
               <div class="timeline-step">
                 <div class="d-flex flex-column align-items-center">
                   <div class="timeline-dot"></div>
                 </div>
                 <div>
                   <div style="font-size:12px;font-weight:600;">Submitted</div>
-                  <div class="mono muted" style="font-size:11px;" th:text="${job.submittedAt}">—</div>
+                  <div class="mono text-body-secondary" style="font-size:11px;" th:text="${job.submittedAt}">—</div>
                 </div>
               </div>
               <div class="timeline-step" th:if="${job.startedAt}">
                 <div class="d-flex flex-column align-items-center">
-                  <div class="timeline-dot" style="background:var(--amber);"></div>
+                  <div class="timeline-dot text-body-secondary" style="background:var(--amber);box-shadow:0 0 0 3px color-mix(in srgb,var(--amber) 18%,transparent);"></div>
                 </div>
                 <div>
                   <div style="font-size:12px;font-weight:600;">Scan started</div>
-                  <div class="mono muted" style="font-size:11px;" th:text="${job.startedAt}">—</div>
+                  <div class="mono text-body-secondary" style="font-size:11px;" th:text="${job.startedAt}">—</div>
                 </div>
               </div>
               <div class="timeline-step" th:if="${job.finishedAt}">
@@ -246,7 +207,7 @@
                 </div>
                 <div>
                   <div style="font-size:12px;font-weight:600;">Threat detected</div>
-                  <div class="mono muted" style="font-size:11px;" th:text="${job.finishedAt}">—</div>
+                  <div class="mono text-body-secondary" style="font-size:11px;" th:text="${job.finishedAt}">—</div>
                 </div>
               </div>
               <div class="timeline-step" th:if="${job.acknowledged}">
@@ -255,7 +216,7 @@
                 </div>
                 <div>
                   <div style="font-size:12px;font-weight:600;">Acknowledged</div>
-                  <div class="mono muted" style="font-size:11px;" th:text="${job.acknowledgedAt}">—</div>
+                  <div class="mono text-body-secondary" style="font-size:11px;" th:text="${job.acknowledgedAt}">—</div>
                   <div style="font-size:11px;color:var(--signal);" th:text="'by ' + ${job.acknowledgedBy}">by user</div>
                 </div>
               </div>
@@ -263,15 +224,15 @@
           </div>
 
           <!-- Actions -->
-          <div class="panel" sec:authorize="hasAnyRole('OPERATOR','ADMIN')">
-            <div class="panel-body d-flex flex-column gap-2">
+          <div class="card" sec:authorize="hasAnyRole('OPERATOR','ADMIN')">
+            <div class="card-body d-flex flex-column gap-2">
               <div class="card-title mb-1">Actions</div>
               <form th:if="${!job.acknowledged}" th:action="@{'/alerts/' + ${job.id} + '/ack'}" method="post">
                 <button type="submit" class="btn btn-primary w-100">
                   <i class="fa-solid fa-check"></i> Acknowledge alert
                 </button>
               </form>
-              <a th:href="@{'/jobs/' + ${job.id}}" class="btn btn-outline-light w-100">
+              <a th:href="@{'/jobs/' + ${job.id}}" class="btn btn-outline-secondary w-100">
                 <i class="fa-solid fa-list-check"></i> View as job
               </a>
             </div>
@@ -280,10 +241,11 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
 </body>
 </html>

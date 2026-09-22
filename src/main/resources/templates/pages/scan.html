@@ -1,32 +1,19 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Scan · ClamAV Web Client</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
-  <link rel="stylesheet" href="/css/bootstrap.min.css"/>
-  <link rel="stylesheet" href="/css/fontawesome.min.css"/>
-  <link rel="stylesheet" href="/css/all.css"/>
-  <link rel="stylesheet" href="/css/style.css"/>
-  <link rel="icon" href="/favicon.ico"/>
-</head>
-<body data-theme="dark">
-<div class="app-shell">
-  <div th:replace="~{fragments/nav :: sidebar}"></div>
+<head th:replace="~{fragments/head :: head('Scan')}"></head>
+<body>
+<div th:replace="~{fragments/layout :: sidebar}"></div>
 
-  <main class="app-main">
-    <div class="app-topbar">
-      <div>
-        <div class="app-title__name">Scan</div>
-        <div class="app-title__subtitle">Upload files, scan a path, or launch a full disk scan on the selected endpoint</div>
+<div class="wrapper d-flex flex-column min-vh-100">
+  <div th:replace="~{fragments/layout :: header('Scan')}"></div>
+
+  <div class="body flex-grow-1">
+    <div class="container-lg px-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div class="text-body-secondary small">Upload files, scan a path, or launch a full disk scan on the selected endpoint</div>
       </div>
-    </div>
 
-    <div class="app-content">
-      <div th:if="${errorMsg}" class="alert alert-danger" th:text="${errorMsg}">error</div>
+      <div th:if="${errorMsg}" class="alert alert-danger mb-4" th:text="${errorMsg}">error</div>
       <div th:if="${endpoints == null or #lists.isEmpty(endpoints)}" class="alert alert-warning">
         No endpoints configured yet. Go to <a href="/admin/endpoints">Admin &gt; Endpoints</a> to create one first.
       </div>
@@ -34,21 +21,27 @@
       <!-- Upload + Path scan -->
       <div class="row g-3" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
         <div class="col-lg-6">
-          <div class="panel">
-            <div class="panel-body">
-              <div class="card-title mb-3"><i class="fa-solid fa-upload"></i> Upload scan</div>
+          <div class="card h-100">
+            <div class="card-body">
+              <div class="d-flex align-items-center gap-3 mb-4">
+                <span class="row-icon is-ok"><i class="fa-solid fa-upload"></i></span>
+                <div>
+                  <div class="card-title mb-0">Upload scan</div>
+                  <div class="text-body-secondary" style="font-size:12px;">Streamed to clamd over INSTREAM</div>
+                </div>
+              </div>
               <form th:action="@{/scan/upload}" method="post" enctype="multipart/form-data">
-                <div class="mb-3">
+                <div class="mb-4">
                   <label class="form-label">Endpoint</label>
                   <select name="endpointId" class="form-select" required="required">
                     <option th:each="e : ${endpoints}" th:value="${e.id}" th:text="${e.name}"
                             th:selected="${endpointId != null and endpointId == e.id}">endpoint</option>
                   </select>
                 </div>
-                <div class="mb-3">
+                <div class="mb-4">
                   <label class="form-label">Files</label>
                   <input type="file" name="files" class="form-control" multiple="multiple" required="required"/>
-                  <div class="muted mt-1" style="font-size:12px;" th:if="${uploadMaxBytes}">
+                  <div class="text-body-secondary mt-1" style="font-size:12px;" th:if="${uploadMaxBytes}">
                     Max size: <span th:text="${uploadMaxBytes}">bytes</span> bytes total
                   </div>
                 </div>
@@ -59,29 +52,35 @@
         </div>
 
         <div class="col-lg-6">
-          <div class="panel">
-            <div class="panel-body">
-              <div class="card-title mb-3"><i class="fa-solid fa-folder-open"></i> Path scan</div>
-              <div class="muted mb-2" style="font-size:12px;"
+          <div class="card h-100">
+            <div class="card-body">
+              <div class="d-flex align-items-center gap-3 mb-4">
+                <span class="row-icon"><i class="fa-solid fa-folder-open"></i></span>
+                <div>
+                  <div class="card-title mb-0">Path scan</div>
+                  <div class="text-body-secondary" style="font-size:12px;">Runs on the machine when an agent is installed</div>
+                </div>
+              </div>
+              <div class="alert alert-info mb-4" style="font-size:12px;padding:10px 14px;"
                    th:if="${endpoints != null and #lists.size(endpoints) > 0}">
                 <i class="fa-solid fa-robot"></i>
                 On endpoints with an agent installed, the scan runs
-                <strong>on the machine itself</strong> (a <code>AGENT</code>-type job): it doesn't go through
+                <strong>on the machine itself</strong> (an <code>AGENT</code>-type job): it doesn't go through
                 clamd over TCP, so it won't fail on permissions or on a path that doesn't exist on the clamd host.
                 Other endpoints keep the usual direct behavior.
               </div>
               <form th:action="@{/scan/path}" method="post">
-                <div class="mb-3">
+                <div class="mb-4">
                   <label class="form-label">Endpoint</label>
                   <select name="endpointId" class="form-select" required="required">
                     <option th:each="e : ${endpoints}" th:value="${e.id}" th:text="${e.name}"
                             th:selected="${endpointId != null and endpointId == e.id}">endpoint</option>
                   </select>
                 </div>
-                <div class="mb-3">
+                <div class="mb-4">
                   <label class="form-label">Absolute path</label>
-                  <input type="text" name="path" class="form-control" placeholder="/scandir/somefile" required="required"/>
-                  <div class="muted mt-1" style="font-size:12px;" th:if="${allowedRoots != null and !#lists.isEmpty(allowedRoots)}">
+                  <input type="text" name="path" class="form-control mono" placeholder="/scandir/somefile" required="required"/>
+                  <div class="text-body-secondary mt-1" style="font-size:12px;" th:if="${allowedRoots != null and !#lists.isEmpty(allowedRoots)}">
                     Allowed roots:
                     <span th:each="r,iter : ${allowedRoots}">
                       <code th:text="${r}">root</code><span th:unless="${iter.last}">, </span>
@@ -96,19 +95,24 @@
       </div>
 
       <!-- Full disk scan -->
-      <div class="panel mt-3" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
-        <div class="panel-body">
-          <div class="card-title mb-2"><i class="fa-solid fa-hard-drive"></i> Full disk scan</div>
-          <p class="muted mb-3" style="font-size:13px;">
-            Scans the configured target paths on the selected endpoint's filesystem. Targets are set per-endpoint in
-            <a href="/admin/endpoints">Admin › Endpoints</a> (bullseye icon). Defaults cover every real directory
-            (<code>/etc</code>, <code>/home</code>, <code>/var</code>, <code>/usr</code>, ...). <code>/proc</code>,
-            <code>/sys</code>, <code>/dev</code>, <code>/run</code> and a bare <code>/</code> or drive root are always
-            skipped, even if manually added as a target — clamd has no way to exclude subpaths mid-scan, so pointing
-            it at one of these can hang the scan.
+      <div class="card mt-3" th:unless="${endpoints == null or #lists.isEmpty(endpoints)}">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-4">
+            <span class="row-icon is-amber"><i class="fa-solid fa-hard-drive"></i></span>
+            <div>
+              <div class="card-title mb-0">Full disk scan</div>
+              <div class="text-body-secondary" style="font-size:12px;">Every configured target path on the selected endpoint</div>
+            </div>
+          </div>
+          <p class="text-body-secondary mb-4" style="font-size:12.5px;">
+            Targets are set per-endpoint in <a href="/admin/endpoints">Admin › Endpoints</a> (bullseye icon).
+            Defaults cover every real directory (<code>/etc</code>, <code>/home</code>, <code>/var</code>,
+            <code>/usr</code>, …). <code>/proc</code>, <code>/sys</code>, <code>/dev</code>, <code>/run</code> and a
+            bare <code>/</code> or drive root are always skipped, even if manually added as a target — clamd has no
+            way to exclude subpaths mid-scan, so pointing it at one of these can hang the scan.
           </p>
           <form th:action="@{/scan/fulldisk}" method="post" class="row g-2 align-items-end" id="fulldisk-form">
-            <div class="col-md-4">
+            <div class="col-md-5">
               <label class="form-label">Endpoint</label>
               <select name="endpointId" class="form-select" required="required" id="fulldisk-ep-select"
                       onchange="updateFulldiskTargets()">
@@ -124,48 +128,53 @@
               </button>
             </div>
             <div class="col-12">
-              <div id="fulldisk-targets-preview" class="muted" style="font-size:12px;margin-top:4px;"></div>
+              <div id="fulldisk-targets-preview" class="text-body-secondary mono" style="font-size:12px;margin-top:6px;"></div>
             </div>
           </form>
         </div>
       </div>
 
       <!-- Live scan progress -->
-      <div class="panel mt-3">
-        <div class="panel-body">
-          <div class="d-flex align-items-center gap-2 mb-3" style="flex-wrap:wrap;">
+      <div class="card mt-3">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-4" style="flex-wrap:wrap;">
             <div class="card-title mb-0">
-              <i class="fa-solid fa-circle-notch" id="active-spinner" style="font-size:14px;"></i> Running scans
+              <i class="fa-solid fa-circle-notch" id="active-spinner"></i> Running scans
             </div>
-            <span id="active-count" class="badge-status badge-neutral" style="display:none;"></span>
-            <span class="muted" style="font-size:12px;margin-left:auto;" id="active-last-updated"></span>
+            <span id="active-count" class="badge-status badge-pending" style="display:none;"></span>
+            <span class="text-body-secondary" style="font-size:12px;margin-left:auto;" id="active-last-updated"></span>
           </div>
           <div id="active-jobs-body">
-            <p class="muted">Checking for active scans…</p>
+            <p class="text-body-secondary mb-0">Checking for active scans…</p>
           </div>
         </div>
       </div>
 
       <!-- Recent jobs -->
-      <div class="panel mt-3">
-        <div class="panel-body">
-          <div class="card-title mb-3">Recent jobs</div>
-          <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="muted">No scans yet.</div>
-          <div class="table-responsive" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
-            <table class="table table-striped table-hover">
-              <thead>
-                <tr><th>ID</th><th>Type</th><th>Status</th><th>Verdict</th><th>Target</th><th>Endpoint</th></tr>
+      <div class="card mt-3">
+        <div class="card-body pb-0">
+          <div class="d-flex align-items-center mb-1">
+            <div class="card-title mb-0">Recent jobs</div>
+            <a href="/jobs" class="ms-auto text-body-secondary" style="font-size:12.5px;">View all <i class="fa-solid fa-arrow-right fa-xs"></i></a>
+          </div>
+        </div>
+        <div th:if="${jobs == null or #lists.isEmpty(jobs)}" class="card-body text-body-secondary">No scans yet.</div>
+        <div class="card-body p-0" th:unless="${jobs == null or #lists.isEmpty(jobs)}">
+          <div class="table-responsive">
+            <table class="table border table-hover align-middle mb-0" data-filterable>
+              <thead class="fw-semibold text-nowrap">
+                <tr><th class="bg-body-secondary bg-body-secondary">ID</th><th class="bg-body-secondary bg-body-secondary">Type</th><th class="bg-body-secondary bg-body-secondary">Status</th><th class="bg-body-secondary bg-body-secondary">Verdict</th><th class="bg-body-secondary bg-body-secondary">Target</th><th class="bg-body-secondary bg-body-secondary">Endpoint</th></tr>
               </thead>
               <tbody>
                 <tr th:each="j : ${jobs}">
                   <td><a th:href="@{'/jobs/' + ${j.id}}" th:text="${#strings.substring(j.id,0,8)}" class="mono">id</a></td>
-                  <td th:text="${j.type}" class="mono">TYPE</td>
+                  <td th:text="${j.type}" class="mono" style="font-size:11px;">TYPE</td>
                   <td><span class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.status)}" th:text="${j.status}">STATUS</span></td>
                   <td>
                     <span th:if="${j.verdict != null}" class="badge-status" th:classappend="${'badge-' + #strings.toLowerCase(j.verdict)}" th:text="${j.verdict}">VERDICT</span>
                     <span th:unless="${j.verdict != null}" class="badge-status badge-neutral">PENDING</span>
                   </td>
-                  <td th:text="${j.target}" class="mono" style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">target</td>
+                  <td th:text="${j.target}" class="mono cell-truncate" style="max-width:280px;font-size:12px;">target</td>
                   <td th:text="${j.endpoint != null ? j.endpoint.name : '—'}">endpoint</td>
                 </tr>
               </tbody>
@@ -174,11 +183,14 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="app-footer muted">ClamAV Web Client</div>
-  </main>
+  <div th:replace="~{fragments/layout :: footer}"></div>
 </div>
-<script src="/js/script.js"></script>
+
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
+<script src="/js/active-jobs.js"></script>
+<script>ClaimAV.activeJobs();</script>
 <script th:inline="javascript">
 /*<![CDATA[*/
 var epTargets = /*[[${endpointTargets}]]*/ {};
@@ -187,74 +199,10 @@ function updateFulldiskTargets() {
   var sel = document.getElementById('fulldisk-ep-select');
   var preview = document.getElementById('fulldisk-targets-preview');
   if (!sel || !preview) return;
-  var id = sel.value;
-  var targets = epTargets[id];
-  if (targets && targets.length) {
-    preview.textContent = 'Will scan: ' + targets.join(' · ');
-  } else {
-    preview.textContent = '';
-  }
+  var targets = epTargets[sel.value];
+  preview.textContent = (targets && targets.length) ? 'Will scan: ' + targets.join('  ·  ') : '';
 }
-document.addEventListener('DOMContentLoaded', function () { updateFulldiskTargets(); });
-</script>
-<script>
-(function () {
-  var spinner = document.getElementById('active-spinner');
-  var countBadge = document.getElementById('active-count');
-  var body = document.getElementById('active-jobs-body');
-  var lastUpdated = document.getElementById('active-last-updated');
-  var pollTimer = null;
-
-  function fmt(ts) {
-    if (!ts) return '';
-    try { return new Date(ts).toLocaleTimeString(); } catch (e) { return ts; }
-  }
-
-  function pollActive() {
-    fetch('/api/jobs/active')
-      .then(function (r) { return r.json(); })
-      .then(function (jobs) {
-        lastUpdated.textContent = 'updated ' + new Date().toLocaleTimeString();
-
-        if (!jobs || jobs.length === 0) {
-          spinner.classList.remove('fa-spin');
-          countBadge.style.display = 'none';
-          body.innerHTML = '<p class="muted">No scans currently running or queued.</p>';
-          pollTimer = setTimeout(pollActive, 8000);
-          return;
-        }
-
-        spinner.classList.add('fa-spin');
-        countBadge.style.display = '';
-        countBadge.textContent = jobs.length + ' active';
-
-        var rows = jobs.map(function (j) {
-          var sc = 'badge-' + (j.status || '').toLowerCase();
-          var target = (j.target || '').replace(/</g, '&lt;');
-          return '<tr>' +
-            '<td><a href="/jobs/' + j.id + '" class="mono">' + (j.idShort || '') + '</a></td>' +
-            '<td class="mono" style="font-size:11px;">' + (j.type || '') + '</td>' +
-            '<td><span class="badge-status ' + sc + '">' + (j.status || '') + '</span></td>' +
-            '<td class="mono" style="font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + target + '</td>' +
-            '<td style="font-size:13px;">' + (j.endpointName || '—') + '</td>' +
-            '<td class="mono muted" style="font-size:11px;">' + fmt(j.submittedAt) + '</td>' +
-            '</tr>';
-        }).join('');
-
-        body.innerHTML = '<div class="table-responsive"><table class="table table-striped align-middle">' +
-          '<thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Target</th><th>Endpoint</th><th>Submitted</th></tr></thead>' +
-          '<tbody>' + rows + '</tbody></table></div>';
-
-        pollTimer = setTimeout(pollActive, 3000);
-      })
-      .catch(function () {
-        lastUpdated.textContent = 'poll error';
-        pollTimer = setTimeout(pollActive, 10000);
-      });
-  }
-
-  pollActive();
-})();
+document.addEventListener('DOMContentLoaded', updateFulldiskTargets);
 </script>
 </body>
 </html>
