@@ -37,9 +37,21 @@ service. Unless something schedules it, the database is frozen at whatever the i
 — one Windows machine sat 11 days behind while the console displayed its version as though all
 were well.
 
-Current installers register a nightly `freshclam` (a Scheduled Task on Windows,
-`com.claimav.freshclam` on macOS) **regardless of which components you chose**. If you installed
-an agent before that, re-run the installer.
+Current installers register a scheduled `freshclam` (a nightly Scheduled Task on Windows,
+`com.claimav.freshclam` every 2 hours on macOS) **regardless of which components you chose**. If
+you installed an agent before that, re-run the installer.
+
+On **macOS**, a job that is loaded is not a job that works. Run as root, `freshclam` drops to its
+`DatabaseOwner` (`_clamav`, uid 82) before writing, while the Homebrew database directory belongs
+to whoever ran `brew install`. Every run then fails with *"Can't create temporary directory …
+must be writable for UID 82"* in `/var/log/clamav-freshclam.log`, and nothing else says so.
+Installers before this fix left it that way; re-running the installer sets `DatabaseOwner` and
+the directory's owner consistently. By hand:
+
+```bash
+sudo chown -R _clamav "$(brew --prefix)/var/lib/clamav"
+sudo freshclam --config-file="$(brew --prefix)/etc/clamav/freshclam.conf"
+```
 
 > [!NOTE]
 > **The "reload signatures" button cannot help here.** `clamd`'s `RELOAD` makes a *remote clamd*

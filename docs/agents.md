@@ -14,7 +14,7 @@ and scans that run with the machine's own permissions instead of a remote daemon
 | Console-dispatched scans | yes | yes | yes | yes (cron) |
 | Scheduled local scan | yes (systemd timer) | yes (LaunchDaemon) | yes (Scheduled Task) | yes (cron) |
 | **Realtime (on-access)** | **yes** | **no** | **no** | **no** |
-| Automatic signature updates | `clamav-freshclam` | installed nightly job | installed nightly task | your own cron |
+| Automatic signature updates | `clamav-freshclam` | installed job, every 2 h | installed nightly task | your own cron |
 | Automatic engine updates | manual | manual | weekly task | manual |
 
 Realtime protection needs `fanotify`, which is a Linux kernel facility. There is no macOS or
@@ -58,7 +58,7 @@ curl -fsSL 'https://console.example/agent/install.sh?key=KEY' | sudo bash
 - `clamav-onacc-report.sh` — Linux only. Follows the `clamonacc` log and forwards each detection
   as it happens.
 - `clamav-telegram-alert.sh` — a scheduled batch scan that reports its result.
-- A nightly `freshclam`, **regardless of which components you chose**, because every one of them
+- A scheduled `freshclam` (nightly on Windows, every 2 hours on macOS), **regardless of which components you chose**, because every one of them
   is worthless against a frozen signature database.
 
 The installer's closing summary reports **measured** state — it reads `systemctl is-active` for

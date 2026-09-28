@@ -445,6 +445,14 @@ db_present_macos() {
 # because a clamscan with no database does not fail in any way the agent can see.
 # It prints "Known viruses: 0", exits 2, and its summary still says "Infected
 # files: 0", which reads as a clean scan. The agents now treat that as an error.
+#
+# Every 2 hours rather than once a night: StartInterval fires on wake after a
+# sleep, but a calendar slot that falls while the Mac is switched OFF is simply
+# skipped, and a machine that is off every night never updated at all. When the
+# database is current freshclam only asks DNS and downloads nothing, and it
+# honours ClamAV's own back-off after a 429 (freshclam.dat), so 12 checks a day
+# is freshclam's own default rate, not extra load on the mirrors.
+FRESHCLAM_UPDATER_STATE="not installed"
 install_freshclam_daemon_macos() {
   local conf="$1" fc plist="/Library/LaunchDaemons/com.claimav.freshclam.plist"
   fc="$(command -v freshclam)"
@@ -460,11 +468,8 @@ install_freshclam_daemon_macos() {
         <string>$fc</string>
         <string>--config-file=$conf</string>
     </array>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key><integer>3</integer>
-        <key>Minute</key><integer>15</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>7200</integer>
     <key>StandardErrorPath</key><string>/var/log/clamav-freshclam.log</string>
     <key>StandardOutPath</key><string>/var/log/clamav-freshclam.log</string>
 </dict>
@@ -477,24 +482,51 @@ PLIST
   # refreshing a working one is the one thing freshclam must not be told to do
   # here (it deletes the old files before fetching the new ones).
   if launchd_loaded com.claimav.freshclam; then
-    ok "Signature updates scheduled (freshclam, every night at 03:15)."
+    ok "Signature updates scheduled (freshclam, every 2 hours)."
+    FRESHCLAM_UPDATER_STATE="every 2 hours (com.claimav.freshclam)"
   else
     err "com.claimav.freshclam could not be loaded: signatures will NOT update."
+    FRESHCLAM_UPDATER_STATE="NOT loaded - signatures will not update"
   fi
 }
 
+# The user freshclam will write the database as. Run as root, freshclam drops
+# privileges to DatabaseOwner before touching anything, and Homebrew's compiled-in
+# default is _clamav (uid 82) - while the database directory belongs to whoever
+# ran "brew install", or to root when this script created it. So the scheduled
+# job ran every night and failed every night with "Can't create temporary
+# directory ... must be writable for UID 82", while launchctl showed the job
+# loaded and the console showed a version that only aged. An explicit
+# DatabaseOwner that exists, plus a directory owned by it, is the only state in
+# which the updater can work; a named owner that does not exist on this machine
+# is replaced rather than trusted, since freshclam refuses to start with one.
+freshclam_owner_macos() {
+  local conf="$1" owner
+  owner="$(awk '/^[[:space:]]*DatabaseOwner[[:space:]]/ {print $2; exit}' "$conf")"
+  if [[ -n "$owner" ]] && id -u "$owner" >/dev/null 2>&1; then
+    printf '%s' "$owner"; return
+  fi
+  # _clamav ships with macOS itself; root is the last resort, and it means the
+  # download and signature parsing run with full privileges.
+  if id -u _clamav >/dev/null 2>&1; then owner="_clamav"; else owner="root"; fi
+  grep -vE '^[[:space:]]*DatabaseOwner([[:space:]]|$)' "$conf" > "$conf.tmp" \
+    && printf 'DatabaseOwner %s\n' "$owner" >> "$conf.tmp" \
+    && mv "$conf.tmp" "$conf"
+  printf '%s' "$owner"
+}
+
 ensure_signatures_macos() {
-  local brew_prefix clamav_etc freshclam_conf freshclam_sample db_dir
+  local brew_prefix clamav_etc freshclam_conf freshclam_sample db_dir owner
   if ! command -v freshclam >/dev/null 2>&1; then
     warn "freshclam is not installed: this machine cannot update its signatures."
+    FRESHCLAM_UPDATER_STATE="NOT installed (no freshclam binary)"
     return 1
   fi
   brew_prefix="$(brew --prefix 2>/dev/null || echo /usr/local)"
   clamav_etc="$brew_prefix/etc/clamav"
   freshclam_conf="$clamav_etc/freshclam.conf"
   freshclam_sample="$clamav_etc/freshclam.conf.sample"
-  db_dir="$brew_prefix/var/lib/clamav"
-  mkdir -p "$clamav_etc" "$db_dir"
+  mkdir -p "$clamav_etc"
 
   # freshclam refuses to run at all while the "Example" placeholder line from the
   # shipped sample is still in place.
@@ -508,7 +540,25 @@ ensure_signatures_macos() {
     fi
   fi
   grep -qE '^[[:space:]]*DatabaseDirectory' "$freshclam_conf" || \
-    printf 'DatabaseDirectory %s\n' "$db_dir" >> "$freshclam_conf"
+    printf 'DatabaseDirectory %s\n' "$brew_prefix/var/lib/clamav" >> "$freshclam_conf"
+  # Whatever the config says, not what Homebrew's default would be: a directory
+  # set by hand is where freshclam writes, so it is the one to check and fix.
+  db_dir="$(awk '/^[[:space:]]*DatabaseDirectory[[:space:]]/ {print $2; exit}' "$freshclam_conf")"
+  mkdir -p "$db_dir"
+
+  owner="$(freshclam_owner_macos "$freshclam_conf")"
+  # Recursive: freshclam replaces the .cvd/.cld files and rewrites freshclam.dat,
+  # so a single root-owned file left inside breaks the next update just the same.
+  # Mode 755/644 keeps the database readable by clamscan run from any account.
+  chown -R "$owner" "$db_dir"
+  chmod 755 "$db_dir"
+  if [[ "$owner" != "root" ]] && ! sudo -u "$owner" /bin/test -w "$db_dir"; then
+    err "$db_dir is still not writable by $owner: signature updates will fail."
+  else
+    ok "Signature database directory owned by $owner (freshclam's DatabaseOwner)."
+  fi
+  [[ "$owner" == "root" ]] && \
+    warn "No _clamav user on this Mac: freshclam will download and parse signatures as root."
 
   if db_present_macos "$db_dir"; then
     # Never refresh a database that already works: a failed download - a proxy,
@@ -762,6 +812,7 @@ echo "    Realtime (on-access):    ${REALTIME_STATE}"
 echo "    Console-driven scans:    ${CENTRAL_STATE}"
 echo "    Scheduled scan:          ${SCHEDULED_STATE}"
 echo "    Signatures:              $(signature_state)"
+[[ "$OS" != "Linux" ]] && echo "    Signature updates:       ${FRESHCLAM_UPDATER_STATE}"
 echo "    Console connection:      $([[ "$CONSOLE_OK" == "1" ]] && echo 'OK' || echo 'FAILED (see above)')"
 echo "    Configuration:           $CONFIG_FILE"
 echo
