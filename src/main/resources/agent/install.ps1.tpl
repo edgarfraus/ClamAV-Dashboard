@@ -326,7 +326,7 @@ Write-Ok "Configuration saved to $ConfigPath (readable only by Administrators/SY
 # --- 4) Scan script + result reporting -------------------------------------
 $scanScriptBody = @'
 $ErrorActionPreference = 'Stop'
-$cfg  = Get-Content (Join-Path $env:ProgramData 'ClamAV Dashboard\agent.conf.json') -Raw | ConvertFrom-Json
+$cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
 
 $clamavVersion = ''
@@ -353,7 +353,7 @@ try {
     $mode = $modeResp.onAccessMode
 } catch { }
 
-$quarantineDir = Join-Path $env:ProgramData 'ClamAV Dashboard\quarantine'
+$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
 # --recursive: unlike clamdscan (which hands directories to clamd, and clamd
 # always walks them fully on its own), clamscan.exe does NOT descend into
 # subdirectories by default - without this, "scan C:\" only looks at the
@@ -369,7 +369,7 @@ $quarantineDir = Join-Path $env:ProgramData 'ClamAV Dashboard\quarantine'
 # file ClamAV already moved there, --move moves it again - appending .001, then
 # .001.001, forever - and the console raises a fresh alert every time for a
 # threat that was already dealt with.
-$scanArgs = @('--infected', '--recursive', '--exclude-dir=ClamAV Dashboard[\\/]quarantine')
+$scanArgs = @('--infected', '--recursive', '--exclude-dir=ClaimAV[\\/]quarantine')
 if ($mode -eq 'prevent') {
     New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null
     $scanArgs += "--move=$quarantineDir"
@@ -401,7 +401,7 @@ try {
         # already moved there. --exclude-dir keeps the scan out of it; this also
         # covers a quarantine left behind by an older install, whose path the
         # exclusion above may not match.
-        if ($line -match 'ClamAV Dashboard[\\/]quarantine') { continue }
+        if ($line -match 'ClaimAV[\\/]quarantine') { continue }
         $findings.Add([string]$line)
     }
     if ($exit -eq 1 -and $findings.Count -gt 0) {
@@ -522,8 +522,8 @@ if (Test-Path $freshclamExe) {
 # signature task above.
 $updateScriptBody = @'
 $ErrorActionPreference = 'Stop'
-$cfg     = Get-Content (Join-Path $env:ProgramData 'ClamAV Dashboard\agent.conf.json') -Raw | ConvertFrom-Json
-$logPath = Join-Path $env:ProgramData 'ClamAV Dashboard\update-clamav.log'
+$cfg     = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
+$logPath = Join-Path $env:ProgramData 'ClaimAV\update-clamav.log'
 function Log($m) { "$(Get-Date -Format s)  $m" | Add-Content -Path $logPath }
 
 function Get-EngineVersion {
@@ -650,7 +650,7 @@ if ($wantScheduled) {
 # this task quick every time, so the heartbeat never stops.
 $pollScriptBody = @'
 $ErrorActionPreference = 'Stop'
-$cfg = Get-Content (Join-Path $env:ProgramData 'ClamAV Dashboard\agent.conf.json') -Raw | ConvertFrom-Json
+$cfg = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
 
 $clamavVersion = ''
@@ -675,7 +675,7 @@ try {
 # -Mode (a [string] parameter) as a literal argument would error.
 $mode = [string]$resp.onAccessMode
 
-$runCommandScript = Join-Path $env:ProgramData 'ClamAV Dashboard\run-command.ps1'
+$runCommandScript = Join-Path $env:ProgramData 'ClaimAV\run-command.ps1'
 foreach ($cmd in $resp.commands) {
     # Targets go through a temp file, not a command-line argument: they can
     # contain spaces and there can be several, and a file sidesteps every
@@ -700,7 +700,7 @@ param(
     [string]$Mode = ''
 )
 $ErrorActionPreference = 'Stop'
-$cfg  = Get-Content (Join-Path $env:ProgramData 'ClamAV Dashboard\agent.conf.json') -Raw | ConvertFrom-Json
+$cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
 
 $requestedTargets = @()
@@ -718,7 +718,7 @@ $errorMsg = ''
 $findings = New-Object System.Collections.Generic.List[string]
 $remediation     = 'not_attempted'
 $remediationPath = ''
-$quarantineDir = Join-Path $env:ProgramData 'ClamAV Dashboard\quarantine'
+$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
 if ($Mode -eq 'prevent') { New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null }
 
 # Drop targets that don't exist on THIS machine: clamscan given several paths
@@ -737,7 +737,7 @@ $targets = @($requestedTargets | Where-Object { Test-Path -LiteralPath $_ })
 # file ClamAV already moved there, --move moves it again - appending .001, then
 # .001.001, forever - and the console raises a fresh alert every time for a
 # threat that was already dealt with.
-$scanArgs = @('--infected', '--recursive', '--exclude-dir=ClamAV Dashboard[\\/]quarantine')
+$scanArgs = @('--infected', '--recursive', '--exclude-dir=ClaimAV[\\/]quarantine')
 if ($Mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
 
 try {
@@ -760,7 +760,7 @@ try {
         if ($line -notmatch ' FOUND$') { continue }
         # See the nightly scan script above: a hit inside the quarantine is a
         # re-detection of something already dealt with.
-        if ($line -match 'ClamAV Dashboard[\\/]quarantine') { continue }
+        if ($line -match 'ClaimAV[\\/]quarantine') { continue }
         $findings.Add([string]$line)
     }
     if ($findings.Count -gt 0) {
