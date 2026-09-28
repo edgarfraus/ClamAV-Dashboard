@@ -37,9 +37,10 @@ service. Unless something schedules it, the database is frozen at whatever the i
 — one Windows machine sat 11 days behind while the console displayed its version as though all
 were well.
 
-Current installers register a scheduled `freshclam` (a nightly Scheduled Task on Windows,
-`com.claimav.freshclam` every 2 hours on macOS) **regardless of which components you chose**. If
-you installed an agent before that, re-run the installer.
+Current installers check for new signatures **every hour and at every boot** (a Scheduled Task on
+Windows, `com.claimav.freshclam` on macOS, `Checks 24` for the distro's freshclam daemon on Linux)
+**regardless of which components you chose**. If you installed an agent before that, re-run the
+installer.
 
 On **macOS**, a job that is loaded is not a job that works. Run as root, `freshclam` drops to its
 `DatabaseOwner` (`_clamav`, uid 82) before writing, while the Homebrew database directory belongs

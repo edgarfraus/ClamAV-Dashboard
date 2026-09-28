@@ -446,24 +446,47 @@ db_present_macos() {
 # It prints "Known viruses: 0", exits 2, and its summary still says "Infected
 # files: 0", which reads as a clean scan. The agents now treat that as an error.
 #
-# Every 2 hours (12 calendar slots) rather than once a night: a single 03:15 slot
-# on a Mac that is switched off at night never fires at all. Calendar slots, NOT
-# StartInterval: StartInterval counts only time the machine is AWAKE, so on a
-# laptop that sleeps between uses "every 2 hours" became "every couple of days"
-# (measured: 2h17m after loading, 58 minutes awake, zero runs). A calendar slot
-# missed during sleep fires on wake, and one missed while powered off is at most
-# 2 hours of wall-clock time away after boot. When the database is current
-# freshclam only asks DNS and downloads nothing, and it honours ClamAV's own
-# back-off after a 429 (freshclam.dat), so 12 checks a day is freshclam's own
-# default rate, not extra load on the mirrors.
+# Every hour, and at every boot: a zero-day signature is only worth something if
+# it arrives while the threat is new, and ClamAV publishes several daily updates.
+#
+# - Hourly on a calendar slot, NOT StartInterval: StartInterval counts only time
+#   the machine is AWAKE, so on a laptop that sleeps between uses an interval
+#   barely advances (measured: 2h17m after loading, 58 minutes awake, zero
+#   runs). A calendar slot is wall-clock, and one missed during sleep fires on
+#   wake. The minute is derived from the hostname, so a fleet does not hit
+#   ClamAV's CDN at the same second - it answers bursts with 429.
+# - RunAtLoad: daemons are loaded at boot, so this is the "at every boot" run
+#   (and one right after installing). The boot run would usually beat the
+#   network, so the helper waits for a default route first.
+#
+# When the database is current freshclam only asks DNS and downloads nothing,
+# and it honours ClamAV's own back-off after a 429 (freshclam.dat); once an hour
+# is the most ClamAV asks mirrors to be checked.
 FRESHCLAM_UPDATER_STATE="not installed"
 install_freshclam_daemon_macos() {
   local conf="$1" fc plist="/Library/LaunchDaemons/com.claimav.freshclam.plist"
-  local slots="" h
+  local helper_dir="/usr/local/libexec/claimav" helper minute
+  helper="$helper_dir/freshclam-update.sh"
   fc="$(command -v freshclam)"
-  for h in 0 2 4 6 8 10 12 14 16 18 20 22; do
-    slots+="        <dict><key>Hour</key><integer>$h</integer><key>Minute</key><integer>15</integer></dict>"$'\n'
-  done
+  minute=$(( $(hostname | cksum | cut -d' ' -f1) % 60 ))
+  mkdir -p "$helper_dir"
+  cat > "$helper" << HELPER
+#!/bin/sh
+# Installed by the ClamAV Dashboard agent; run by com.claimav.freshclam.
+# Waits up to 5 minutes for the network (the boot run starts before it is up),
+# then updates the signatures.
+n=0
+while [ \$n -lt 30 ] && ! /sbin/route -n get default >/dev/null 2>&1; do
+  sleep 10; n=\$((n + 1))
+done
+echo "--- \$(date '+%Y-%m-%d %H:%M:%S')"
+exec "$fc" --config-file="$conf"
+HELPER
+  chmod 755 "$helper"
+  # Hourly runs append ~20 lines an hour: let newsyslog rotate the log at 1 MB,
+  # keeping 5 compressed generations, instead of letting it grow forever.
+  printf '%s\n' "/var/log/clamav-freshclam.log  644  5  1024  *  J" \
+    > /etc/newsyslog.d/com.claimav.freshclam.conf
   cat > "$plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -473,12 +496,15 @@ install_freshclam_daemon_macos() {
     <string>com.claimav.freshclam</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$fc</string>
-        <string>--config-file=$conf</string>
+        <string>/bin/sh</string>
+        <string>$helper</string>
     </array>
+    <key>RunAtLoad</key>
+    <true/>
     <key>StartCalendarInterval</key>
-    <array>
-${slots}    </array>
+    <dict>
+        <key>Minute</key><integer>$minute</integer>
+    </dict>
     <key>StandardErrorPath</key><string>/var/log/clamav-freshclam.log</string>
     <key>StandardOutPath</key><string>/var/log/clamav-freshclam.log</string>
 </dict>
@@ -487,12 +513,9 @@ PLIST
   chmod 644 "$plist"
   launchctl unload "$plist" 2>/dev/null || true
   launchctl load "$plist"
-  # Deliberately no RunAtLoad: the database was just dealt with above, and
-  # refreshing a working one is the one thing freshclam must not be told to do
-  # here (it deletes the old files before fetching the new ones).
   if launchd_loaded com.claimav.freshclam; then
-    ok "Signature updates scheduled (freshclam, every 2 hours at :15)."
-    FRESHCLAM_UPDATER_STATE="every 2 hours at :15 (com.claimav.freshclam)"
+    ok "Signature updates scheduled (freshclam at boot and every hour at :$(printf '%02d' "$minute"))."
+    FRESHCLAM_UPDATER_STATE="at boot and hourly at :$(printf '%02d' "$minute") (com.claimav.freshclam)"
   else
     err "com.claimav.freshclam could not be loaded: signatures will NOT update."
     FRESHCLAM_UPDATER_STATE="NOT loaded - signatures will not update"

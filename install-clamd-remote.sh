@@ -590,21 +590,93 @@ fi
 # ---------------------------------------------------------------------------
 # 8) Start/enable the services
 # ---------------------------------------------------------------------------
+# The database has two users, and they are not always the same one: freshclam
+# WRITES it as its DatabaseOwner, clamd only READS it. On Debian both are
+# "clamav", but on Fedora/RHEL freshclam is "clamupdate" and clamd "clamscan".
+# Handing the directory to clamd's user (what this step used to do) therefore
+# broke every later update there, silently - the same failure that froze the
+# Macs ("must be writable for UID 82"). So the owner is always freshclam's user,
+# and clamd gets read access through the mode instead of through ownership.
+freshclam_conf_path() {
+  local f
+  for f in /etc/clamav/freshclam.conf /etc/freshclam.conf; do
+    [[ -f "$f" ]] && { echo "$f"; return 0; }
+  done
+  return 1
+}
+FRESHCLAM_CONF="$(freshclam_conf_path || true)"
+FC_OWNER=""
+[[ -n "$FRESHCLAM_CONF" ]] && \
+  FC_OWNER="$(awk '/^[[:space:]]*DatabaseOwner[[:space:]]/ {print $2; exit}' "$FRESHCLAM_CONF")"
+# freshclam's compiled-in default when the config names none.
+[[ -z "$FC_OWNER" ]] && FC_OWNER="clamav"
+if id "$FC_OWNER" >/dev/null 2>&1; then
+  DB_OWNER="$(stat -c %U /var/lib/clamav 2>/dev/null || true)"
+  if [[ "$DB_OWNER" != "$FC_OWNER" ]]; then
+    log "Signature database owned by '$DB_OWNER' but freshclam writes as '$FC_OWNER': fixing ownership..."
+    chown -R "$FC_OWNER" /var/lib/clamav 2>/dev/null || \
+      warn "Could not chown /var/lib/clamav to $FC_OWNER: signature updates may fail."
+  fi
+  # Readable by everyone: clamd may run as another user, and the signatures are
+  # public data anyway.
+  chmod -R a+rX /var/lib/clamav 2>/dev/null || true
+else
+  warn "freshclam's DatabaseOwner '$FC_OWNER' does not exist here: signature updates will fail."
+fi
+
 # clamd may have been switched to a different user by the steps above (agent mode
-# puts it back on its packaged user). If the signature database is still owned by
-# whoever ran freshclam last - typically root - the daemon then cannot read it and
-# fails to start for a reason that has nothing to do with the change itself.
+# puts it back on its packaged user); its log and run directories must follow.
 CLAMD_RUN_USER=$(grep -E '^[[:space:]]*User[[:space:]]+' "$CLAMD_CONF" | awk '{print $2}' | tail -1 || true)
 if [[ -n "$CLAMD_RUN_USER" && "$CLAMD_RUN_USER" != "root" ]] && id "$CLAMD_RUN_USER" >/dev/null 2>&1; then
-  DB_OWNER="$(stat -c %U /var/lib/clamav 2>/dev/null || true)"
-  if [[ "$DB_OWNER" != "$CLAMD_RUN_USER" ]]; then
-    log "Signature database owned by '$DB_OWNER' but clamd runs as '$CLAMD_RUN_USER': fixing ownership..."
-    chown -R "$CLAMD_RUN_USER" /var/lib/clamav 2>/dev/null || \
-      warn "Could not chown /var/lib/clamav to $CLAMD_RUN_USER; clamd may fail to read the database."
-  fi
   for d in /var/log/clamav /var/run/clamav /run/clamav; do
     [[ -d "$d" ]] && chown -R "$CLAMD_RUN_USER" "$d" 2>/dev/null || true
   done
+fi
+
+# Signature updates: every hour, and at every boot. A zero-day signature is only
+# worth something if it arrives while the threat is new, and ClamAV publishes
+# several daily updates. The distro's freshclam daemon checks at startup and then
+# "Checks" times a day - 12 when unset, which is the Fedora default - so it is
+# set to 24 explicitly (one per hour, the most ClamAV asks mirrors to be hit).
+if [[ -n "$FRESHCLAM_CONF" ]]; then
+  grep -vE '^[[:space:]]*Checks([[:space:]]|$)' "$FRESHCLAM_CONF" > "$FRESHCLAM_CONF.tmp" \
+    && printf 'Checks 24\n' >> "$FRESHCLAM_CONF.tmp" \
+    && cat "$FRESHCLAM_CONF.tmp" > "$FRESHCLAM_CONF" && rm -f "$FRESHCLAM_CONF.tmp"
+  ok "freshclam set to check for new signatures every hour ($FRESHCLAM_CONF)."
+else
+  warn "No freshclam.conf found (/etc/clamav/freshclam.conf, /etc/freshclam.conf): update interval left as is."
+fi
+
+# A systemd distro whose package ships no freshclam unit would otherwise never
+# update at all. Our own timer covers it: hourly, plus a run shortly after boot.
+# Only then - running it next to the distro's daemon would have two freshclams
+# fighting over the database lock.
+if [[ "$INIT_SYS" == "systemd" && -z "$FRESHCLAM_SERVICE" ]] && command -v freshclam >/dev/null 2>&1; then
+  cat > /etc/systemd/system/claimav-freshclam.service << UNIT
+[Unit]
+Description=ClamAV signature update (freshclam)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$(command -v freshclam) --stdout
+UNIT
+  cat > /etc/systemd/system/claimav-freshclam.timer << 'UNIT'
+[Unit]
+Description=ClamAV signature update: hourly and at boot
+
+[Timer]
+OnBootSec=2min
+OnCalendar=hourly
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+  FRESHCLAM_TIMER="claimav-freshclam.timer"
+  ok "No freshclam service in this distro: installed claimav-freshclam.timer (hourly and at boot)."
 fi
 
 log "Starting clamd..."
@@ -622,7 +694,13 @@ if [[ "$INIT_SYS" == "systemd" ]]; then
     systemctl enable --now "$CLAMD_SOCKET"
   fi
   systemctl enable --now "$CLAMD_SERVICE"
-  [[ -n "$FRESHCLAM_SERVICE" ]] && (systemctl enable --now "$FRESHCLAM_SERVICE" >/dev/null 2>&1 || true)
+  # restart, not just --now: an already running daemon only reads "Checks" at start.
+  if [[ -n "$FRESHCLAM_SERVICE" ]]; then
+    systemctl enable "$FRESHCLAM_SERVICE" >/dev/null 2>&1 || true
+    systemctl restart "$FRESHCLAM_SERVICE" >/dev/null 2>&1 || \
+      warn "$FRESHCLAM_SERVICE did not start: signatures will NOT update. See: journalctl -u $FRESHCLAM_SERVICE"
+  fi
+  [[ -n "${FRESHCLAM_TIMER:-}" ]] && (systemctl enable --now "$FRESHCLAM_TIMER" >/dev/null 2>&1 || true)
 
   sleep 2
   if ! systemctl is-active --quiet "$CLAMD_SERVICE"; then

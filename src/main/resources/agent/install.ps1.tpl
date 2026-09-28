@@ -481,18 +481,30 @@ $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
 # stale.) Registered regardless of which components were chosen: every one of
 # them is worthless against a frozen database.
 if (Test-Path $freshclamExe) {
+    # Every hour, and at every boot: a zero-day signature is only worth
+    # something if it arrives while the threat is new, and ClamAV publishes
+    # several updates a day. Once an hour is the most ClamAV asks mirrors to be
+    # checked; when the database is current freshclam downloads nothing.
+    # - Hourly: a repetition with no RepetitionDuration repeats indefinitely.
+    #   StartWhenAvailable runs a slot that was missed while the machine slept.
+    # - At startup, delayed 2 minutes: the boot run would otherwise beat the
+    #   network and simply fail.
     # RandomDelay: ClamAV's CDN answers bursts with 429, and a fleet that all
-    # updates at 03:15 sharp is exactly such a burst. RandomDelay belongs to
-    # the trigger, not the settings set.
-    $fcSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+    # updates on the same minute is exactly such a burst. It belongs to the
+    # trigger, not the settings set.
+    $fcSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+                      -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
     $fcAction  = New-ScheduledTaskAction -Execute $freshclamExe `
                       -Argument "--config-file=`"$freshclamConf`""
-    $fcTrigger = New-ScheduledTaskTrigger -Daily -At '03:15' `
-                      -RandomDelay (New-TimeSpan -Minutes 30)
+    $fcHourly  = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(5) `
+                      -RepetitionInterval (New-TimeSpan -Hours 1) `
+                      -RandomDelay (New-TimeSpan -Minutes 10)
+    $fcBoot    = New-ScheduledTaskTrigger -AtStartup
+    $fcBoot.Delay = 'PT2M'
     Unregister-ScheduledTask -TaskName $UpdateTask -Confirm:$false -ErrorAction SilentlyContinue
-    Register-ScheduledTask -TaskName $UpdateTask -Action $fcAction -Trigger $fcTrigger `
+    Register-ScheduledTask -TaskName $UpdateTask -Action $fcAction -Trigger @($fcHourly, $fcBoot) `
         -Principal $principalTask -Settings $fcSettings | Out-Null
-    Write-Ok "Signature updates scheduled ('$UpdateTask', daily at 03:15)."
+    Write-Ok "Signature updates scheduled ('$UpdateTask', hourly and at startup)."
 } else {
     Write-Warn "freshclam.exe not found: the signatures on this machine will NOT update."
 }
@@ -602,7 +614,7 @@ Set-Content -Path $BinaryUpdateScript -Value $updateScriptBody -Encoding UTF8
 $buSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
 $buAction   = New-ScheduledTaskAction -Execute 'powershell.exe' `
                   -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BinaryUpdateScript`""
-# Sunday 04:30, clear of the signature task (03:15) and any midnight-ish scan
+# Sunday 04:30, clear of any midnight-ish scan
 # time, with its own RandomDelay so a fleet does not hit GitHub's API/winget's
 # source all at once.
 $buTrigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '04:30' `
@@ -853,6 +865,6 @@ Write-Host ("    Scheduled scan:       " + $(if ($wantScheduled) { "enabled ($($
 # signatures impossible to mistake for a protected one.
 $sigVersion = Get-ClamavVersionString $clamScan
 Write-Host ("    Signatures:           " + $(if ($sigVersion -match '/') { $sigVersion } elseif ($sigVersion) { "NO DATABASE ($sigVersion) - scans would report clean without scanning!" } else { 'unknown' }))
-Write-Host ("    Signature updates:    " + $(if (Test-Path $freshclamExe) { "daily at 03:15 ('$UpdateTask')" } else { 'NOT scheduled (freshclam.exe missing)' }))
+Write-Host ("    Signature updates:    " + $(if (Test-Path $freshclamExe) { "hourly and at startup ('$UpdateTask')" } else { 'NOT scheduled (freshclam.exe missing)' }))
 Write-Host ("    Binary updates:       " + "weekly, Sunday at 04:30 ('$BinaryUpdateTask')")
 Write-Warn "ClamAV realtime protection is not available on Windows."
