@@ -152,14 +152,14 @@ public class NotificationService {
                     "Host: `" + escapeMarkdown(host) + "`\n" +
                     "Job: `" + job.getId() + "`\n" +
                     "Target: `" + escapeMarkdown(job.getTarget()) + "`\n" +
-                    "File infetti trovati: *" + fresh.size() + "*\n" +
+                    "Infected files found: *" + fresh.size() + "*\n" +
                     "Remediation: *" + remediationLabel(job) + "*\n\n" +
                     "```\n" + findings + "```";
         } else {
             text = "⚠️ *ClamAV Warning*\n" +
                     "Host: `" + escapeMarkdown(host) + "`\n" +
                     "Job: `" + job.getId() + "`\n" +
-                    "Errore durante lo scan: " + escapeMarkdown(job.getErrorMessage());
+                    "Scan error: " + escapeMarkdown(job.getErrorMessage());
         }
 
         try {
@@ -181,12 +181,12 @@ public class NotificationService {
 
     private String remediationLabel(ScanJob job) {
         info.trizub.clamav.webclient.model.RemediationStatus r = job.getRemediationStatus();
-        if (r == null) return "non disponibile";
+        if (r == null) return "not available";
         switch (r) {
-            case QUARANTINED: return "messo in quarantena";
-            case REMOVED: return "rimosso";
-            case FAILED: return "FALLITA - file ancora presente";
-            default: return "nessuna (modalita' Detection)";
+            case QUARANTINED: return "quarantined";
+            case REMOVED: return "removed";
+            case FAILED: return "FAILED - file still present";
+            default: return "none (Detection mode)";
         }
     }
 

@@ -62,10 +62,10 @@ public class ScanJob {
     @Column(length = 2048)
     private String quarantinePath;
 
-    // Cosa e' successo davvero al file infetto: null per i job non VIRUS_FOUND
-    // (o riportati da agent troppo vecchi per inviarla). Il percorso descrittivo
-    // (dove e' finito in quarantena, sulla console o sulla macchina remota che
-    // lo riporta) resta in quarantinePath, condiviso fra i due casi.
+    // What actually happened to the infected file: null for jobs that are not
+    // VIRUS_FOUND (or reported by agents too old to send it). The descriptive
+    // path (where it was quarantined, on the console or on the remote machine
+    // that reports it) stays in quarantinePath, shared by both cases.
     @Enumerated(EnumType.STRING)
     @Column(length = 16)
     private RemediationStatus remediationStatus;

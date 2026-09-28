@@ -778,7 +778,7 @@ if [[ "$ON_ACCESS" -eq 1 ]]; then
   ok "Reporter installed at $REPORT_SCRIPT."
 
   # If the distro already ships its own clamonacc unit, stop it: two instances on
-  # stessa directory generano eventi doppi e carico inutile.
+  # the same directory produce duplicate events and pointless load.
   for _u in clamav-clamonacc.service clamonacc.service; do
     if unit_exists "$_u"; then
       systemctl disable --now "$_u" >/dev/null 2>&1 || true

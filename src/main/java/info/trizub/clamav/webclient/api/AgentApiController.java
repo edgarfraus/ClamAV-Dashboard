@@ -20,11 +20,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * API usata dall'agent installato sulle macchine. Autenticata dalla chiave
- * dell'endpoint: ogni agent vede solo i comandi del proprio endpoint.
+ * API used by the agent installed on each machine. Authenticated by the
+ * endpoint's key: every agent sees only its own endpoint's commands.
  *
- * E' l'agent a chiamare la console (polling), non il contrario: cosi' sulla
- * macchina non serve aprire porte e funziona anche dietro NAT.
+ * The agent calls the console (polling), never the other way round: no port
+ * has to be opened on the machine, and it works behind NAT too.
  */
 @RestController
 @RequestMapping("/api/agent")
@@ -39,16 +39,16 @@ public class AgentApiController {
     }
 
     /**
-     * Ritira le scansioni in attesa per questo agent. Restituirle significa
-     * assegnarle: passano a DISPATCHED e i job a RUNNING, quindi l'agent deve
-     * eseguirle e riportarne l'esito.
+     * Collects the scans waiting for this agent. Returning them claims them:
+     * they move to DISPATCHED and their jobs to RUNNING, so the agent has to
+     * run them and report the result.
      */
     @GetMapping("/commands")
     public ResponseEntity<Map<String, Object>> commands(HttpServletRequest request) {
         ClamdEndpoint endpoint = resolveEndpoint(request);
         if (endpoint == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Chiave agent non valida o endpoint disabilitato"));
+                    .body(Map.of("error", "Invalid agent key or endpoint disabled"));
         }
 
         List<Map<String, Object>> payload = new ArrayList<>();
@@ -68,10 +68,10 @@ public class AgentApiController {
     }
 
     /**
-     * Modalita' on-access desiderata (detect/prevent), decisa a livello di
-     * gruppo: un endpoint senza gruppo non e' gestito da remoto e mantiene
-     * quella impostata al momento dell'installazione. null = "non toccare
-     * nulla", cosi' un agent senza realtime installato non fa niente con essa.
+     * Desired on-access mode (detect/prevent), decided per group: an endpoint
+     * with no group is not managed remotely and keeps the mode set at install
+     * time. null means "change nothing", so an agent without realtime
+     * installed does nothing with it.
      */
     private String desiredOnAccessMode(ClamdEndpoint endpoint) {
         if (endpoint.getGroup() == null) return null;
@@ -79,17 +79,17 @@ public class AgentApiController {
     }
 
     /**
-     * Sola lettura della modalita' desiderata, senza toccare la coda comandi:
-     * serve alla scansione programmata di Windows, che gira come task
-     * indipendente e non deve reclamare (claimPending muta lo stato) i comandi
-     * che spettano al poll separato - un GET /commands da qui li ruberebbe.
+     * Read-only view of the desired mode, without touching the command queue.
+     * It exists for the Windows scheduled scan, which runs as a separate task
+     * and must not claim (claimPending changes state) the commands that belong
+     * to the separate poll - a GET /commands from there would steal them.
      */
     @GetMapping("/mode")
     public ResponseEntity<Map<String, Object>> mode(HttpServletRequest request) {
         ClamdEndpoint endpoint = resolveEndpoint(request);
         if (endpoint == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Chiave agent non valida o endpoint disabilitato"));
+                    .body(Map.of("error", "Invalid agent key or endpoint disabled"));
         }
         Map<String, Object> body = new LinkedHashMap<>();
         String mode = desiredOnAccessMode(endpoint);
@@ -98,22 +98,22 @@ public class AgentApiController {
     }
 
     /**
-     * Stessa coda, in formato riga per riga: "<id> <target in base64>".
-     * L'agent e' uno script bash e su una macchina minimale jq puo' non esserci,
-     * mentre base64 fa parte di coreutils. La codifica evita anche ogni problema
-     * di quoting: i path possono contenere spazi e a capo.
+     * The same queue, one line per command: "<id> <base64 target>".
+     * The agent is a bash script, and a minimal machine may have no jq, while
+     * base64 is part of coreutils. The encoding also sidesteps every quoting
+     * problem: paths can contain spaces and newlines.
      *
-     * Quando il gruppo dell'endpoint ha una modalita' on-access impostata, una
-     * riga "MODE detect|prevent" precede i comandi: l'id "MODE" non e' mai un
-     * id di comando valido (sono numerici), quindi il parser bash la riconosce
-     * senza ambiguita' e non tenta di decodificarla come base64.
+     * When the endpoint's group sets an on-access mode, a "MODE detect|prevent"
+     * line precedes the commands: "MODE" is never a valid command id (those
+     * are numeric), so the bash parser recognises it unambiguously and does
+     * not try to decode it as base64.
      */
     @GetMapping(value = "/commands", params = "format=text", produces = "text/plain; charset=utf-8")
     public ResponseEntity<String> commandsText(HttpServletRequest request) {
         ClamdEndpoint endpoint = resolveEndpoint(request);
         if (endpoint == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("chiave agent non valida\n");
+                    .body("invalid agent key\n");
         }
         StringBuilder out = new StringBuilder();
         String mode = desiredOnAccessMode(endpoint);

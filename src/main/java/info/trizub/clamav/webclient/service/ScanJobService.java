@@ -41,10 +41,10 @@ public class ScanJobService {
     @PostConstruct
     public void resumeQueued() {
         // If app restarts, re-enqueue queued/running jobs as queued.
-        // I job AGENT sono esclusi: li esegue l'agent sulla sua macchina, darli
-        // al nostro executor significherebbe rifarli via TCP (che e' proprio
-        // quello che l'agent serve a evitare). Restano dove sono: se l'agent non
-        // risponde ci pensa il timeout di AgentCommandService.
+        // AGENT jobs are excluded: the agent runs them on its own machine, and
+        // handing them to our executor would redo them over TCP (exactly what
+        // the agent exists to avoid). They stay where they are: if the agent
+        // never answers, AgentCommandService's timeout takes care of them.
         repo.findAll().stream()
                 .filter(j -> j.getStatus() != ScanJobStatus.FINISHED)
                 .filter(j -> j.getType() != ScanJobType.AGENT)
@@ -171,9 +171,9 @@ public class ScanJobService {
     }
 
     /**
-     * Job per una scansione che verra' eseguita dall'agent sulla macchina.
-     * Creato QUEUED e volutamente NON passato all'executor: il lavoro lo fa
-     * l'agent, che poi chiude il job via /api/scan/report con il commandId.
+     * Job for a scan the agent will run on the machine.
+     * Created QUEUED and deliberately NOT handed to the executor: the agent does
+     * the work, then closes the job via /api/scan/report with the commandId.
      */
     @Transactional
     public ScanJob createAgentJob(String target, ClamdEndpoint endpoint, String username) {
@@ -261,13 +261,13 @@ public class ScanJobService {
         job.setType(type != null ? type : ScanJobType.EXTERNAL);
         job.setStatus(ScanJobStatus.FINISHED);
         job.setVerdict(verdict);
-        // scan_jobs.target e' NOT NULL, ma un report spontaneo puo' arrivare senza
-        // percorso (una segnalazione on-access che riguarda l'intera macchina):
-        // in quel caso mostriamo l'host, che e' l'informazione utile.
+        // scan_jobs.target is NOT NULL, but a spontaneous report can arrive with
+        // no path (an on-access event about the whole machine): in that case the
+        // host is shown, which is the useful piece of information.
         job.setTarget(path != null && !path.isBlank() ? path : hostname);
         job.setSourceHost(hostname);
-        // Se il report arriva da un agent autenticato con la chiave dell'endpoint,
-        // il job viene legato a quell'endpoint e non resta un host "orfano".
+        // When the report comes from an agent authenticated with the endpoint's
+        // key, the job is bound to that endpoint instead of an "orphan" host.
         job.setEndpoint(endpoint);
         job.setSubmittedBy(username);
         Instant now = Instant.now();
@@ -305,15 +305,15 @@ private void enqueueAfterCommit(String jobId) {
 }
 
 /**
-     * Manda webhook/Telegram per un job gia' concluso. Serve ai job chiusi
-     * dall'agent: li' non si passa da ScanExecutionService, che e' il punto in
-     * cui normalmente scattano le notifiche.
+     * Sends webhook/Telegram for a job that has already finished. Needed for
+     * jobs closed by an agent: they never pass through ScanExecutionService,
+     * which is where notifications normally fire.
      */
     public void notifyIfNeeded(String jobId) {
         try {
             repo.findById(jobId).ifPresent(notificationService::notifyIfNeeded);
         } catch (Exception e) {
-            log.warn("Notifica non inviata per il job {}: {}", jobId, e.getMessage());
+            log.warn("Notification not sent for job {}: {}", jobId, e.getMessage());
         }
     }
 
@@ -327,10 +327,10 @@ private void enqueueAfterCommit(String jobId) {
     }
 
     /**
-     * Esito di una scansione lanciata dalla console e chiusa da un agent
-     * (POST /api/scan/report con commandId). remediation e' quello che l'agent
-     * ha davvero fatto sul file infetto sulla SUA macchina - la console non ha
-     * altro modo per saperlo, non essendoci un canale diretto verso l'host.
+     * Result of a scan launched from the console and closed by an agent
+     * (POST /api/scan/report with commandId). remediation is what the agent
+     * actually did to the infected file on ITS machine - the console has no
+     * other way to know, since there is no direct channel to the host.
      */
     @Transactional
     public void finishFound(String id, Object foundViruses, RemediationStatus remediation, String remediationPath) {

@@ -9,11 +9,11 @@ RUN mvn -q -DskipTests dependency:go-offline
 # Copy sources
 COPY src ./src
 
-# Gli script dell'agent stanno nella root del repo e vengono impacchettati nel
-# jar da maven-resources-plugin (esecuzione copy-agent-scripts). Senza questa
-# COPY non entrano nel build context: il build riesce lo stesso (gli <include>
-# mancanti vengono ignorati) ma il jar esce senza, e la console non riesce piu'
-# a generare l'installer dell'agent.
+# The agent scripts live at the repo root and are packaged into the jar by
+# maven-resources-plugin (execution copy-agent-scripts). Without this COPY they
+# are not in the build context: the build still succeeds (an <include> that
+# matches nothing is ignored), but the jar comes out without them and the
+# console can no longer generate the agent installer.
 COPY clamav-agent-poll.sh clamav-onacc-report.sh clamav-telegram-alert.sh install-clamd-remote.sh ./
 
 # Build jar

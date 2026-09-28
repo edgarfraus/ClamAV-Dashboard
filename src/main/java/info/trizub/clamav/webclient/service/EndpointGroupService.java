@@ -38,11 +38,11 @@ public class EndpointGroupService {
     }
 
     /**
-     * Modalita' realtime desiderata per tutti gli endpoint del gruppo. La
-     * console non la applica direttamente: l'agent la legge al prossimo poll
-     * (GET /api/agent/commands) e la applica in locale sul proprio clamd.conf,
-     * quindi il cambio non e' immediato e riguarda solo endpoint Linux con
-     * on-access gia' installato.
+     * Desired realtime mode for every endpoint in the group. The console does
+     * not apply it directly: the agent reads it on its next poll
+     * (GET /api/agent/commands) and applies it locally to its own clamd.conf,
+     * so the change is not immediate and only affects Linux endpoints with
+     * on-access already installed.
      */
     @Transactional
     public void setOnAccessPrevent(Long id, boolean prevent) {

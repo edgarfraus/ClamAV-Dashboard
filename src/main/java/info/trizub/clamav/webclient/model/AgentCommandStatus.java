@@ -1,10 +1,10 @@
 package info.trizub.clamav.webclient.model;
 
 public enum AgentCommandStatus {
-    /** In attesa che l'agent la ritiri al prossimo poll. */
+    /** Waiting for the agent to claim it on its next poll. */
     PENDING,
-    /** Ritirata dall'agent, scansione in corso sulla macchina. */
+    /** Claimed by the agent, scan running on the machine. */
     DISPATCHED,
-    /** L'agent ha inviato l'esito. */
+    /** The agent has sent the result. */
     DONE
 }

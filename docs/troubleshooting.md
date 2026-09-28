@@ -108,6 +108,47 @@ It has not checked in for 15 minutes. In order of likelihood:
 4. **Private CA** in front of the console: set `DASHBOARD_CA_BUNDLE` in
    `/etc/clamav/console-report.conf`.
 
+The console can confirm it from the outside, without logging in to the machine:
+
+```bash
+curl -sS -u admin:admin https://HOST/api/endpoints/<id>/status
+```
+
+`lastSeen` is the last request the agent made. If it stops moving while the machine is on, the
+problem is on the machine. See [the API reference](api.md#endpoint-status).
+
+### A Windows agent goes offline right after installing
+
+On Windows, the poll task exits silently (`exit 0`) when the console is unreachable, so it retries
+on the next pass without flooding anything. That also means **Task Scheduler's "Last Run Result"
+is the first thing to read**:
+
+```powershell
+Get-ScheduledTask -TaskName 'ClaimAV*' | ForEach-Object {
+  $i = $_ | Get-ScheduledTaskInfo
+  '{0,-26} last={1} result=0x{2:X}' -f $_.TaskName, $i.LastRunTime, $i.LastTaskResult }
+```
+
+`0x0` is fine, and `0x41303` means the task has not run yet. Anything else means the script
+itself failed before reaching the console. Run it by hand to see why:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:ProgramData\ClaimAV\poll-agent.ps1"
+```
+
+Installers generated between 22 and 28 September 2026 wrote scripts that looked for their
+configuration in `C:\ProgramData\ClamAV Dashboard\` while the installer put it in
+`C:\ProgramData\ClaimAV\`. The poll died on its second line with
+`Cannot find path 'C:\ProgramData\ClamAV Dashboard\agent.conf.json'`, and so did the scheduled scan
+and the signature updater. **Re-run the installer from a current console** to fix it. You do not
+need a new key or a new endpoint: the reinstall reuses the same directory and replaces the same
+scheduled tasks.
+
+> [!IMPORTANT]
+> The Windows install directory is `C:\ProgramData\ClaimAV` and the task names start with
+> `ClaimAV`, on purpose, even though the product is called ClamAV Dashboard. Renaming them would
+> leave existing machines with two installs and two sets of tasks side by side.
+
 ### A macOS agent was installed and never ran once
 
 Older installers pointed their LaunchDaemons at a **copy** of `/bin/bash`. A copy of an Apple

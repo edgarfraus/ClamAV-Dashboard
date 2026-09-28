@@ -16,18 +16,18 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Autentica un agent tramite la chiave dell'endpoint, al posto di un utente
- * OPERATOR per macchina. La chiave concede il solo ruolo AGENT, che in
- * SecurityConfig puo' fare unicamente /agent/** e POST /api/scan/report: se
- * viene rubata non permette di leggere i job degli altri host ne' di lanciare
- * scansioni, cosa che un utente OPERATOR permetterebbe.
+ * Authenticates an agent by the endpoint's key, instead of a per-machine
+ * OPERATOR user. The key grants only the AGENT role, which SecurityConfig
+ * allows on /agent/** and POST /api/scan/report and nothing else: a stolen key
+ * can neither read other hosts' jobs nor launch scans, both of which an
+ * OPERATOR user could.
  *
- * La chiave e' accettata da tre posti, in ordine di preferenza:
+ * The key is accepted from three places, in order of preference:
  *   1. header  X-Agent-Key: cav_...
  *   2. header  Authorization: Bearer cav_...
- *   3. query   ?key=cav_...   (serve per l'enrollment "curl ... | sudo bash",
- *              dove non si possono passare header; finisce nei log del reverse
- *              proxy, quindi va usata solo per il download dell'installer)
+ *   3. query   ?key=cav_...   (for the "curl ... | sudo bash" enrollment, where
+ *              no header can be passed; it ends up in the reverse proxy's
+ *              logs, so use it only to download the installer)
  */
 public class AgentAuthenticationFilter extends OncePerRequestFilter {
 
@@ -40,10 +40,11 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Di default OncePerRequestFilter non rigira sul dispatch verso /error: senza
-     * questo, un errore in una richiesta dell'agent perde l'autenticazione lungo
-     * la strada e torna un 401 con "WWW-Authenticate: Basic" al posto dell'errore
-     * vero (500/400). Mascherare cosi' le cause rende la diagnosi impossibile.
+     * By default OncePerRequestFilter does not run again on the dispatch to
+     * /error: without this, an error in an agent request loses its
+     * authentication on the way and comes back as a 401 with
+     * "WWW-Authenticate: Basic" instead of the real error (500/400). Masking the
+     * cause like that makes diagnosis impossible.
      */
     @Override
     protected boolean shouldNotFilterErrorDispatch() {
@@ -54,7 +55,7 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        // Se la richiesta e' gia' autenticata (sessione web, Basic auth) non tocchiamo nulla.
+        // A request that is already authenticated (web session, Basic auth) is left alone.
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
             String key = extractKey(request);
             if (key != null) {
@@ -66,11 +67,11 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
                             List.of(new SimpleGrantedAuthority("ROLE_AGENT")));
                     SecurityContextHolder.getContext().setAuthentication(auth);
                     request.setAttribute(ENDPOINT_ID_ATTRIBUTE, ep.getId());
-                    // L'agent allega la versione di clamd, se gestisce il realtime la
-                    // modalita' on-access che ha davvero in vigore, e il proprio sistema
-                    // operativo a ogni richiesta: cosi' la console le conosce senza
-                    // doversi collegare alla macchina, e non serve un giro HTTP in piu'
-                    // solo per il heartbeat.
+                    // On every request the agent attaches the clamd version, the
+                    // on-access mode actually in force (if it handles realtime), and
+                    // its operating system: the console learns them without
+                    // connecting to the machine, and no extra HTTP round trip is
+                    // needed just for the heartbeat.
                     endpoints.touchAgentSeen(ep.getId(), request.getHeader("X-Agent-Clamav"),
                             request.getHeader("X-Agent-OnAccess-Mode"), request.getHeader("X-Agent-OS"));
                 }
@@ -79,7 +80,7 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    /** Id dell'endpoint autenticato dalla chiave, o null se la richiesta non viene da un agent. */
+    /** Id of the endpoint authenticated by the key, or null when the request does not come from an agent. */
     public static Long endpointId(HttpServletRequest request) {
         Object attribute = request.getAttribute(ENDPOINT_ID_ATTRIBUTE);
         return (attribute instanceof Long) ? (Long) attribute : null;

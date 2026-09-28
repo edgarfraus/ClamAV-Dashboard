@@ -29,13 +29,13 @@ public class SchemaFixup {
     }
 
     /**
-     * Allarga scan_jobs.type sui database creati prima dei tipi EXTERNAL/REALTIME/AGENT.
+     * Widens scan_jobs.type on databases created before the EXTERNAL/REALTIME/AGENT types.
      *
-     * Hibernate genera un CHECK constraint con i soli valori dell'enum noti al
-     * momento della creazione della tabella, e ddl-auto=update non lo aggiorna:
-     * su un DB vecchio inserire un job di tipo AGENT fallisce con
-     * "Value not permitted for column TYPE". Cambiare il tipo della colonna fa
-     * cadere il vincolo, stesso trucco gia' usato sopra per verdict.
+     * Hibernate generates a CHECK constraint listing only the enum values known
+     * when the table was created, and ddl-auto=update never updates it: on an
+     * old DB, inserting a job of type AGENT fails with
+     * "Value not permitted for column TYPE". Changing the column's data type
+     * drops the constraint, the same trick already used above for verdict.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void migrateJobTypeColumn() {
@@ -48,19 +48,19 @@ public class SchemaFixup {
     }
 
     /**
-     * Rende nullable clamd_endpoints.host su database creati prima degli agent.
+     * Makes clamd_endpoints.host nullable on databases created before agents existed.
      *
-     * Serve una migrazione esplicita perche' hibernate.ddl-auto=update aggiunge
-     * colonne ma non tocca i vincoli gia' esistenti: su un DB vecchio la colonna
-     * resta NOT NULL, e creare un endpoint gestito da agent (host vuoto, perche'
-     * e' la macchina a contattare la console) fallisce con
-     * "NULL not allowed for column HOST". Su un DB nuovo la colonna nasce gia'
-     * nullable e questa migrazione non ha nulla da fare.
+     * An explicit migration is needed because hibernate.ddl-auto=update adds
+     * columns but never touches existing constraints: on an old DB the column
+     * stays NOT NULL, and creating an agent-managed endpoint (empty host,
+     * because the machine is the one contacting the console) fails with
+     * "NULL not allowed for column HOST". On a new DB the column is created
+     * nullable and this migration has nothing to do.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void migrateEndpointHostNullable() {
-        // H2 e PostgreSQL usano sintassi diverse: proviamo entrambe, la prima
-        // che passa vince. Se sono gia' a posto falliscono entrambe, senza danno.
+        // H2 and PostgreSQL use different syntax: try both, the first that
+        // succeeds wins. If the column is already fine both fail, harmlessly.
         String[] statements = {
                 "ALTER TABLE clamd_endpoints ALTER COLUMN host DROP NOT NULL",  // PostgreSQL
                 "ALTER TABLE clamd_endpoints ALTER COLUMN host SET NULL"        // H2
@@ -68,12 +68,12 @@ public class SchemaFixup {
         for (String sql : statements) {
             try {
                 jdbcTemplate.execute(sql);
-                log.info("SchemaFixup: clamd_endpoints.host ora ammette NULL (endpoint gestiti da agent)");
+                log.info("SchemaFixup: clamd_endpoints.host now allows NULL (agent-managed endpoints)");
                 return;
             } catch (Exception e) {
-                log.debug("SchemaFixup: '{}' non applicabile: {}", sql, e.getMessage());
+                log.debug("SchemaFixup: '{}' not applicable: {}", sql, e.getMessage());
             }
         }
-        log.debug("SchemaFixup: clamd_endpoints.host gia' nullable o tabella non ancora creata");
+        log.debug("SchemaFixup: clamd_endpoints.host already nullable or table not created yet");
     }
 }

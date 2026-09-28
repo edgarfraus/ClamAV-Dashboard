@@ -43,6 +43,15 @@ There is also a one-liner, shown under *Alternative* in the same dialog:
 ```bash
 curl -fsSL 'https://console.example/agent/install.sh?key=KEY' | sudo bash
 ```
+```powershell
+irm 'https://console.example/agent/install.ps1?key=KEY' | iex    # PowerShell as Administrator
+```
+
+> [!WARNING]
+> The one-liner puts the key in the URL, where it stays in shell history and the reverse proxy's
+> access log. Treat it like a password: do not paste it into tickets or chats. If it leaks,
+> **Rotate** it and reinstall. A key can only poll and report for its own endpoint, but that is
+> enough to send that endpoint false results.
 
 > [!NOTE]
 > Both installers **ask what to install** — realtime, console-dispatched scans, scheduled scan —
@@ -60,6 +69,22 @@ curl -fsSL 'https://console.example/agent/install.sh?key=KEY' | sudo bash
 - `clamav-telegram-alert.sh` — a scheduled batch scan that reports its result.
 - A `freshclam` check every hour and at every boot, **regardless of which components you chose**, because every one of them
   is worthless against a frozen signature database.
+
+On **Windows** everything lives in `C:\ProgramData\ClaimAV\`, readable only by Administrators and
+SYSTEM:
+
+| File | Run by the scheduled task | When |
+|---|---|---|
+| `agent.conf.json` | — | Console URL, key, `clamscan.exe` path, default scan paths. |
+| `poll-agent.ps1` | `ClaimAV Agent Poll` | Every 5 minutes. The heartbeat, and the console-dispatched scans. |
+| `run-command.ps1` | started by the poll | One per dispatched scan, detached so the poll keeps its heartbeat. |
+| `scan-report.ps1` | `ClaimAV Agent Scan` | Nightly, at the time chosen during install. |
+| — | `ClaimAV Signature Update` | `freshclam.exe` every hour and at startup. |
+| `update-clamav.ps1` | `ClaimAV Binary Update` | Weekly, Sunday 04:30: upgrades ClamAV itself. Log: `update-clamav.log`. |
+| `quarantine\` | — | Where infected files are moved. Excluded from every scan. |
+
+The directory and task names keep the product's earlier spelling on purpose; see
+[troubleshooting](troubleshooting.md#a-windows-agent-goes-offline-right-after-installing).
 
 The installer's closing summary reports **measured** state — it reads `systemctl is-active` for
 each unit — so a service that failed to start is shown as not running rather than as a promise.

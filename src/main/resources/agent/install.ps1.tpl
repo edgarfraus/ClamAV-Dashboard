@@ -100,7 +100,7 @@ if ($All) {
     Write-Host ''
     Write-Host '  Choose what to enable on this machine:'
     Write-Host ''
-    Write-Host '  1) Scansioni centralizzate'
+    Write-Host '  1) Console-driven scans'
     Write-Host "     The console 'Scan' button starts the scan here, locally."
     $a = Read-Host '  Enable scans launched from the console? [Y/n]'
     $wantCentral = ($a -eq '' -or $a -match '^[SsYy]')
@@ -239,7 +239,7 @@ if (-not $clamScan) {
     }
     Write-Ok "ClamAV installed: $clamScan"
 } else {
-    Write-Ok "ClamAV trovato: $clamScan"
+    Write-Ok "ClamAV found: $clamScan"
 }
 
 # --- 2b) Make sure the virus database exists --------------------------------
@@ -631,7 +631,7 @@ if ($wantScheduled) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Principal $principalTask -Settings $settings | Out-Null
-    Write-Ok "Task programmato '$TaskName' registrato (ogni notte alle $($scanTimeParsed.ToString('HH:mm')))."
+    Write-Ok "Scheduled task '$TaskName' registered (every night at $($scanTimeParsed.ToString('HH:mm')))."
 }
 
 # --- 5b) Agent: runs the scans requested by the console ---------------------

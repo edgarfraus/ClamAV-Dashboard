@@ -91,9 +91,9 @@ public class ScheduledScanService {
 
     private void createJob(String path, ClamdEndpoint ep, String scheduleName) {
         try {
-            // Con un agent la scansione la fa la macchina stessa: un endpoint
-            // agent-managed non ha host da contattare via TCP, quindi il job
-            // diretto fallirebbe sempre. Stessa scelta di WebUiController.scanPath.
+            // With an agent the machine runs the scan itself: an agent-managed
+            // endpoint has no host to reach over TCP, so a direct job would
+            // always fail. Same choice as WebUiController.scanPath.
             if (ep.isAgentEnrolled()) {
                 agentCommands.enqueue(ep, path, "scheduler:" + scheduleName);
             } else {

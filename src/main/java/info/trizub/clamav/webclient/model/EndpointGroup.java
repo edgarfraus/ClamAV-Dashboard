@@ -16,11 +16,11 @@ public class EndpointGroup {
     @Column(length = 255)
     private String description;
 
-    // Modalita' realtime desiderata per gli endpoint Linux con on-access di
-    // questo gruppo: false = detection (segnala soltanto), true = prevention
-    // (blocca l'accesso al file infetto). L'agent la applica in locale al
-    // prossimo poll, non e' immediata. Esplicito columnDefinition cosi' la
-    // colonna nasce con un default anche sulle righe gia' esistenti.
+    // Desired realtime mode for this group's Linux endpoints with on-access:
+    // false = detection (report only), true = prevention (block access to the
+    // infected file). The agent applies it locally on its next poll, so it is
+    // not immediate. Explicit columnDefinition so the column gets a default
+    // on rows that already exist too.
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean onAccessPrevent = false;
 

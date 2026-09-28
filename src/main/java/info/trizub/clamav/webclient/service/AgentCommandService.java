@@ -17,20 +17,20 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Coda delle scansioni che la console chiede agli agent.
+ * Queue of the scans the console asks agents to run.
  *
- * Flusso: la console accoda un comando e crea subito il ScanJob (QUEUED) →
- * l'agent lo ritira al poll (comando DISPATCHED, job RUNNING) → l'agent invia
- * l'esito su /api/scan/report con commandId (comando DONE, job FINISHED).
+ * Flow: the console queues a command and creates the ScanJob right away (QUEUED) →
+ * the agent claims it on its poll (command DISPATCHED, job RUNNING) → the agent
+ * sends the result to /api/scan/report with commandId (command DONE, job FINISHED).
  */
 @Service
 public class AgentCommandService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentCommandService.class);
 
-    /** Oltre questo tempo senza esito, il job non resta appeso: viene chiuso in errore. */
+    /** Past this time without a result the job is not left hanging: it is closed as an error. */
     private static final Duration RESULT_TIMEOUT = Duration.ofHours(6);
-    /** Un comando mai ritirato oltre questo tempo indica un agent spento o non installato. */
+    /** A command still unclaimed after this long means an agent that is off or not installed. */
     private static final Duration PICKUP_TIMEOUT = Duration.ofHours(24);
 
     private final AgentCommandRepository repo;
@@ -41,7 +41,7 @@ public class AgentCommandService {
         this.jobs = jobs;
     }
 
-    /** Accoda una scansione per l'agent e crea il job corrispondente. */
+    /** Queues a scan for the agent and creates the matching job. */
     @Transactional
     public AgentCommand enqueue(ClamdEndpoint endpoint, String target, String username) {
         ScanJob job = jobs.createAgentJob(target, endpoint, username);
@@ -57,8 +57,8 @@ public class AgentCommandService {
     }
 
     /**
-     * Consegna all'agent i comandi in attesa e li marca come ritirati. I job
-     * passano a RUNNING: da qui in poi la scansione e' in corso sulla macchina.
+     * Hands the pending commands to the agent and marks them claimed. Their jobs
+     * move to RUNNING: from here on the scan is in progress on the machine.
      */
     @Transactional
     public List<AgentCommand> claimPending(ClamdEndpoint endpoint) {
@@ -73,7 +73,7 @@ public class AgentCommandService {
                 try {
                     jobs.markRunning(cmd.getJobId());
                 } catch (Exception e) {
-                    log.warn("Impossibile marcare RUNNING il job {}: {}", cmd.getJobId(), e.getMessage());
+                    log.warn("Could not mark job {} RUNNING: {}", cmd.getJobId(), e.getMessage());
                 }
             }
         }
@@ -81,8 +81,8 @@ public class AgentCommandService {
     }
 
     /**
-     * Comando ritirato dall'agent, cercato per id e verificato contro l'endpoint
-     * che lo sta riportando: un agent non puo' chiudere i comandi di un altro host.
+     * A command claimed by an agent, looked up by id and checked against the
+     * endpoint reporting it: an agent cannot close another host's commands.
      */
     public Optional<AgentCommand> findForEndpoint(Long commandId, ClamdEndpoint endpoint) {
         if (commandId == null || endpoint == null) return Optional.empty();
@@ -104,9 +104,9 @@ public class AgentCommandService {
     }
 
     /**
-     * Chiude i comandi rimasti senza risposta. Senza questo un agent spento
-     * lascerebbe job appesi in RUNNING per sempre — esattamente il problema che
-     * rende la lista dei job poco affidabile.
+     * Closes the commands left unanswered. Without this, an agent that is off
+     * would leave jobs hanging in RUNNING forever — exactly the problem that
+     * makes a job list untrustworthy.
      */
     @Scheduled(fixedDelay = 300000)
     @Transactional
@@ -115,15 +115,15 @@ public class AgentCommandService {
 
         for (AgentCommand cmd : repo.findByStatusAndDispatchedAtBefore(
                 AgentCommandStatus.DISPATCHED, now.minus(RESULT_TIMEOUT))) {
-            failCommand(cmd, "L'agent ha ritirato la scansione ma non ha inviato l'esito entro "
-                    + RESULT_TIMEOUT.toHours() + " ore.");
+            failCommand(cmd, "The agent claimed the scan but did not send a result within "
+                    + RESULT_TIMEOUT.toHours() + " hours.");
         }
 
         for (AgentCommand cmd : repo.findByStatusAndCreatedAtBefore(
                 AgentCommandStatus.PENDING, now.minus(PICKUP_TIMEOUT))) {
-            failCommand(cmd, "Nessun agent ha ritirato la scansione entro "
-                    + PICKUP_TIMEOUT.toHours() + " ore: agent spento o non installato su "
-                    + (cmd.getEndpoint() != null ? cmd.getEndpoint().getName() : "questo endpoint") + ".");
+            failCommand(cmd, "No agent claimed the scan within "
+                    + PICKUP_TIMEOUT.toHours() + " hours: agent off or not installed on "
+                    + (cmd.getEndpoint() != null ? cmd.getEndpoint().getName() : "this endpoint") + ".");
         }
     }
 
@@ -132,12 +132,12 @@ public class AgentCommandService {
             try {
                 jobs.finishError(cmd.getJobId(), reason);
             } catch (Exception e) {
-                log.warn("Impossibile chiudere in errore il job {}: {}", cmd.getJobId(), e.getMessage());
+                log.warn("Could not close job {} as an error: {}", cmd.getJobId(), e.getMessage());
             }
         }
         cmd.setStatus(AgentCommandStatus.DONE);
         cmd.setCompletedAt(Instant.now());
         repo.save(cmd);
-        log.info("Comando agent {} scaduto: {}", cmd.getId(), reason);
+        log.info("Agent command {} expired: {}", cmd.getId(), reason);
     }
 }

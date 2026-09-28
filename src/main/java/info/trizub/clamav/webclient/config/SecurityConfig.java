@@ -39,8 +39,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/css/**", "/js/**", "/images/**", "/icons/**", "/webfonts/**", "/flags/**").permitAll()
                 .requestMatchers("/h2/**").hasRole("ADMIN")
-                // Enrollment agent: la chiave dell'endpoint basta a scaricare il proprio
-                // installer e a inviare i report, e non da' accesso a nient'altro.
+                // Agent enrollment: the endpoint's key is enough to download its own
+                // installer and to send reports, and grants access to nothing else.
                 .requestMatchers("/agent/**").hasAnyRole("AGENT","ADMIN")
                 .requestMatchers("/api/agent/**").hasAnyRole("AGENT","ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/scan/report").hasAnyRole("AGENT","OPERATOR","ADMIN")

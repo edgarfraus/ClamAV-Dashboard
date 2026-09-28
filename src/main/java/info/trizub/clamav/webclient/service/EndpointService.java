@@ -71,12 +71,12 @@ public class EndpointService {
         return repo.findById(id).orElseThrow();
     }
 
-    /** Un endpoint e' "gestito dall'agent" quando ha una chiave: li' il verso e' invertito. */
+    /** An endpoint is "agent-managed" when it has a key: there the direction is inverted. */
     public boolean isAgentManaged(ClamdEndpoint ep) {
         return ep != null && ep.isAgentEnrolled();
     }
 
-    /** Host vuoto = endpoint gestito dall'agent: non c'e' niente da contattare. */
+    /** Empty host = agent-managed endpoint: there is nothing to contact. */
     private static String normalizeHost(String host) {
         return (host == null || host.isBlank()) ? null : host.trim();
     }
@@ -143,10 +143,10 @@ public class EndpointService {
     }
 
     /**
-     * Genera (o rigenera) la chiave di enrollment dell'agent per un endpoint.
-     * Rigenerare invalida immediatamente la chiave precedente: gli agent gia'
-     * installati con quella vecchia smettono di essere accettati finche' non
-     * vengono reinstallati con la nuova.
+     * Generates (or regenerates) an endpoint's agent enrollment key.
+     * Regenerating invalidates the previous key immediately: agents installed
+     * with the old one stop being accepted until they are reinstalled with
+     * the new one.
      */
     @Transactional
     public String generateAgentKey(Long id) {
@@ -174,10 +174,10 @@ public class EndpointService {
     }
 
     /**
-     * Aggiorna "last seen" e, se l'agent le ha inviate, la versione di clamd e
-     * la modalita' on-access che ha davvero applicato in locale (non quella
-     * richiesta dal gruppo: e' la conferma che la richiesta e' stata eseguita).
-     * Best-effort: non deve mai far fallire la richiesta dell'agent.
+     * Updates "last seen" and, when the agent sent them, the clamd version and
+     * the on-access mode it actually applied locally (not the one the group
+     * asks for: this is the confirmation that the request was carried out).
+     * Best-effort: it must never make the agent's request fail.
      */
     @Transactional
     public void touchAgentSeen(Long id, String clamdVersion, String onAccessMode, String agentOs) {

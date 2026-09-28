@@ -28,19 +28,19 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Distribuisce l'agent.
+ * Distributes the agent.
  *
- * NB: sta nel package api, non in web, di proposito. GlobalExceptionHandler e'
- * un @ControllerAdvice limitato a ...webclient.web e trasforma ogni eccezione in
- * "redirect:/dashboard": un controller di download messo li' non restituirebbe
- * mai un errore leggibile, il browser verrebbe semplicemente rimbalzato alla
- * dashboard senza scaricare nulla. Tutto sotto /agent/** e' autenticato dalla chiave
- * dell'endpoint (vedi {@link AgentAuthenticationFilter}), oppure da una sessione
- * ADMIN quando e' l'amministratore a scaricare l'installer dalla UI.
+ * NB: it lives in the api package, not in web, on purpose. GlobalExceptionHandler
+ * is a @ControllerAdvice limited to ...webclient.web that turns every exception
+ * into "redirect:/dashboard": a download controller placed there would never
+ * return a readable error, the browser would simply bounce back to the
+ * dashboard without downloading anything. Everything under /agent/** is
+ * authenticated by the endpoint's key (see {@link AgentAuthenticationFilter}),
+ * or by an ADMIN session when the administrator downloads the installer from the UI.
  *
- * Gli script di installazione sono generati a partire dai template in
- * resources/agent/, sostituendo URL della console, nome dell'endpoint e chiave:
- * la macchina che li esegue e' cosi' gia' configurata, senza passaggi manuali.
+ * The installers are generated from the templates in resources/agent/, with the
+ * console URL, the endpoint name and the key substituted in: the machine that
+ * runs them is already configured, with no manual steps.
  */
 @RestController
 @RequestMapping("/agent")
@@ -48,7 +48,7 @@ public class AgentInstallController {
 
     private static final Logger log = LoggerFactory.getLogger(AgentInstallController.class);
 
-    /** Solo questi file possono essere scaricati: niente path traversal. */
+    /** Only these files can be downloaded: no path traversal. */
     private static final Set<String> ALLOWED_FILES = Set.of(
             "install-clamd-remote.sh",
             "clamav-onacc-report.sh",
@@ -56,10 +56,10 @@ public class AgentInstallController {
             "clamav-agent-poll.sh");
 
     /**
-     * Script incorporati nell'installer per Linux/macOS: segnaposto -> file nel jar.
-     * L'installer e' cosi' autosufficiente, si scarica e si esegue. Un bootstrap
-     * che scarica altri pezzi fallisce ogni volta che la macchina non riesce a
-     * ricontattare la console a meta' installazione.
+     * Scripts embedded in the Linux/macOS installer: placeholder -> file in the jar.
+     * This makes the installer self-contained: download it, run it. A bootstrap
+     * that fetches more pieces fails whenever the machine cannot reach the
+     * console again halfway through the install.
      */
     private static final Map<String, String> SH_EMBEDS = Map.of(
             "@@EMBED_CLAMD_INSTALLER@@", "install-clamd-remote.sh",
@@ -67,7 +67,7 @@ public class AgentInstallController {
             "@@EMBED_AGENT_POLL@@",      "clamav-agent-poll.sh",
             "@@EMBED_BATCH_SCAN@@",      "clamav-telegram-alert.sh");
 
-    /** Prefisso dei delimitatori heredoc usati nel template per incorporare gli script. */
+    /** Prefix of the heredoc delimiters the template uses to embed the scripts. */
     private static final String HEREDOC_MARKER = "__CLAIMAV_EMBED_";
 
     private final EndpointService endpoints;
@@ -77,12 +77,12 @@ public class AgentInstallController {
     }
 
     /**
-     * Verifica all'avvio che tutto il necessario per generare l'installer sia
-     * davvero dentro il jar. Gli script vivono nella root del repo e ci finiscono
-     * tramite maven-resources-plugin: se non entrano nel build context (e' successo
-     * col Dockerfile, che copiava solo pom.xml e src) il build riesce lo stesso,
-     * perche' un <include> che non trova file non e' un errore. Meglio accorgersene
-     * qui, nei log all'avvio, che dal browser quando il download non parte.
+     * Checks at startup that everything needed to generate the installer really
+     * is inside the jar. The scripts live at the repo root and get there through
+     * maven-resources-plugin: if they are not in the build context (it happened
+     * with the Dockerfile, which copied only pom.xml and src) the build still
+     * succeeds, because an <include> that matches no file is not an error. Better
+     * to notice here, in the startup log, than from a browser whose download fails.
      */
     @PostConstruct
     void verifyPackagedScripts() {
@@ -94,12 +94,12 @@ public class AgentInstallController {
             if (!new ClassPathResource("agent/" + script).exists()) missing.add("agent/" + script);
         }
         if (missing.isEmpty()) {
-            log.info("Agent installer: tutte le risorse presenti nel jar.");
+            log.info("Agent installer: all resources present in the jar.");
         } else {
-            log.error("Agent installer NON funzionante: risorse mancanti nel jar: {}. "
-                    + "Gli script dell'agent stanno nella root del repo e vengono copiati da "
-                    + "maven-resources-plugin (copy-agent-scripts); controlla che il build li abbia "
-                    + "a disposizione (nel Dockerfile serve la COPY degli *.sh).", missing);
+            log.error("Agent installer BROKEN: resources missing from the jar: {}. "
+                    + "The agent scripts live at the repo root and are copied by "
+                    + "maven-resources-plugin (copy-agent-scripts); make sure the build can see them "
+                    + "(the Dockerfile needs the COPY of the *.sh files).", missing);
         }
     }
 
@@ -115,7 +115,7 @@ public class AgentInstallController {
         return renderInstaller("agent/install.ps1.tpl", "install-agent.ps1", request, key);
     }
 
-    /** Script veri e propri dell'agent, scaricati dall'installer durante l'enrollment. */
+    /** The agent scripts themselves, one at a time. */
     @GetMapping(value = "/files/{name}", produces = "text/x-shellscript; charset=utf-8")
     public ResponseEntity<String> file(@PathVariable String name) {
         if (!ALLOWED_FILES.contains(name)) {
@@ -125,7 +125,7 @@ public class AgentInstallController {
             return ResponseEntity.ok(readClasspath("agent/" + name));
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Script non disponibile nel jar: " + name + "\n");
+                    .body("Script not available in the jar: " + name + "\n");
         }
     }
 
@@ -134,8 +134,8 @@ public class AgentInstallController {
         Optional<ClamdEndpoint> endpoint = resolveEndpoint(request, key);
         if (endpoint.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-                    "Endpoint non identificato. Scarica l'installer dalla console\n"
-                  + "(Admin > Endpoints), oppure aggiungi ?key=<chiave dell'endpoint>.\n");
+                    "Endpoint not identified. Download the installer from the console\n"
+                  + "(Admin > Endpoints), or add ?key=<the endpoint's agent key>.\n");
         }
         ClamdEndpoint ep = endpoint.get();
 
@@ -144,15 +144,15 @@ public class AgentInstallController {
             body = readClasspath(template);
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Template dell'installer non disponibile: " + template + "\n");
+                    .body("Installer template not available: " + template + "\n");
         }
 
-        // URL con cui la macchina raggiungera' la console. Dietro reverse proxy
-        // vale l'host pubblico solo se il proxy manda gli header X-Forwarded-*
-        // e l'app ha server.forward-headers-strategy=framework.
+        // The URL the machine will use to reach the console. Behind a reverse
+        // proxy it is the public host only if the proxy sends the X-Forwarded-*
+        // headers and the app has server.forward-headers-strategy=framework.
         String consoleUrl = ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
 
-        // Gli script veri e propri finiscono dentro l'installer, dentro heredoc.
+        // The agent scripts themselves go inside the installer, in heredocs.
         if (body.contains("@@EMBED_")) {
             for (Map.Entry<String, String> embed : SH_EMBEDS.entrySet()) {
                 if (!body.contains(embed.getKey())) continue;
@@ -161,16 +161,16 @@ public class AgentInstallController {
                     script = readClasspath("agent/" + embed.getValue());
                 } catch (IOException e) {
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                            "Script dell'agent mancante nel jar: " + embed.getValue() + "\n"
-                          + "Viene copiato da maven-resources-plugin (esecuzione copy-agent-scripts):\n"
-                          + "ricompila con 'mvn clean package'.\n");
+                            "Agent script missing from the jar: " + embed.getValue() + "\n"
+                          + "It is copied by maven-resources-plugin (execution copy-agent-scripts):\n"
+                          + "rebuild with 'mvn clean package'.\n");
                 }
                 if (script.contains(HEREDOC_MARKER)) {
-                    // Se il delimitatore comparisse nello script, l'heredoc si
-                    // chiuderebbe a meta' e l'installer sarebbe silenziosamente rotto.
+                    // If the delimiter appeared in the script, the heredoc would
+                    // close halfway and the installer would be silently broken.
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                            "Lo script " + embed.getValue() + " contiene il delimitatore "
-                          + HEREDOC_MARKER + ": non posso incorporarlo senza corromperlo.\n");
+                            "Script " + embed.getValue() + " contains the delimiter "
+                          + HEREDOC_MARKER + ": it cannot be embedded without corrupting it.\n");
                 }
                 body = body.replace(embed.getKey(), script);
             }
@@ -186,9 +186,9 @@ public class AgentInstallController {
     }
 
     /**
-     * L'endpoint arriva dal filtro quando la richiesta e' autenticata con la chiave;
-     * quando invece a scaricare e' un ADMIN gia' loggato il filtro non interviene,
-     * quindi ricaviamo l'endpoint dalla chiave passata come parametro.
+     * The endpoint comes from the filter when the request is authenticated with
+     * the key; when a logged-in ADMIN downloads instead, the filter does not step
+     * in, so the endpoint is looked up from the key passed as a parameter.
      */
     private Optional<ClamdEndpoint> resolveEndpoint(HttpServletRequest request, String key) {
         Object attribute = request.getAttribute(AgentAuthenticationFilter.ENDPOINT_ID_ATTRIBUTE);
@@ -196,7 +196,7 @@ public class AgentInstallController {
             try {
                 return Optional.of(endpoints.get((Long) attribute));
             } catch (Exception ignored) {
-                // endpoint sparito nel frattempo: ripiego sulla chiave
+                // endpoint deleted in the meantime: fall back to the key
             }
         }
         return endpoints.findByAgentKey(key);

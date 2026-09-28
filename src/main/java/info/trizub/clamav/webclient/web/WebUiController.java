@@ -272,9 +272,9 @@ public class WebUiController {
                         "(configured targets resolved to none after excluding critical paths). " +
                         "Check Full disk targets in Admin > Endpoints.");
             }
-            // Con l'agent basta un comando solo: clamdscan accetta piu' path in
-            // una volta e li scansiona in un unico passaggio, invece di aprire un
-            // job per directory come serve fare via TCP.
+            // With an agent a single command is enough: clamdscan accepts several
+            // paths at once and scans them in one pass, instead of one job per
+            // directory as the TCP path needs.
             if (ep.isAgentEnrolled()) {
                 var cmd = agentCommands.enqueue(ep, String.join("\n", targets), auth.getName());
                 audit.record(auth, req, "SCAN_FULLDISK_AGENT",
@@ -389,9 +389,9 @@ public class WebUiController {
                            Authentication auth, HttpServletRequest req, Model model) {
         try {
             ClamdEndpoint ep = endpoints.get(endpointId);
-            // Con un agent installato la scansione la fa la macchina stessa, in
-            // locale: niente TCP, quindi niente errori di permessi o di path che
-            // esiste qui ma non su clamd. Senza agent si usa la via diretta.
+            // With an agent installed the machine runs the scan itself, locally:
+            // no TCP, so no permission errors and no path that exists here but not
+            // on clamd. Without an agent the direct route is used.
             if (ep.isAgentEnrolled()) {
                 var cmd = agentCommands.enqueue(ep, path, auth.getName());
                 audit.record(auth, req, "SCAN_PATH_AGENT", "path=" + path + " endpoint=" + ep.getName(),
@@ -682,12 +682,12 @@ public class WebUiController {
             endpoints.revokeAgentKey(id);
             audit.record(auth, req, "ENDPOINT_AGENT_KEY_REVOKE", "id=" + id, "SUCCESS", null);
             redirect.addFlashAttribute("agentKeyMessage",
-                    "Chiave revocata: l'agent installato su quella macchina non e' piu' accettato.");
+                    "Key revoked: the agent installed on that machine is no longer accepted.");
         } else {
             endpoints.generateAgentKey(id);
             audit.record(auth, req, "ENDPOINT_AGENT_KEY_GENERATE", "id=" + id, "SUCCESS", null);
             redirect.addFlashAttribute("agentKeyMessage",
-                    "Nuova chiave generata. Gli agent installati con la chiave precedente vanno reinstallati.");
+                    "New key generated. Agents installed with the previous key must be reinstalled.");
         }
         return "redirect:/admin/endpoints";
     }
@@ -736,8 +736,8 @@ public class WebUiController {
         return "redirect:/admin/groups";
     }
 
-    // Applicata dall'agent al prossimo poll (GET /api/agent/commands), non subito:
-    // vedi EndpointGroupService.setOnAccessPrevent.
+    // Applied by the agent on its next poll (GET /api/agent/commands), not at once:
+    // see EndpointGroupService.setOnAccessPrevent.
     @PostMapping("/admin/groups/{id}/onaccess-mode")
     public String adminGroupsOnAccessMode(@PathVariable Long id, @RequestParam boolean prevent,
                                           Authentication auth, HttpServletRequest req) {

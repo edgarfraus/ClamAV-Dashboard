@@ -60,21 +60,21 @@ public class ApiController {
         );
     }
 
-    /** Un agent visto entro questa finestra e' considerato vivo (il poll Windows e' ogni 5 min). */
+    /** An agent seen within this window counts as alive (the Windows poll runs every 5 min). */
     private static final Duration AGENT_ALIVE_WINDOW = Duration.ofMinutes(15);
 
     @GetMapping("/endpoints/{id}/status")
     public Map<String, Object> endpointStatus(@PathVariable Long id) {
         ClamdEndpoint ep = endpoints.get(id);
 
-        // Endpoint con agent: la console non lo contatta piu'. Lo stato lo
-        // deduciamo da quando l'agent si e' fatto vivo l'ultima volta, e la
-        // versione delle firme da quella che ci ha riportato.
+        // Agent-managed endpoint: the console no longer contacts it. Its state
+        // comes from when the agent last checked in, and the signature version
+        // from the one the agent reported.
         if (ep.isAgentEnrolled()) {
             return agentStatus(ep);
         }
 
-        // Senza agent e senza host non c'e' proprio niente da contattare.
+        // No agent and no host: there is nothing at all to contact.
         if (ep.getHost() == null || ep.getHost().isBlank()) {
             return Map.of("online", false,
                     "error", "No host configured and no agent installed on this endpoint");
@@ -193,8 +193,8 @@ public class ApiController {
         out.put("lastSeen", seen != null ? seen.toString() : "");
         if (!alive) {
             out.put("error", seen == null
-                    ? "Agent mai visto: installa l'agent su questa macchina"
-                    : "Agent non risponde da " + seen);
+                    ? "Agent never seen: install the agent on this machine"
+                    : "Agent silent since " + seen);
         }
 
         ClamVersionInfo info = ClamVersionInfo.parse(ep.getAgentClamdVersion());
@@ -226,8 +226,8 @@ public class ApiController {
     @PostMapping(value = "/scan/path", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Map<String,Object> scanPath(@RequestBody PathScanRequest req, Authentication auth) {
         var ep = req.endpointId != null ? endpoints.get(req.endpointId) : endpoints.defaultEndpoint();
-        // Stessa scelta di WebUiController.scanPath: un endpoint con agent non ha
-        // host da contattare via TCP, la scansione la deve fare l'agent.
+        // Same choice as WebUiController.scanPath: an agent-managed endpoint has
+        // no host to reach over TCP, so the agent has to run the scan.
         if (ep.isAgentEnrolled()) {
             var cmd = agentCommands.enqueue(ep, req.path, auth.getName());
             return Map.of("jobId", cmd.getJobId());
@@ -280,10 +280,10 @@ public class ApiController {
         } catch (Exception e) {
             return badRequest("verdict must be OK, VIRUS_FOUND or ERROR");
         }
-        // OK e' accettato solo per una scansione che la console ha chiesto: li'
-        // "nessun virus" e' l'esito che l'utente sta aspettando. Per i report
-        // spontanei (cron, on-access) resta escluso, altrimenti ogni run pulito
-        // riempirebbe la lista dei job.
+        // OK is accepted only for a scan the console asked for: there, "no virus"
+        // is the answer the user is waiting for. Spontaneous reports (cron,
+        // on-access) still cannot send it, or every clean run would fill the
+        // job list.
         boolean commandResult = req.commandId != null;
         if (verdict != ScanVerdict.VIRUS_FOUND && verdict != ScanVerdict.ERROR
                 && !(commandResult && verdict == ScanVerdict.OK)) {
@@ -306,8 +306,8 @@ public class ApiController {
         ScanJobType type = req.source != null && "realtime".equalsIgnoreCase(req.source.trim())
                 ? ScanJobType.REALTIME : ScanJobType.EXTERNAL;
 
-        // Report inviato da un agent: lo leghiamo all'endpoint della sua chiave.
-        // Con l'autenticazione OPERATOR classica l'attributo non c'e' e resta null.
+        // Report sent by an agent: bind it to the endpoint its key belongs to.
+        // With plain OPERATOR authentication the attribute is absent and this stays null.
         ClamdEndpoint reportingEndpoint = null;
         Object endpointId = httpRequest.getAttribute(AgentAuthenticationFilter.ENDPOINT_ID_ATTRIBUTE);
         if (endpointId instanceof Long) {
@@ -317,12 +317,12 @@ public class ApiController {
             }
         }
 
-        // Esito di una scansione chiesta dalla console: il job esiste gia' (creato
-        // QUEUED quando l'hai lanciata), quindi lo chiudiamo invece di crearne uno nuovo.
+        // Result of a scan the console asked for: the job already exists (created
+        // QUEUED when it was launched), so it is finished instead of a new one created.
         if (commandResult) {
             AgentCommand cmd = agentCommands.findForEndpoint(req.commandId, reportingEndpoint).orElse(null);
             if (cmd == null) {
-                return badRequest("commandId sconosciuto per questo agent: " + req.commandId);
+                return badRequest("unknown commandId for this agent: " + req.commandId);
             }
             String jobId = cmd.getJobId();
             if (jobId != null) {
@@ -345,9 +345,9 @@ public class ApiController {
     }
 
     /**
-     * Errore di validazione con un messaggio leggibile. Senza questo l'eccezione
-     * risalirebbe non gestita (GlobalExceptionHandler copre solo il package web)
-     * e l'agent riceverebbe un 500 opaco al posto del motivo del rifiuto.
+     * Validation error with a readable message. Without it the exception would
+     * propagate unhandled (GlobalExceptionHandler only covers the web package)
+     * and the agent would get an opaque 500 instead of the reason for the refusal.
      */
     private ResponseEntity<Map<String,Object>> badRequest(String message) {
         return ResponseEntity.badRequest().body(Map.of("error", message));
