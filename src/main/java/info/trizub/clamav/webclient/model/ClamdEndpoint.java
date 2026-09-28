@@ -16,8 +16,8 @@ public class ClamdEndpoint {
     @Column(nullable = false, unique = true, length = 64)
     private String name;
 
-    // Host/porta servono solo quando e' la console a contattare clamd. Su un
-    // endpoint con agent e' l'agent a contattare la console, quindi restano vuoti.
+    // Host/port matter only when the console is the one contacting clamd. On an
+    // agent-managed endpoint the agent contacts the console, so they stay empty.
     @Column(length = 255)
     private String host;
 
@@ -38,43 +38,47 @@ public class ClamdEndpoint {
     @JoinColumn(name = "group_id")
     private EndpointGroup group;
 
-    // Chiave di enrollment dell'agent installato su questa macchina. Sostituisce
-    // l'utente OPERATOR per-macchina: vale solo per questo endpoint e puo' fare
-    // solo /agent/** e POST /api/scan/report, non tutta la /api.
-    // E' salvata in chiaro di proposito: la console deve poter rigenerare lo
-    // script di installazione per un endpoint gia' creato. Visibile solo ad ADMIN
-    // (sta sotto /admin/**); se trapela, usa "Rotate" per invalidarla.
+    // Enrollment key of the agent installed on this machine. It replaces the
+    // per-machine OPERATOR user: it is valid only for this endpoint and can only
+    // reach /agent/** and POST /api/scan/report, not the whole of /api.
+    // Stored in plaintext on purpose: the console must be able to regenerate the
+    // installer for an existing endpoint. Visible to ADMIN only (it lives under
+    // /admin/**); if it leaks, use "Rotate" to invalidate it.
+    // JsonIgnore keeps it that way: every ScanJob embeds its endpoint, so without
+    // it GET /api/jobs handed every agent key in the fleet to any OPERATOR. The
+    // Endpoints page reads it through the getter, which Jackson does not affect.
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(length = 100, unique = true)
     private String agentKey;
 
-    // Ultima volta che l'agent si e' fatto vivo (poll dei comandi o report).
+    // Last time the agent checked in (command poll or report).
     private Instant agentLastSeenAt;
 
-    // Stringa VERSION di clamd riportata dall'agent (stesso formato del comando
-    // VERSION su socket), cosi' la pagina Endpoints mostra versione ed eta' del
-    // database anche senza potersi collegare alla macchina.
+    // clamd VERSION string reported by the agent (same format as the VERSION
+    // command on the socket), so the Endpoints page shows the version and the
+    // database age without being able to connect to the machine.
     @Column(length = 255)
     private String agentClamdVersion;
 
-    // Modalita' on-access ("prevent"/"detect") che l'agent ha riportato di avere
-    // REALMENTE applicata sul disco, letta dal suo clamd.conf a ogni poll - non
-    // e' quella richiesta dal gruppo, e' la conferma che la richiesta e' stata
-    // eseguita (o null se l'agent non gestisce ancora questa impostazione: nessun
-    // realtime installato, oppure versione dell'agent precedente a questa funzione).
+    // On-access mode ("prevent"/"detect") the agent reports as ACTUALLY applied
+    // on disk, read from its clamd.conf at every poll - not the one the group
+    // asks for, but the confirmation that the request was carried out (or null
+    // when the agent does not handle this setting yet: no realtime installed,
+    // or an agent older than this feature).
     @Column(length = 16)
     private String agentOnAccessMode;
 
     private Instant agentOnAccessAppliedAt;
 
-    // Sistema operativo riportato dall'agent stesso ("linux"/"macos"/"windows"),
-    // via X-Agent-OS a ogni richiesta - non e' il campo "platform" qui sotto,
-    // che viene da xyz.capybara:clamav-client e serve solo al protocollo verso
-    // clamd (quell'enum non ha un valore macOS: UNIX/WINDOWS/JVM_PLATFORM).
-    // Un mac riportato lì come "JVM" per mancanza di alternative nel menu a
-    // tendina e' un'etichetta scelta a mano, non un fatto verificato; questo
-    // campo invece arriva dalla macchina stessa e serve a scegliere le
-    // directory di default corrette per una scansione completa (es. /Users
-    // su macOS, dove /home e' solo uno stub dell'automounter).
+    // Operating system reported by the agent itself ("linux"/"macos"/"windows"),
+    // via X-Agent-OS on every request - not the "platform" field above, which
+    // comes from xyz.capybara:clamav-client and only matters for the protocol
+    // to clamd (that enum has no macOS value: UNIX/WINDOWS/JVM_PLATFORM).
+    // A Mac shown there as "JVM" for lack of a better choice in the dropdown
+    // is a label picked by hand, not a verified fact; this field comes from
+    // the machine itself and is used to pick the right default directories
+    // for a full scan (e.g. /Users on macOS, where /home is only an
+    // automounter stub).
     @Column(length = 16)
     private String agentOs;
 

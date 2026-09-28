@@ -61,6 +61,12 @@ which is what you would otherwise put on every machine — could do all three.
 at any time, which means it must be able to show you the key again. The trade-off is deliberate;
 it is reachable only under `/admin/**`, and **Rotate** invalidates the old one immediately.
 
+> [!WARNING]
+> Before 28 September 2026 that was not true: every job returned by `GET /api/jobs` embedded its
+> endpoint **with its agent key**, so any `OPERATOR` could read the key of every agent in the
+> fleet. The key is now excluded from all JSON output. If you gave `OPERATOR` accounts to anyone
+> you would not show those keys to, **rotate the keys** after upgrading and reinstall the agents.
+
 > [!NOTE]
 > The `?key=` form exists so that `curl … | sudo bash` works for the installer download. Query
 > strings land in proxy and browser logs. It is fine for fetching an installer over a network you
