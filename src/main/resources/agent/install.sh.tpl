@@ -446,16 +446,24 @@ db_present_macos() {
 # It prints "Known viruses: 0", exits 2, and its summary still says "Infected
 # files: 0", which reads as a clean scan. The agents now treat that as an error.
 #
-# Every 2 hours rather than once a night: StartInterval fires on wake after a
-# sleep, but a calendar slot that falls while the Mac is switched OFF is simply
-# skipped, and a machine that is off every night never updated at all. When the
-# database is current freshclam only asks DNS and downloads nothing, and it
-# honours ClamAV's own back-off after a 429 (freshclam.dat), so 12 checks a day
-# is freshclam's own default rate, not extra load on the mirrors.
+# Every 2 hours (12 calendar slots) rather than once a night: a single 03:15 slot
+# on a Mac that is switched off at night never fires at all. Calendar slots, NOT
+# StartInterval: StartInterval counts only time the machine is AWAKE, so on a
+# laptop that sleeps between uses "every 2 hours" became "every couple of days"
+# (measured: 2h17m after loading, 58 minutes awake, zero runs). A calendar slot
+# missed during sleep fires on wake, and one missed while powered off is at most
+# 2 hours of wall-clock time away after boot. When the database is current
+# freshclam only asks DNS and downloads nothing, and it honours ClamAV's own
+# back-off after a 429 (freshclam.dat), so 12 checks a day is freshclam's own
+# default rate, not extra load on the mirrors.
 FRESHCLAM_UPDATER_STATE="not installed"
 install_freshclam_daemon_macos() {
   local conf="$1" fc plist="/Library/LaunchDaemons/com.claimav.freshclam.plist"
+  local slots="" h
   fc="$(command -v freshclam)"
+  for h in 0 2 4 6 8 10 12 14 16 18 20 22; do
+    slots+="        <dict><key>Hour</key><integer>$h</integer><key>Minute</key><integer>15</integer></dict>"$'\n'
+  done
   cat > "$plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -468,8 +476,9 @@ install_freshclam_daemon_macos() {
         <string>$fc</string>
         <string>--config-file=$conf</string>
     </array>
-    <key>StartInterval</key>
-    <integer>7200</integer>
+    <key>StartCalendarInterval</key>
+    <array>
+${slots}    </array>
     <key>StandardErrorPath</key><string>/var/log/clamav-freshclam.log</string>
     <key>StandardOutPath</key><string>/var/log/clamav-freshclam.log</string>
 </dict>
@@ -482,8 +491,8 @@ PLIST
   # refreshing a working one is the one thing freshclam must not be told to do
   # here (it deletes the old files before fetching the new ones).
   if launchd_loaded com.claimav.freshclam; then
-    ok "Signature updates scheduled (freshclam, every 2 hours)."
-    FRESHCLAM_UPDATER_STATE="every 2 hours (com.claimav.freshclam)"
+    ok "Signature updates scheduled (freshclam, every 2 hours at :15)."
+    FRESHCLAM_UPDATER_STATE="every 2 hours at :15 (com.claimav.freshclam)"
   else
     err "com.claimav.freshclam could not be loaded: signatures will NOT update."
     FRESHCLAM_UPDATER_STATE="NOT loaded - signatures will not update"
