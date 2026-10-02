@@ -288,6 +288,61 @@ agent_os() {
   esac
 }
 
+# Detection or Prevention, as set for this machine's group in the console
+# (Admin > Groups). Asked fresh on every run, read-only (GET /api/agent/mode
+# claims no commands). If the console cannot be reached, fall back to the mode
+# last applied on this machine by the realtime agent (OnAccessPrevention in
+# clamd.conf); with neither, "detect": moving files is not something to do on
+# a guess. Only an agent key can ask - a legacy user/password install reports only.
+desired_mode() {
+  local answer="" conf v
+  if [[ -n "$DASHBOARD_AGENT_KEY" ]]; then
+    answer="$(curl -s --max-time 15 -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
+      "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" "${DASHBOARD_URL%/}/api/agent/mode" 2>/dev/null || true)"
+    case "$answer" in
+      *'"onAccessMode":"prevent"'*) printf 'prevent'; return ;;
+      *'"onAccessMode":"detect"'*)  printf 'detect';  return ;;
+      '{}')                         printf 'detect';  return ;;  # endpoint in no group
+    esac
+  fi
+  for conf in "${CLAMD_CONF_PATH:-}" /etc/clamav/clamd.conf /etc/clamd.d/scan.conf; do
+    [[ -n "$conf" && -r "$conf" ]] || continue
+    v="$(grep -E '^[[:space:]]*OnAccessPrevention[[:space:]]+' "$conf" | awk '{print $2}' | tail -1 || true)"
+    [[ "$v" == "yes" ]] && { printf 'prevent'; return; }
+    [[ -n "$v" ]] && { printf 'detect'; return; }
+  done
+  printf 'detect'
+}
+
+# Moves an infected file into a quarantine directory on the SAME filesystem,
+# so the move is a pure rename: nothing is copied, and on-access prevention
+# never sees the file opened. Falls back to deleting it when it cannot be
+# moved. Prints "quarantined<TAB><new path>" or "removed<TAB>".
+#
+# Same logic as quarantine_file() in clamav-agent-poll.sh, with one fix: the
+# mount point comes from POSIX "df -P", not GNU "df --output=target", which
+# macOS's df does not have - there the lookup came back empty and every
+# "quarantine" silently became a deletion.
+quarantine_file() {
+  local path="$1" mnt="" qdir dest
+  [[ -f "$path" ]] || return 1
+  mnt="$(df -P -- "$path" 2>/dev/null | awk 'NR==2 { for (i = 1; i <= 5; i++) $i = ""; sub(/^ +/, ""); print }')"
+  if [[ -n "$mnt" ]]; then
+    qdir="${mnt%/}/.claimav-quarantine"
+    mkdir -p "$qdir" 2>/dev/null && chmod 700 "$qdir" 2>/dev/null
+    dest="${qdir}/$(date +%s)-$$-$RANDOM-$(basename -- "$path")"
+    if mv -f -- "$path" "$dest" 2>/dev/null; then
+      printf 'quarantined\t%s' "$dest"
+      return 0
+    fi
+  fi
+  if rm -f -- "$path" 2>/dev/null; then
+    printf 'removed\t'
+    return 0
+  fi
+  return 1
+}
+
 # Build the JSON array of infected lines (one raw string per line; parsing
 # "path: SIGNATURE FOUND" is done server-side by the dashboard).
 FINDINGS_JSON="[]"
@@ -313,8 +368,9 @@ scan_error_detail() {
 send_report() {
   local verdict="$1"
   local error_message="$2"
+  local remediation="${3:-}" remediation_path="${4:-}"
   local payload
-  payload="{\"hostname\":\"$(json_escape "$HOSTNAME")\",\"path\":\"$(json_escape "${SCAN_PATHS[*]}")\",\"verdict\":\"${verdict}\",\"findings\":${FINDINGS_JSON},\"errorMessage\":\"$(json_escape "$error_message")\"}"
+  payload="{\"hostname\":\"$(json_escape "$HOSTNAME")\",\"path\":\"$(json_escape "${SCAN_PATHS[*]}")\",\"verdict\":\"${verdict}\",\"findings\":${FINDINGS_JSON},\"errorMessage\":\"$(json_escape "$error_message")\",\"remediation\":\"$(json_escape "$remediation")\",\"remediationPath\":\"$(json_escape "$remediation_path")\"}"
 
   curl -s "${AUTH_ARGS[@]}" "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
     -H "X-Agent-Clamav: $(clamav_version)" \
@@ -334,8 +390,38 @@ if printf '%s\n' "$SCAN_OUTPUT" | grep -qE '^Known viruses: 0$'; then
 
 elif [ -n "$INFECTED_LINES" ]; then
   COUNT="$(echo "$INFECTED_LINES" | wc -l)"
-  send_report "VIRUS_FOUND" ""
-  echo "[$TIMESTAMP] report sent to the dashboard (${COUNT} infected files)" >> "$LOG_FILE"
+  # Prevention: quarantine what this scan found, exactly as a scan launched
+  # from the console does. Detection: report only, touch nothing.
+  MODE="$(desired_mode)"
+  REMEDIATION="not_attempted"
+  REMEDIATION_PATHS=""
+  if [ "$MODE" = "prevent" ]; then
+    ANY_FAILED=false; ANY_QUARANTINED=false; ANY_REMOVED=false
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      infected_path="${line%%: *}"
+      if outcome="$(quarantine_file "$infected_path")"; then
+        if [ "${outcome%%$'\t'*}" = "quarantined" ]; then
+          ANY_QUARANTINED=true
+          [ -n "$REMEDIATION_PATHS" ] && REMEDIATION_PATHS+="; "
+          REMEDIATION_PATHS+="${outcome#*$'\t'}"
+          echo "[$TIMESTAMP] quarantined ${infected_path} -> ${outcome#*$'\t'}" >> "$LOG_FILE"
+        else
+          ANY_REMOVED=true
+          echo "[$TIMESTAMP] could not move ${infected_path} to quarantine: deleted it" >> "$LOG_FILE"
+        fi
+      else
+        ANY_FAILED=true
+        echo "[$TIMESTAMP] could NOT quarantine or delete ${infected_path}" >> "$LOG_FILE"
+      fi
+    done <<< "$INFECTED_LINES"
+    if [ "$ANY_FAILED" = true ]; then REMEDIATION="failed"
+    elif [ "$ANY_QUARANTINED" = true ]; then REMEDIATION="quarantined"
+    elif [ "$ANY_REMOVED" = true ]; then REMEDIATION="removed"
+    fi
+  fi
+  send_report "VIRUS_FOUND" "" "$REMEDIATION" "$REMEDIATION_PATHS"
+  echo "[$TIMESTAMP] report sent to the dashboard (${COUNT} infected files, mode ${MODE}, remediation ${REMEDIATION})" >> "$LOG_FILE"
 
 elif [ "$EXIT_CODE" -eq 2 ] && ! printf '%s\n' "$SCAN_OUTPUT" | grep -qE '^Infected files: 0$'; then
   # clamdscan/clamscan exit 2 for two very different situations it cannot

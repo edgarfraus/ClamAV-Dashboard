@@ -248,10 +248,14 @@ in_quarantine() {
 }
 
 quarantine_file() {
-  local path="$1" mnt qdir dest
+  local path="$1" mnt="" qdir dest
   [[ -e "$path" ]] || return 1
+  # POSIX "df -P", not GNU "df --output=target": macOS's df has no --output,
+  # so the mount point came back empty there and every quarantine on a Mac
+  # silently fell through to the rm below. Fields 6+ are the mount point,
+  # which may contain spaces.
   if command -v df >/dev/null 2>&1; then
-    mnt="$(df --output=target "$path" 2>/dev/null | tail -1)"
+    mnt="$(df -P -- "$path" 2>/dev/null | awk 'NR==2 { for (i = 1; i <= 5; i++) $i = ""; sub(/^ +/, ""); print }')"
   fi
   if [[ -n "${mnt:-}" ]]; then
     qdir="${mnt%/}/.claimav-quarantine"
