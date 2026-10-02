@@ -10,24 +10,27 @@ Out of the box, and on purpose, this is a *development* configuration:
 | | State on a fresh install | What to do |
 |---|---|---|
 | Admin account | **`admin` / `admin`**, created automatically | Nothing: the first sign-in **forces a new password**, and until then the API refuses that account. |
-| H2 database console | **Enabled** at `/h2`, admin-only | Disable it for anything production-like (see below). |
+| H2 database console | **Off.** `/h2` exists only when `H2_CONSOLE_ENABLED=true` | Leave it off; switch it on only for maintenance (see below). |
 | Transport | Plain **HTTP** | Terminate TLS at a reverse proxy — see [installation.md](installation.md). |
 | CSRF on `/api/**` | **Disabled**, so scripts and agents can post | Leave it; it is why `/api` is HTTP Basic and the browser forms are not. |
 | Agent keys | Stored **in plaintext** in the database | Understand why, below. Protect `./data`. |
 | Telegram bot token | Stored **in plaintext** in `conf/` | `chmod 600 conf/` and keep it out of shared backups. |
 
-### Turning off the H2 console
+### The H2 console
 
-It is a full SQL console over your application database. Remove or comment these lines in
-`src/main/resources/application.properties` and rebuild:
+A full SQL prompt on the application database — users, password hashes, agent keys, every job —
+served by H2 itself at `/h2`. Nothing in the console needs it; it is there for the occasional
+manual repair. It is **off by default**. To switch it on for a maintenance session, set the
+variable in `docker-compose.yml` (the line is there, commented out) and restart:
 
-```properties
-spring.h2.console.enabled=true
-spring.h2.console.path=/h2
+```yaml
+    environment:
+      - H2_CONSOLE_ENABLED=true
 ```
 
-It is already restricted to the admin role, so this is defence in depth rather than an open door
-— but an admin session hijacked on a page that also offers arbitrary SQL is a much worse day.
+Even when on it is restricted to the admin role, and an account still on its initial password
+cannot reach it. Switch it off again afterwards: an admin session hijacked on a page that also
+offers arbitrary SQL is a much worse day. It does not exist at all on PostgreSQL.
 
 ## Roles
 
@@ -38,7 +41,7 @@ is also an operator and a viewer.
 |---|---|
 | `VIEWER` | Dashboard, server status, alerts (read), `/api/health`, `/api/stats/**` |
 | `OPERATOR` | Everything above, plus launching scans, jobs, acknowledging alerts, all of `/api/**` |
-| `ADMIN` | Everything above, plus `/admin/**` — endpoints, users, settings, groups, schedules, exclusions, audit — and the H2 console |
+| `ADMIN` | Everything above, plus `/admin/**` — endpoints, users, settings, groups, schedules, exclusions, audit — and the H2 console when it is switched on |
 
 There is a fourth, `AGENT`, which no human ever holds. It comes from an enrollment key rather than
 a password and is allowed **only** on `/agent/**` and `POST /api/scan/report`.

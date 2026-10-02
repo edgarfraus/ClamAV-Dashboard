@@ -71,9 +71,8 @@ the console on port 8080. Open **http://localhost:8080** and sign in with **`adm
 the console asks for a new password straight away, and refuses API calls with the default one.
 
 > [!WARNING]
-> The console also enables an H2
-> database console at `/h2` and serves plain HTTP. Read [docs/security.md](docs/security.md)
-> **before** putting this anywhere other people can reach.
+> The console serves plain HTTP. Read [docs/security.md](docs/security.md) **before** putting
+> this anywhere other people can reach.
 
 The first build compiles the application with Maven inside the container, so it takes a few
 minutes and needs no JDK on the host.

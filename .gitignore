@@ -14,3 +14,6 @@ target/
 # Keeping them here instead of edited into a tracked file is what stops a
 # local customisation from colliding with every git pull.
 .env
+
+# macOS Finder metadata
+.DS_Store

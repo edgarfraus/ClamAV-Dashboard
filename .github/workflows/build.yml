@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  console:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build and test
+        run: mvn -B package
+      - name: The agent scripts made it into the jar
+        # The jar builds fine without them (an <include> that matches nothing is
+        # not an error), and then the console cannot generate an installer.
+        run: |
+          for f in clamav-agent-poll.sh clamav-onacc-report.sh clamav-telegram-alert.sh install-clamd-remote.sh install.sh.tpl install.ps1.tpl; do
+            unzip -l target/clamav-web-client-*.jar | grep -q "agent/$f" || { echo "missing from jar: $f"; exit 1; }
+          done
+
+  agent-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: |
+          for f in *.sh src/main/resources/agent/install.sh.tpl; do bash -n "$f" && echo "ok: $f"; done
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+              "$PWD/src/main/resources/agent/install.ps1.tpl", [ref]$null, [ref]$errors)
+          $errors | ForEach-Object { Write-Output "$($_.Extent.StartLineNumber): $($_.Message)" }
+          if ($errors.Count) { exit 1 }
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image builds from a clean checkout
+        run: docker build -t clamav-dashboard:ci .

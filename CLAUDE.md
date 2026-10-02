@@ -17,7 +17,7 @@ mvn test                       # run all tests
 mvn -Dtest=SomeClassName test  # run a single test class
 mvn -DskipTests package        # build without tests
 
-./build_docker.sh              # mvn package + docker build (tags rguziy/clamav-web-client:latest)
+./build_docker.sh              # docker build (tag clamav-dashboard:latest, override with IMAGE=...)
 docker compose up --build      # bring up clamav-server + clamav-web-client together
 ```
 
@@ -115,9 +115,9 @@ light theme — `btn-outline-secondary` is the neutral button in both themes.
 BCrypt, DB-backed auth (`DbUserDetailsService`), form login + HTTP Basic (Basic is what `/api/**` uses). Three cumulative roles — a user is granted all roles up to their level (see `WebUiController.adminUsersCreate`):
 - `VIEWER` — dashboard/settings/main read-only + `/api/health`
 - `OPERATOR` — scan + jobs + `/api/**`
-- `ADMIN` — `/admin/**` and the H2 console at `/h2`
+- `ADMIN` — `/admin/**` and the H2 console at `/h2` (when switched on)
 
-CSRF is disabled for `/api/**` and `/h2/**`. The **H2 console is enabled** (`/h2`) — note this if hardening for production.
+CSRF is disabled for `/api/**` and `/h2/**`. The **H2 console is off by default**: `spring.h2.console.enabled=${H2_CONSOLE_ENABLED:false}`, switched on per deployment for maintenance only.
 
 ## Postgres LOB migration
 
