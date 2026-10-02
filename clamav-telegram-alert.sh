@@ -70,6 +70,34 @@ TLS_ARGS=()
 [[ -n "$DASHBOARD_CA_BUNDLE" ]] && TLS_ARGS+=(--cacert "$DASHBOARD_CA_BUNDLE")
 [[ "$DASHBOARD_INSECURE" == "1" ]] && TLS_ARGS+=(--insecure)
 
+# Local log file (history, independent of the dashboard). Defined before
+# anything that logs: with "set -u" a log line written before these two exist
+# kills the script on the spot. That is exactly what happened to the
+# missing-path skip below - it crashed with "TIMESTAMP: unbound variable" on
+# every machine where a default path is missing, i.e. precisely when it was
+# meant to help, and the console never heard about it.
+LOG_FILE="${LOG_FILE:-/var/log/clamav-scan-report.log}"
+TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+
+# If the script itself dies (set -e / set -u) instead of finishing with a scan
+# result, say so to the console. This script is silent on a clean scan by
+# design, so a crash used to look exactly like a quiet night: the bug above
+# went unnoticed for days. Every normal path ends in "exit 0", so a nonzero
+# status here always means the script broke, not that the scan found something.
+report_crash() {
+  local rc=$?
+  trap - EXIT
+  [[ $rc -eq 0 ]] && exit 0
+  echo "[$TIMESTAMP] script failed with exit code $rc before reporting a result" 2>/dev/null >> "$LOG_FILE" || true
+  curl -s "${AUTH_ARGS[@]}" "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
+    -X POST "${DASHBOARD_URL%/}/api/scan/report" \
+    -H 'Content-Type: application/json' \
+    -d "{\"hostname\":\"$(hostname)\",\"verdict\":\"ERROR\",\"findings\":[],\"errorMessage\":\"The scheduled scan script failed (exit code $rc) before it could report a result: nothing was scanned or the result was lost. Check journalctl -u clamav-scheduled-scan and $LOG_FILE on this machine.\"}" \
+    > /dev/null 2>&1 || true
+  exit "$rc"
+}
+trap report_crash EXIT
+
 # Paths to scan. The installer can impose them by writing SCAN_PATHS_LIST into
 # the configuration file (on macOS, for instance, the Linux paths do not exist).
 if [[ -n "${SCAN_PATHS_LIST:-}" ]]; then
@@ -117,12 +145,8 @@ EXCLUDE_DIRS=(
   "\.claimav-quarantine"
 )
 
-# Local log file (history, independent of the dashboard)
-LOG_FILE="${LOG_FILE:-/var/log/clamav-scan-report.log}"
-
 ### === END OF CONFIGURATION === ###
 
-TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 HOSTNAME="$(hostname)"
 
 EXCLUDE_ARGS=()
