@@ -67,10 +67,11 @@ docker compose up --build -d
 ```
 
 This brings up two containers — the console and a `clamd` server it can talk to — and publishes
-the console on port 8080. Open **http://localhost:8080** and sign in with **`admin` / `admin`**.
+the console on port 8080. Open **http://localhost:8080** and sign in with **`admin` / `admin`**:
+the console asks for a new password straight away, and refuses API calls with the default one.
 
 > [!WARNING]
-> Change that password immediately under **Admin › Users**. The console also enables an H2
+> The console also enables an H2
 > database console at `/h2` and serves plain HTTP. Read [docs/security.md](docs/security.md)
 > **before** putting this anywhere other people can reach.
 

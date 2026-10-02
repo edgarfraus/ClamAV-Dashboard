@@ -11,7 +11,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Runs one-time initialization to ensure the app is usable on a fresh database:
- * - create default admin user (admin/admin) if no users exist
+ * - create default admin user (admin/admin) if no users exist, and require a
+ *   new password for it (also for an existing "admin" still on that password)
  * - create default clamd endpoint (from conf/clamav-web-client.properties legacy keys) if no endpoints exist
  * - start directory watcher if enabled
  */
@@ -34,6 +35,7 @@ public class StartupInitializer implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         try {
             userService.ensureDefaultAdmin();
+            userService.flagDefaultPassword();
             log.info("Default admin ensured (username=admin).");
         } catch (Exception e) {
             log.warn("Default admin init skipped/failed: {}", e.getMessage());

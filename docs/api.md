@@ -44,9 +44,8 @@ else uses Spring's standard error body:
 |---|---|
 | `400` | Bad or missing parameter. Read `message` or `error`. |
 | `401` | No credentials, or wrong ones. |
-| `403` | Authenticated, but the role is not enough, or the agent key is invalid or its endpoint disabled. |
-| `404` | Unknown job id. |
-| `500` | Unknown **endpoint** id currently returns `500` rather than `404`. |
+| `403` | Authenticated, but the role is not enough, the agent key is invalid or its endpoint disabled, or the account must change its password first (see [security](security.md#the-forced-password-change)). |
+| `404` | Unknown job or endpoint id. |
 
 ---
 

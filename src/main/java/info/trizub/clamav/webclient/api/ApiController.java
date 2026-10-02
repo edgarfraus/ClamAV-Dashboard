@@ -65,7 +65,7 @@ public class ApiController {
 
     @GetMapping("/endpoints/{id}/status")
     public Map<String, Object> endpointStatus(@PathVariable Long id) {
-        ClamdEndpoint ep = endpoints.get(id);
+        ClamdEndpoint ep = endpointOr404(id);
 
         // Agent-managed endpoint: the console no longer contacts it. Its state
         // comes from when the agent last checked in, and the signature version
@@ -183,6 +183,20 @@ public class ApiController {
         return job;
     }
 
+    /**
+     * EndpointService.get() throws a bare NoSuchElementException for an unknown
+     * id, which reached the client as a 500 "No value present" - indistinguishable
+     * from a real server fault. Same body as the job 404 below.
+     */
+    private ClamdEndpoint endpointOr404(Long id) {
+        try {
+            return endpoints.get(id);
+        } catch (java.util.NoSuchElementException e) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "endpoint not found");
+        }
+    }
+
     private Map<String, Object> agentStatus(ClamdEndpoint ep) {
         Map<String, Object> out = new LinkedHashMap<>();
         Instant seen = ep.getAgentLastSeenAt();
@@ -210,7 +224,7 @@ public class ApiController {
     public Map<String,Object> scanUpload(@RequestParam("files") List<MultipartFile> files,
                                          @RequestParam("endpointId") Long endpointId,
                                          Authentication auth) {
-        var ep = endpoints.get(endpointId);
+        var ep = endpointOr404(endpointId);
         var created = jobs.createUploadJobs(files, ep, auth.getName());
         return Map.of(
                 "created", created.size(),
@@ -225,7 +239,7 @@ public class ApiController {
 
     @PostMapping(value = "/scan/path", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Map<String,Object> scanPath(@RequestBody PathScanRequest req, Authentication auth) {
-        var ep = req.endpointId != null ? endpoints.get(req.endpointId) : endpoints.defaultEndpoint();
+        var ep = req.endpointId != null ? endpointOr404(req.endpointId) : endpoints.defaultEndpoint();
         // Same choice as WebUiController.scanPath: an agent-managed endpoint has
         // no host to reach over TCP, so the agent has to run the scan.
         if (ep.isAgentEnrolled()) {

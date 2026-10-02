@@ -143,6 +143,9 @@
           <li class="dropdown-header bg-body-tertiary fw-semibold rounded-top py-2">Account</li>
           <li><span class="dropdown-item-text small text-body-secondary" sec:authentication="name">user</span></li>
           <li><hr class="dropdown-divider"/></li>
+          <li>
+            <a class="dropdown-item" href="/account/password"><i class="fa-solid fa-key me-2"></i> Change password</a>
+          </li>
           <li sec:authorize="hasRole('ADMIN')">
             <a class="dropdown-item" href="/admin/users"><i class="fa-solid fa-users me-2"></i> Users</a>
           </li>

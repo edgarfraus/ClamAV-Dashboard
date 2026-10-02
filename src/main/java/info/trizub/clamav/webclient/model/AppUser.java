@@ -27,6 +27,14 @@ public class AppUser {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    // Set on the admin/admin account created on first run (and on any "admin"
+    // still using that password when the console starts). While it is true the
+    // user can do nothing but choose a new password: PasswordChangeRequiredFilter
+    // redirects the browser and refuses the API. columnDefinition gives rows that
+    // existed before this column a value, the same way EndpointGroup does.
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean mustChangePassword = false;
+
     private Instant createdAt = Instant.now();
     private Instant lastLoginAt;
 
@@ -47,6 +55,8 @@ public class AppUser {
     public void setRoles(Set<String> roles) { this.roles = roles; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public boolean isMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }

@@ -17,6 +17,9 @@
       <div class="alert alert-success py-2" th:if="${param.logout}">
         You have been logged out.
       </div>
+      <div class="alert alert-success py-2" th:if="${param.changed}">
+        Password changed. Sign in with the new one.
+      </div>
 
       <form th:action="@{/login}" method="post">
         <div class="mb-3">
@@ -39,8 +42,8 @@
       </form>
 
       <div class="text-body-secondary small mt-4 text-center">
-        Default on first run: <strong>admin</strong> / <strong>admin</strong><br/>
-        change it right after logging in.
+        First run: sign in as <strong>admin</strong> / <strong>admin</strong>.<br/>
+        You will be asked to choose a new password straight away.
       </div>
     </div>
   </div>

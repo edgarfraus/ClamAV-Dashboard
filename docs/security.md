@@ -9,7 +9,7 @@ Out of the box, and on purpose, this is a *development* configuration:
 
 | | State on a fresh install | What to do |
 |---|---|---|
-| Admin account | **`admin` / `admin`**, created automatically | Change it at **Admin › Users** before anything else. |
+| Admin account | **`admin` / `admin`**, created automatically | Nothing: the first sign-in **forces a new password**, and until then the API refuses that account. |
 | H2 database console | **Enabled** at `/h2`, admin-only | Disable it for anything production-like (see below). |
 | Transport | Plain **HTTP** | Terminate TLS at a reverse proxy — see [installation.md](installation.md). |
 | CSRF on `/api/**` | **Disabled**, so scripts and agents can post | Leave it; it is why `/api` is HTTP Basic and the browser forms are not. |
@@ -45,6 +45,23 @@ a password and is allowed **only** on `/agent/**` and `POST /api/scan/report`.
 
 Passwords are hashed with BCrypt. Both form login (for the UI) and HTTP Basic (for `/api`) are
 enabled.
+
+### The forced password change
+
+The `admin` account created on first run is marked **must change password**. So is any account
+named `admin` that still has the password `admin` when the console starts, which covers consoles
+installed before this existed. While the mark is set:
+
+- every page redirects to **Change password** (`/account/password`), and the account can do
+  nothing else but sign out;
+- `/api/**`, `/actuator/**` and `/h2` answer `403` with
+  `{"error": "Password change required: ..."}`, so a script still using `admin:admin` stops with a
+  readable reason instead of quietly working on the default credentials;
+- agents are not affected: they authenticate with their key, not as a user.
+
+The new password must be at least 8 characters and differ from the current one, the username and
+`admin`. After the change the session is closed and you sign in again with the new password. Any
+user can change their own password later from the account menu.
 
 ## Agent keys
 

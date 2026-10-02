@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -33,9 +34,12 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, AuthenticationSuccessHandler successHandler,
-                                    EndpointService endpointService) throws Exception {
+                                    EndpointService endpointService, UserService userService) throws Exception {
         http
             .addFilterBefore(new AgentAuthenticationFilter(endpointService), UsernamePasswordAuthenticationFilter.class)
+            // After authorization, so a request that would be refused anyway is
+            // refused for its real reason, not for the password.
+            .addFilterAfter(new PasswordChangeRequiredFilter(userService), AuthorizationFilter.class)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/css/**", "/js/**", "/images/**", "/icons/**", "/webfonts/**", "/flags/**").permitAll()
                 .requestMatchers("/h2/**").hasRole("ADMIN")

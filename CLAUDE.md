@@ -24,7 +24,7 @@ docker compose up --build      # bring up clamav-server + clamav-web-client toge
 Notes:
 - Local build targets **JDK 17** (`pom.xml`); the Docker multi-stage build uses **JDK 21** (Maven build stage + `eclipse-temurin:21-jre` runtime). Either JDK 17+ works locally.
 - There are **no unit tests** in the tree yet (only the `spring-boot-starter-test` dependency); `mvn test` is effectively a no-op today.
-- First run auto-creates a default admin user **`admin` / `admin`** — change it via `/admin/users`.
+- First run auto-creates a default admin user **`admin` / `admin`**, flagged `mustChangePassword`: `PasswordChangeRequiredFilter` holds it on `/account/password` (and answers `403` on `/api`, `/actuator`, `/h2`) until a new password is set. `UserService.flagDefaultPassword()` also flags, at every startup, an existing `admin` still on that password — consoles installed before the flag existed are covered, and a deployment whose scripts use `admin:admin` will start getting `403` until the password is changed.
 
 ## Configuration: two separate stores
 

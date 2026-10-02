@@ -17,7 +17,9 @@ cd ClamAV-Dashboard
 docker compose up --build -d
 ```
 
-Then open <http://localhost:8080> and sign in with **`admin` / `admin`**.
+Then open <http://localhost:8080> and sign in with **`admin` / `admin`**. You are taken straight
+to **Change password**, and nothing else (the API included) works for that account until you
+choose a new one; see [security](security.md#the-forced-password-change).
 
 The first start does three things on its own: it creates the database schema, creates that default
 admin user, and seeds one `clamd` endpoint pointing at the bundled `clamav-server` container.
