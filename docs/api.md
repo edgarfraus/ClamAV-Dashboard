@@ -21,6 +21,7 @@ URL (for example `https://av.example.org`) instead of `http://HOST:8080`.
 | `POST` | [`/api/scan/report`](#reporting-a-scan-run-elsewhere) | `AGENT` or `OPERATOR` | Push a result into the console |
 | `GET` | [`/api/agent/commands`](#agent-endpoints) | `AGENT` | Poll for work; also the heartbeat |
 | `GET` | [`/api/agent/mode`](#agent-endpoints) | `AGENT` | Desired realtime mode, read-only |
+| `POST` | [`/api/agent/commands/{id}/result`](#post-apiagentcommandsidresult) | `AGENT` | Outcome of a quarantine / restore |
 | `GET` | [`/agent/install.sh`, `/agent/install.ps1`](#agent-endpoints) | `AGENT` or `ADMIN` | Generated installer |
 | `GET` | [`/agent/files/{name}`](#agent-endpoints) | `AGENT` or `ADMIN` | One agent script |
 | `GET` | [`/actuator/**`](#actuator) | any authenticated user | Spring Boot health, info, metrics |
@@ -233,7 +234,8 @@ curl -u operator:secret -H 'Content-Type: application/json' \
 | `source` | `realtime` marks an on-access event (job type `REALTIME`); anything else is a batch scan (`EXTERNAL`). |
 | `commandId` | Set when this answers a scan the console asked for. The existing `AGENT` job is finished instead of a new one being created. |
 | `remediation` | `quarantined`, `removed`, `failed`; anything else means not attempted. |
-| `remediationPath` | Where the file ended up, for `quarantined`. |
+| `remediationPath` | Where the file ended up, for `quarantined` (several joined with `; `). |
+| `quarantined` | `[{"path": "<original>", "quarantinePath": "<where it went>"}]`, one per moved file. What lets the console offer **Restore** on that file. |
 
 Authenticated with an agent key, the job is bound to that key's endpoint. With OPERATOR
 credentials it is attached to no endpoint and shows under its `hostname`.
@@ -275,6 +277,7 @@ heartbeat round trip.
 | `X-Agent-Clamav` | `ClamAV 1.5.4/28137/Mon Sep 28 08:24:12 2026` | Engine and signature version shown on Endpoints. |
 | `X-Agent-OS` | `linux`, `macos`, `windows` | Default directories for a full-disk scan. |
 | `X-Agent-OnAccess-Mode` | `detect`, `prevent`, `unsupported` | The realtime mode actually applied on the machine. |
+| `X-Agent-Capabilities` | `file-actions` | What the agent can do beyond scanning. File actions are only sent to an agent that declares them. |
 
 ### `GET /api/agent/commands`
 
@@ -284,10 +287,14 @@ curl -sS -H 'X-Agent-Key: cav_...' -H 'X-Agent-Clamav: ClamAV 1.5.4/28137/...' \
 ```
 ```json
 { "endpoint": "W11",
-  "commands": [ { "id": 42, "target": "C:\\Users\nC:\\ProgramData" } ],
+  "commands": [ { "id": 42, "target": "C:\\Users\nC:\\ProgramData", "type": "SCAN" } ],
   "onAccessMode": "detect" }
 ```
 
+- `type` is `SCAN`, or one of the file actions an operator started from an alert:
+  `QUARANTINE` (target: the file), `RESTORE` and `RESTORE_ALLOW` (target: quarantine path, a
+  newline, original path). File actions are only sent to an agent whose `X-Agent-Capabilities`
+  includes `file-actions`; an older agent would read them as scans.
 - `target` holds one path per line; a full-disk scan sends every directory in one command.
 - Returning a command claims it: the command becomes `DISPATCHED` and its job `RUNNING`. The
   agent must answer with `POST /api/scan/report` and `commandId`.
@@ -295,14 +302,31 @@ curl -sS -H 'X-Agent-Key: cav_...' -H 'X-Agent-Clamav: ClamAV 1.5.4/28137/...' \
   **24 hours**.
 - `onAccessMode` is present only when the endpoint belongs to a group.
 
-The text form prints an optional `MODE detect|prevent` line first, then one line per command:
+The text form prints an optional `MODE detect|prevent` line first, then one line per command. A
+file action carries its type as a third field; scans keep the two-field form older agents parse:
 
 ```text
 MODE detect
 42 QzpcVXNlcnMKQzpcUHJvZ3JhbURhdGE=
+43 L3Nydi91cGxvYWRzL3guemlw QUARANTINE
 ```
 
 An invalid key or a disabled endpoint gets `403`.
+
+### `POST /api/agent/commands/{id}/result`
+
+How an agent reports a file action. Scans keep reporting to `/api/scan/report`; each channel
+refuses the other's commands, so a file action can never overwrite the alert it acts on.
+
+```json
+{ "ok": true, "message": "Moved into quarantine: /srv/.claimav-quarantine/1790938287-3149-12891-x.zip",
+  "quarantinePath": "/srv/.claimav-quarantine/1790938287-3149-12891-x.zip" }
+```
+
+`quarantinePath` is required for a successful `QUARANTINE`. `message` is shown on the alert page
+as is, so a refusal should say why ("ClamAV no longer detects …", "a file already exists at …").
+Answers: `200`, `400` (a scan id, or a quarantine without a path), `404` (not this agent's
+command), `409` (already answered or expired).
 
 ### `GET /agent/install.ps1` and `/agent/install.sh`
 

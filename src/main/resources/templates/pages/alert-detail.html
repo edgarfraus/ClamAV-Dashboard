@@ -22,6 +22,9 @@
     </div>
 <div class="container-lg px-4" th:if="${job != null}">
 
+      <div class="alert alert-danger" th:if="${errorMsg}" th:text="${errorMsg}">error</div>
+      <div class="alert alert-info" th:if="${actionMsg}" th:text="${actionMsg}">info</div>
+
       <!-- Status banner -->
       <div th:if="${job.acknowledged}" class="alert d-flex align-items-center gap-3 alert-success mb-4">
         <span class="fa-lg"><i class="fa-solid fa-check"></i></span>
@@ -65,6 +68,81 @@
                   <i class="fa-solid fa-file-code fa-xs"></i>
                   <span th:text="${entry.key}">path</span>
                 </div>
+
+                <!-- Where this file is now, and what can be done about it -->
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-2"
+                     th:with="qpath=${quarantineMap[entry.key]}, pending=${pendingPaths.contains(entry.key)}">
+                  <span th:if="${qpath != null}" class="badge text-bg-warning">
+                    <i class="fa-solid fa-box-archive"></i> In quarantine
+                  </span>
+                  <code th:if="${qpath != null}" class="small text-body-secondary" style="word-break:break-all;"
+                        th:text="${qpath}">qpath</code>
+                  <span th:if="${pending}" class="badge text-bg-info">
+                    <i class="fa-solid fa-hourglass-half"></i> Waiting for the agent
+                  </span>
+
+                  <th:block th:if="${fileActionsAvailable and !pending}" sec:authorize="hasAnyRole('OPERATOR','ADMIN')">
+                    <form th:if="${qpath == null}" th:action="@{'/alerts/' + ${job.id} + '/files/quarantine'}" method="post"
+                          onsubmit="return confirm('Move this file into quarantine on the machine? The agent re-checks it first and refuses if it is no longer detected.');">
+                      <input type="hidden" name="path" th:value="${entry.key}"/>
+                      <button type="submit" class="btn btn-sm btn-warning">
+                        <i class="fa-solid fa-box-archive"></i> Quarantine
+                      </button>
+                    </form>
+                    <form th:if="${qpath != null}" th:action="@{'/alerts/' + ${job.id} + '/files/restore'}" method="post"
+                          onsubmit="return confirm('Put this file back where it was found? It is still detected: a Prevention group will quarantine it again at the next scan.');">
+                      <input type="hidden" name="path" th:value="${entry.key}"/>
+                      <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        <i class="fa-solid fa-rotate-left"></i> Restore
+                      </button>
+                    </form>
+                    <form th:if="${qpath != null}" th:action="@{'/alerts/' + ${job.id} + '/files/restore'}" method="post"
+                          onsubmit="return confirm('Restore this file AND mark it as a false positive? Its SHA-256 is added to ClamAV allow list on that machine: this exact file will not be detected there again. Only do this if you are sure the file is safe.');">
+                      <input type="hidden" name="path" th:value="${entry.key}"/>
+                      <input type="hidden" name="allow" value="true"/>
+                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="fa-solid fa-shield-halved"></i> Restore as false positive
+                      </button>
+                    </form>
+                  </th:block>
+                </div>
+              </div>
+
+              <div class="small text-body-secondary mt-3"
+                   th:if="${job.endpoint != null and job.endpoint.agentEnrolled and !job.endpoint.fileActionsSupported}">
+                <i class="fa-solid fa-circle-info"></i>
+                Quarantining or restoring single files needs a newer agent on
+                <strong th:text="${job.endpoint.name}">ep</strong>: reinstall it from Admin &rsaquo; Endpoints.
+              </div>
+            </div>
+          </div>
+
+          <!-- File actions history -->
+          <div class="card mb-4" th:if="${fileActions != null and !fileActions.isEmpty()}">
+            <div class="card-body">
+              <div class="card-title mb-3"><i class="fa-solid fa-clock-rotate-left"></i> File actions</div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr><th>When</th><th>Action</th><th>File</th><th>By</th><th>Result</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr th:each="a : ${fileActions}">
+                      <td class="mono small" style="font-size:11px;" th:text="${a.createdAt}">time</td>
+                      <td class="small text-nowrap"
+                          th:text="${a.type.name() == 'QUARANTINE' ? 'Quarantine' : (a.type.name() == 'RESTORE' ? 'Restore' : 'Restore as false positive')}">type</td>
+                      <td><code class="small" style="word-break:break-all;" th:text="${a.filePath}">path</code></td>
+                      <td class="small" th:text="${a.createdBy}">user</td>
+                      <td class="small">
+                        <span th:if="${a.status.name() == 'PENDING'}" class="badge text-bg-secondary">Waiting for the agent</span>
+                        <span th:if="${a.status.name() == 'DISPATCHED'}" class="badge text-bg-info">In progress</span>
+                        <span th:if="${a.status.name() == 'DONE' and a.succeeded == true}" class="badge text-bg-success">Done</span>
+                        <span th:if="${a.status.name() == 'DONE' and a.succeeded != true}" class="badge text-bg-danger">Failed</span>
+                        <div class="text-body-secondary" th:if="${a.resultMessage}" th:text="${a.resultMessage}">message</div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

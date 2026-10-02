@@ -323,11 +323,120 @@ foreach ($who in @('NT AUTHORITY\SYSTEM', 'BUILTIN\Administrators')) {
 Set-Acl -Path $ConfigPath -AclObject $acl
 Write-Ok "Configuration saved to $ConfigPath (readable only by Administrators/SYSTEM)."
 
+# --- 3b) Quarantine directory + the functions every script shares ----------
+# The quarantine holds live malware: only SYSTEM and Administrators may even
+# list it. Without this it inherited ProgramData's defaults, where any user
+# can read files. SIDs rather than account names, which some Windows
+# languages localise.
+$QuarantineDir = Join-Path $InstallDir 'quarantine'
+New-Item -ItemType Directory -Force -Path $QuarantineDir | Out-Null
+$qacl = Get-Acl $QuarantineDir
+$qacl.SetAccessRuleProtection($true, $false)
+$qacl.Access | ForEach-Object { $qacl.RemoveAccessRule($_) | Out-Null }
+foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {
+    $qacl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        (New-Object System.Security.Principal.SecurityIdentifier($sid)), 'FullControl',
+        'ContainerInherit,ObjectInherit', 'None', 'Allow'))) | Out-Null
+}
+Set-Acl -Path $QuarantineDir -AclObject $qacl
+
+$QuarantineLib = Join-Path $InstallDir 'quarantine-lib.ps1'
+$quarantineLibBody = @'
+# Shared by scan-report.ps1, run-command.ps1 and file-action.ps1.
+
+$QuarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
+
+# What this agent can do beyond scanning (X-Agent-Capabilities). The console
+# only sends a quarantine/restore command to an agent that declares it.
+$AgentCapabilities = 'file-actions'
+
+function Test-InQuarantine([string]$Path) {
+    return $Path -match 'ClaimAV[\\/]quarantine[\\/]'
+}
+
+# Moves one file into the quarantine under a unique name and returns the new
+# path, or $null. Unlike clamscan's own --move, which keeps only the file name
+# (and appends .001 on a clash), this lets the console map every quarantined
+# file back to where it came from - which is what restoring it needs.
+function Move-ToQuarantine([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    New-Item -ItemType Directory -Force -Path $QuarantineDir | Out-Null
+    $name = '{0}-{1}-{2}' -f [DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'), (Get-Random -Maximum 1000000), [IO.Path]::GetFileName($Path)
+    $dest = Join-Path $QuarantineDir $name
+    try {
+        Move-Item -LiteralPath $Path -Destination $dest -Force -ErrorAction Stop
+        return $dest
+    } catch {
+        return $null
+    }
+}
+
+# Prevention: quarantines every finding ("<path>: <SIG> FOUND"), deleting a
+# file that cannot be moved rather than leaving malware in place. Adds
+# @{path; quarantinePath} to $Quarantined for each moved file - what the
+# console needs to restore it later - and returns the remediation to report.
+function Invoke-PreventionQuarantine($Findings, $Quarantined) {
+    $anyFailed = $false; $anyMoved = $false; $anyRemoved = $false
+    foreach ($line in $Findings) {
+        $p = $line -replace '^(.*?): .*$', '$1'
+        $dest = Move-ToQuarantine $p
+        if ($dest) {
+            $Quarantined.Add([pscustomobject]@{ path = $p; quarantinePath = $dest })
+            $anyMoved = $true
+            continue
+        }
+        try { Remove-Item -LiteralPath $p -Force -ErrorAction Stop; $anyRemoved = $true } catch { $anyFailed = $true }
+    }
+    if ($anyFailed) { return 'failed' }
+    if ($anyMoved) { return 'quarantined' }
+    if ($anyRemoved) { return 'removed' }
+    return 'not_attempted'
+}
+
+# Where clamscan.exe loads its signatures from, which is where an allow list
+# must sit to be read: DatabaseDirectory in freshclam.conf, else the
+# "database" folder next to clamscan.exe (the Windows installer's default).
+function Get-ClamAVDatabaseDir($cfg) {
+    if ($cfg.PSObject.Properties['DatabaseDir'] -and $cfg.DatabaseDir) { return [string]$cfg.DatabaseDir }
+    $clamDir = Split-Path -Parent $cfg.ClamScan
+    $conf = Join-Path $clamDir 'freshclam.conf'
+    if (Test-Path -LiteralPath $conf) {
+        $line = Get-Content -LiteralPath $conf | Where-Object { $_ -match '^\s*DatabaseDirectory\s+' } | Select-Object -Last 1
+        if ($line) {
+            $dir = ($line -replace '^\s*DatabaseDirectory\s+', '').Trim().Trim('"')
+            if (Test-Path -LiteralPath $dir) { return $dir }
+        }
+    }
+    return (Join-Path $clamDir 'database')
+}
+
+# Adds a file to ClamAV's own allow list: a ".sfp" database of
+# "<sha256>:<size>:<name>" lines. A file matching one is never reported as
+# infected - exactly that file, one changed byte and it is scanned again.
+# clamscan reads its databases on every run, so nothing needs reloading.
+# Returns the SHA-256; throws with the reason on failure.
+function Add-ToAllowList($cfg, [string]$Path, [string]$Label) {
+    $db = Get-ClamAVDatabaseDir $cfg
+    if (-not (Test-Path -LiteralPath $db)) { throw "ClamAV database directory not found ($db)" }
+    $sha  = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $size = (Get-Item -LiteralPath $Path).Length
+    $list = Join-Path $db 'claimav-allow.sfp'
+    $known = (Test-Path -LiteralPath $list) -and (Select-String -LiteralPath $list -SimpleMatch -Pattern "${sha}:${size}:" -Quiet)
+    if (-not $known) {
+        # ASCII, no BOM: a byte-order mark would make the first line unparseable.
+        [IO.File]::AppendAllText($list, "${sha}:${size}:ClaimAV.Allowed.$Label`n", [Text.Encoding]::ASCII)
+    }
+    return $sha
+}
+'@
+Set-Content -Path $QuarantineLib -Value $quarantineLibBody -Encoding UTF8
+
 # --- 4) Scan script + result reporting -------------------------------------
 $scanScriptBody = @'
 $ErrorActionPreference = 'Stop'
 $cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
+. (Join-Path $env:ProgramData 'ClaimAV\quarantine-lib.ps1')
 
 $clamavVersion = ''
 try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Object -First 1) } catch { }
@@ -353,7 +462,6 @@ try {
     $mode = $modeResp.onAccessMode
 } catch { }
 
-$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
 # --recursive: unlike clamdscan (which hands directories to clamd, and clamd
 # always walks them fully on its own), clamscan.exe does NOT descend into
 # subdirectories by default - without this, "scan C:\" only looks at the
@@ -366,14 +474,12 @@ $quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
 # --exclude-dir: the quarantine directory lives under ProgramData, which is a
 # scan target (and is also reachable as "C:\Users\All Users" through the legacy
 # junction, so it sits under C:\Users too). Without this the scan finds every
-# file ClamAV already moved there, --move moves it again - appending .001, then
-# .001.001, forever - and the console raises a fresh alert every time for a
-# threat that was already dealt with.
+# file already moved there and the console raises a fresh alert every time for
+# a threat that was already dealt with.
+# No --move: Prevention moves each file itself below (Move-ToQuarantine), so
+# the console learns where every file went and can restore it.
 $scanArgs = @('--infected', '--recursive', '--exclude-dir=ClaimAV[\\/]quarantine')
-if ($mode -eq 'prevent') {
-    New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null
-    $scanArgs += "--move=$quarantineDir"
-}
+$quarantined = New-Object System.Collections.Generic.List[object]
 
 try {
     # --infected: print detected files only. The output is "<path>: <SIG> FOUND",
@@ -407,18 +513,8 @@ try {
     if ($exit -eq 1 -and $findings.Count -gt 0) {
         $verdict = 'VIRUS_FOUND'
         if ($mode -eq 'prevent') {
-            # clamscan's own --move already did the work; verify against the
-            # original path rather than trusting the exit code alone, the same
-            # way the other agents confirm what really happened on disk.
-            $stillThere = $findings | Where-Object {
-                Test-Path -LiteralPath ($_ -replace '^(.*?): .*$', '$1')
-            }
-            if ($stillThere.Count -eq 0) {
-                $remediation     = 'quarantined'
-                $remediationPath = $quarantineDir
-            } else {
-                $remediation = 'failed'
-            }
+            $remediation = Invoke-PreventionQuarantine $findings $quarantined
+            $remediationPath = ($quarantined | ForEach-Object { $_.quarantinePath }) -join '; '
         }
     } elseif ($exit -eq 1) {
         # clamscan exited 1 ("infected files found") and counted those files in
@@ -460,6 +556,9 @@ $payload = @{
     errorMessage    = $errorMsg
     remediation     = $remediation
     remediationPath = $remediationPath
+    # .ToArray(), not @(...): on Windows PowerShell 5.1, ConvertTo-Json throws
+    # "Argument types do not match" on @() of a List[object], empty or not.
+    quarantined     = [object[]]$quarantined.ToArray()
 } | ConvertTo-Json -Depth 4
 
 Invoke-RestMethod -Method Post -Uri "$base/api/scan/report" -Headers $headers `
@@ -652,13 +751,16 @@ $pollScriptBody = @'
 $ErrorActionPreference = 'Stop'
 $cfg = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
+. (Join-Path $env:ProgramData 'ClaimAV\quarantine-lib.ps1')
 
 $clamavVersion = ''
 try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Object -First 1) } catch { }
 # Sent on every request, same as clamscan's own version above: there is no
 # clamd on Windows (no realtime, see the note at the top of this installer),
 # so "unsupported" is a fixed fact about this OS, not something to detect.
-$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows' }
+# X-Agent-Capabilities is what lets the console send this agent quarantine
+# and restore commands (see quarantine-lib.ps1).
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows'; 'X-Agent-Capabilities' = $AgentCapabilities }
 
 try {
     $resp = Invoke-RestMethod -Uri "$base/api/agent/commands" -Headers $headers -TimeoutSec 15
@@ -676,6 +778,7 @@ try {
 $mode = [string]$resp.onAccessMode
 
 $runCommandScript = Join-Path $env:ProgramData 'ClaimAV\run-command.ps1'
+$fileActionScript = Join-Path $env:ProgramData 'ClaimAV\file-action.ps1'
 foreach ($cmd in $resp.commands) {
     # Targets go through a temp file, not a command-line argument: they can
     # contain spaces and there can be several, and a file sidesteps every
@@ -683,10 +786,26 @@ foreach ($cmd in $resp.commands) {
     # child script deletes it once read.
     $targetsFile = Join-Path $env:TEMP "claimav-targets-$($cmd.id).txt"
     Set-Content -LiteralPath $targetsFile -Value $cmd.target -Encoding UTF8
-    Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $runCommandScript,
-        '-CommandId', $cmd.id, '-TargetsFile', $targetsFile, '-Mode', $mode
-    )
+    $type = if ($cmd.PSObject.Properties['type'] -and $cmd.type) { [string]$cmd.type } else { 'SCAN' }
+    if ($type -eq 'SCAN') {
+        $scanArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $runCommandScript,
+                      '-CommandId', $cmd.id, '-TargetsFile', $targetsFile)
+        # Only when there is one: an endpoint in no group has no mode, and an
+        # empty string in -ArgumentList makes Start-Process refuse to start at
+        # all - every console scan on a group-less Windows machine was silently
+        # dropped and only ever timed out on the console.
+        if ($mode) { $scanArgs += @('-Mode', $mode) }
+        Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList $scanArgs
+    } elseif ($type -in @('QUARANTINE', 'RESTORE', 'RESTORE_ALLOW')) {
+        # Detached too: a quarantine re-scans the file first, and clamscan
+        # loads every signature to do it.
+        Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $fileActionScript,
+            '-CommandId', $cmd.id, '-Type', $type, '-TargetsFile', $targetsFile
+        )
+    } else {
+        Remove-Item -LiteralPath $targetsFile -Force -ErrorAction SilentlyContinue
+    }
 }
 '@
 
@@ -702,6 +821,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
 $base = $cfg.ConsoleUrl.TrimEnd('/')
+. (Join-Path $env:ProgramData 'ClaimAV\quarantine-lib.ps1')
 
 $requestedTargets = @()
 if (Test-Path -LiteralPath $TargetsFile) {
@@ -711,15 +831,14 @@ if (Test-Path -LiteralPath $TargetsFile) {
 
 $clamavVersion = ''
 try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Object -First 1) } catch { }
-$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows' }
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows'; 'X-Agent-Capabilities' = $AgentCapabilities }
 
 $verdict  = 'OK'
 $errorMsg = ''
 $findings = New-Object System.Collections.Generic.List[string]
 $remediation     = 'not_attempted'
 $remediationPath = ''
-$quarantineDir = Join-Path $env:ProgramData 'ClaimAV\quarantine'
-if ($Mode -eq 'prevent') { New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null }
+$quarantined = New-Object System.Collections.Generic.List[object]
 
 # Drop targets that don't exist on THIS machine: clamscan given several paths
 # at once exits non-zero as soon as ANY of them is missing, which would
@@ -734,11 +853,11 @@ $targets = @($requestedTargets | Where-Object { Test-Path -LiteralPath $_ })
 # --exclude-dir: the quarantine directory lives under ProgramData, which is a
 # scan target (and is also reachable as "C:\Users\All Users" through the legacy
 # junction, so it sits under C:\Users too). Without this the scan finds every
-# file ClamAV already moved there, --move moves it again - appending .001, then
-# .001.001, forever - and the console raises a fresh alert every time for a
-# threat that was already dealt with.
+# file already moved there and the console raises a fresh alert every time for
+# a threat that was already dealt with.
+# No --move: Prevention moves each file itself (Invoke-PreventionQuarantine),
+# so the console learns where every file went and can restore it.
 $scanArgs = @('--infected', '--recursive', '--exclude-dir=ClaimAV[\\/]quarantine')
-if ($Mode -eq 'prevent') { $scanArgs += "--move=$quarantineDir" }
 
 try {
     if ($targets.Count -eq 0) {
@@ -766,15 +885,8 @@ try {
     if ($findings.Count -gt 0) {
         $verdict = 'VIRUS_FOUND'
         if ($Mode -eq 'prevent') {
-            $stillThere = $findings | Where-Object {
-                Test-Path -LiteralPath ($_ -replace '^(.*?): .*$', '$1')
-            }
-            if ($stillThere.Count -eq 0) {
-                $remediation     = 'quarantined'
-                $remediationPath = $quarantineDir
-            } else {
-                $remediation = 'failed'
-            }
+            $remediation = Invoke-PreventionQuarantine $findings $quarantined
+            $remediationPath = ($quarantined | ForEach-Object { $_.quarantinePath }) -join '; '
         }
     } elseif ($exit -eq 1) {
         # Infections counted by clamscan, but all of them already in quarantine:
@@ -806,6 +918,9 @@ $payload = @{
     errorMessage    = $errorMsg
     remediation     = $remediation
     remediationPath = $remediationPath
+    # .ToArray(), not @(...): on Windows PowerShell 5.1, ConvertTo-Json throws
+    # "Argument types do not match" on @() of a List[object], empty or not.
+    quarantined     = [object[]]$quarantined.ToArray()
 } | ConvertTo-Json -Depth 4
 
 try {
@@ -815,8 +930,121 @@ try {
     # The console will time the command out: better than leaving this process hung.
 }
 '@
+# --- 5d) File actions: quarantine / restore one file of an alert -----------
+# Requested from the console (Alerts > alert > the buttons next to each file).
+# The console is trusted to ask, not to decide: every action re-checks here
+# that it makes sense, so a compromised or buggy console cannot use it to move
+# arbitrary files around.
+#   QUARANTINE    <path>              only if ClamAV still detects the file now
+#   RESTORE       <qpath>, <orig>     only out of the quarantine directory,
+#                                     never over an existing file
+#   RESTORE_ALLOW <qpath>, <orig>     as RESTORE, after adding the file's
+#                                     SHA-256 to ClamAV's allow list
+$fileActionScriptBody = @'
+param(
+    [Parameter(Mandatory)] [int]$CommandId,
+    [Parameter(Mandatory)] [string]$Type,
+    [Parameter(Mandatory)] [string]$TargetsFile
+)
+$ErrorActionPreference = 'Stop'
+$cfg  = Get-Content (Join-Path $env:ProgramData 'ClaimAV\agent.conf.json') -Raw | ConvertFrom-Json
+$base = $cfg.ConsoleUrl.TrimEnd('/')
+. (Join-Path $env:ProgramData 'ClaimAV\quarantine-lib.ps1')
+
+$lines = @()
+if (Test-Path -LiteralPath $TargetsFile) {
+    $lines = @(Get-Content -LiteralPath $TargetsFile | Where-Object { $_.Trim() -ne '' })
+    Remove-Item -LiteralPath $TargetsFile -Force -ErrorAction SilentlyContinue
+}
+
+$clamavVersion = ''
+try { $clamavVersion = [string](& $cfg.ClamScan --version 2>$null | Select-Object -First 1) } catch { }
+$headers = @{ 'X-Agent-Key' = $cfg.AgentKey; 'X-Agent-Clamav' = $clamavVersion; 'X-Agent-OnAccess-Mode' = 'unsupported'; 'X-Agent-OS' = 'windows'; 'X-Agent-Capabilities' = $AgentCapabilities }
+
+function Send-Result([bool]$Ok, [string]$Message, [string]$QuarantinePath = '') {
+    $body = @{ ok = $Ok; message = $Message; quarantinePath = $QuarantinePath } | ConvertTo-Json
+    try {
+        Invoke-RestMethod -Method Post -Uri "$base/api/agent/commands/$CommandId/result" -Headers $headers `
+            -ContentType 'application/json' -Body $body -TimeoutSec 30 | Out-Null
+    } catch {
+        # The console will time the command out.
+    }
+    exit 0
+}
+
+function Test-RegularFile([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $item = Get-Item -LiteralPath $Path -Force
+    return -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
+}
+
+try {
+    if ($Type -eq 'QUARANTINE') {
+        $path = [string]$lines[0]
+        if (-not $path -or -not (Test-RegularFile $path)) {
+            Send-Result $false "Not quarantined: $path is not a regular file on this machine any more (moved or deleted?)."
+        }
+        if (Test-InQuarantine $path) { Send-Result $false "Not quarantined: $path is already inside the quarantine." }
+        # Re-check before moving anything: only a file ClamAV detects right now
+        # may be quarantined on request.
+        $ErrorActionPreference = 'Continue'
+        $out = & $cfg.ClamScan --no-summary --infected $path 2>&1
+        $ErrorActionPreference = 'Stop'
+        if (-not (($out -join "`n") -match '(?m) FOUND\s*$')) {
+            Send-Result $false "Not quarantined: ClamAV no longer detects $path, so it was left where it is."
+        }
+        $dest = Move-ToQuarantine $path
+        if ($dest) { Send-Result $true "Moved into quarantine: $dest" $dest }
+        Send-Result $false "Could not move $path into quarantine (file in use, or not permitted). Nothing was changed."
+    }
+
+    if ($Type -eq 'RESTORE' -or $Type -eq 'RESTORE_ALLOW') {
+        $qpath = [string]$lines[0]
+        $orig  = if ($lines.Count -gt 1) { [string]$lines[1] } else { '' }
+        $qfull = if ($qpath) { [IO.Path]::GetFullPath($qpath) } else { '' }
+        $qroot = [IO.Path]::GetFullPath($QuarantineDir).TrimEnd('\') + '\'
+        if (-not $qfull.StartsWith($qroot, [StringComparison]::OrdinalIgnoreCase)) {
+            Send-Result $false "Not restored: $qpath is not inside the quarantine directory."
+        }
+        if (-not (Test-RegularFile $qfull)) {
+            Send-Result $false "Not restored: $qpath is no longer in quarantine (already restored or removed?)."
+        }
+        if (-not $orig -or -not [IO.Path]::IsPathRooted($orig) -or (Test-InQuarantine $orig)) {
+            Send-Result $false "Not restored: invalid destination $orig."
+        }
+        if (Test-Path -LiteralPath $orig) {
+            Send-Result $false "Not restored: a file already exists at $orig, and it is never overwritten."
+        }
+        $parent = Split-Path -Parent $orig
+        if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+            Send-Result $false "Not restored: the folder $parent no longer exists."
+        }
+        $note = ''
+        if ($Type -eq 'RESTORE_ALLOW') {
+            try {
+                $sha = Add-ToAllowList $cfg $qfull ([string]$CommandId)
+                $note = " and allow-listed (SHA-256 $sha)"
+            } catch {
+                Send-Result $false "Not restored: could not add the file to the allow list ($($_.Exception.Message)). Nothing was changed."
+            }
+        }
+        try {
+            Move-Item -LiteralPath $qfull -Destination $orig -ErrorAction Stop
+            Send-Result $true "Restored to $orig$note."
+        } catch {
+            Send-Result $false "Could not move the file back to ${orig}: $($_.Exception.Message)$(if ($note) { ' (it was allow-listed nonetheless)' })"
+        }
+    }
+
+    Send-Result $false "Unknown file action: $Type"
+} catch {
+    Send-Result $false "File action failed: $($_.Exception.Message)"
+}
+'@
+
 Set-Content -Path $PollScript -Value $pollScriptBody -Encoding UTF8
 Set-Content -Path $RunCommandScript -Value $runCommandScriptBody -Encoding UTF8
+Set-Content -Path (Join-Path $InstallDir 'file-action.ps1') -Value $fileActionScriptBody -Encoding UTF8
 Write-Ok "Agent installed at $PollScript"
 
 if ($wantCentral) {

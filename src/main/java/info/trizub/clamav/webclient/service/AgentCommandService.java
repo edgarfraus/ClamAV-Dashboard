@@ -2,6 +2,7 @@ package info.trizub.clamav.webclient.service;
 
 import info.trizub.clamav.webclient.model.AgentCommand;
 import info.trizub.clamav.webclient.model.AgentCommandStatus;
+import info.trizub.clamav.webclient.model.AgentCommandType;
 import info.trizub.clamav.webclient.model.ClamdEndpoint;
 import info.trizub.clamav.webclient.model.ScanJob;
 import info.trizub.clamav.webclient.repo.AgentCommandRepository;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -57,19 +59,46 @@ public class AgentCommandService {
     }
 
     /**
-     * Hands the pending commands to the agent and marks them claimed. Their jobs
+     * Queues an action on one file of an alert (quarantine, restore). No job is
+     * created: the alert's own job is the one the result updates.
+     */
+    @Transactional
+    public AgentCommand enqueueFileAction(ClamdEndpoint endpoint, String jobId, AgentCommandType type,
+                                          String target, String username) {
+        AgentCommand cmd = new AgentCommand();
+        cmd.setEndpoint(endpoint);
+        cmd.setType(type);
+        cmd.setTarget(target);
+        cmd.setStatus(AgentCommandStatus.PENDING);
+        cmd.setJobId(jobId);
+        cmd.setCreatedBy(username);
+        cmd.setCreatedAt(Instant.now());
+        return repo.save(cmd);
+    }
+
+    /**
+     * Hands the pending commands to the agent and marks them claimed. Scan jobs
      * move to RUNNING: from here on the scan is in progress on the machine.
+     *
+     * File actions go only to an agent that advertises them. An older agent
+     * reads every command as a scan, so it would "scan" the file instead of
+     * moving it and report a result for the wrong thing; such a command stays
+     * pending and expires with a reason instead.
      */
     @Transactional
     public List<AgentCommand> claimPending(ClamdEndpoint endpoint) {
         List<AgentCommand> pending =
                 repo.findByEndpointAndStatusOrderByCreatedAtAsc(endpoint, AgentCommandStatus.PENDING);
+        boolean fileActions = endpoint.isFileActionsSupported();
+        List<AgentCommand> claimed = new ArrayList<>();
         Instant now = Instant.now();
         for (AgentCommand cmd : pending) {
+            if (cmd.getType().isFileAction() && !fileActions) continue;
             cmd.setStatus(AgentCommandStatus.DISPATCHED);
             cmd.setDispatchedAt(now);
             repo.save(cmd);
-            if (cmd.getJobId() != null) {
+            claimed.add(cmd);
+            if (cmd.getJobId() != null && cmd.getType() == AgentCommandType.SCAN) {
                 try {
                     jobs.markRunning(cmd.getJobId());
                 } catch (Exception e) {
@@ -77,7 +106,33 @@ public class AgentCommandService {
                 }
             }
         }
-        return pending;
+        return claimed;
+    }
+
+    /**
+     * The agent's answer to a file action. On success the alert's job learns
+     * where the file is now, which is what the next button on the page needs.
+     */
+    @Transactional
+    public void recordFileActionResult(AgentCommand cmd, boolean ok, String message, String quarantinePath) {
+        cmd.setStatus(AgentCommandStatus.DONE);
+        cmd.setCompletedAt(Instant.now());
+        cmd.setSucceeded(ok);
+        cmd.setResultMessage(message);
+        repo.save(cmd);
+        if (ok && cmd.getJobId() != null) {
+            jobs.applyFileAction(cmd.getJobId(), cmd.getType(), cmd.getFilePath(), quarantinePath);
+        }
+        log.info("File action {} {} on {} ({}): {}", cmd.getId(), cmd.getType(), cmd.getFilePath(),
+                ok ? "done" : "FAILED", message);
+    }
+
+    /** File actions on one alert, newest first. */
+    public List<AgentCommand> fileActionsForJob(String jobId) {
+        if (jobId == null) return List.of();
+        return repo.findByJobIdOrderByCreatedAtDesc(jobId).stream()
+                .filter(c -> c.getType().isFileAction())
+                .toList();
     }
 
     /**
@@ -115,20 +170,30 @@ public class AgentCommandService {
 
         for (AgentCommand cmd : repo.findByStatusAndDispatchedAtBefore(
                 AgentCommandStatus.DISPATCHED, now.minus(RESULT_TIMEOUT))) {
-            failCommand(cmd, "The agent claimed the scan but did not send a result within "
+            failCommand(cmd, "The agent claimed the " + noun(cmd) + " but did not send a result within "
                     + RESULT_TIMEOUT.toHours() + " hours.");
         }
 
         for (AgentCommand cmd : repo.findByStatusAndCreatedAtBefore(
                 AgentCommandStatus.PENDING, now.minus(PICKUP_TIMEOUT))) {
-            failCommand(cmd, "No agent claimed the scan within "
-                    + PICKUP_TIMEOUT.toHours() + " hours: agent off or not installed on "
-                    + (cmd.getEndpoint() != null ? cmd.getEndpoint().getName() : "this endpoint") + ".");
+            String endpointName = cmd.getEndpoint() != null ? cmd.getEndpoint().getName() : "this endpoint";
+            failCommand(cmd, "No agent claimed the " + noun(cmd) + " within "
+                    + PICKUP_TIMEOUT.toHours() + " hours: agent off or not installed on " + endpointName
+                    + (cmd.getType().isFileAction() ? ", or too old to run file actions (reinstall it)." : "."));
         }
     }
 
+    private static String noun(AgentCommand cmd) {
+        return cmd.getType().isFileAction() ? "file action" : "scan";
+    }
+
     private void failCommand(AgentCommand cmd, String reason) {
-        if (cmd.getJobId() != null) {
+        // A file action belongs to an alert whose job is long finished: failing
+        // that job would overwrite the detection with an unrelated error.
+        if (cmd.getType().isFileAction()) {
+            cmd.setSucceeded(false);
+            cmd.setResultMessage(reason);
+        } else if (cmd.getJobId() != null) {
             try {
                 jobs.finishError(cmd.getJobId(), reason);
             } catch (Exception e) {

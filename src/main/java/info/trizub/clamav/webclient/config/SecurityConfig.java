@@ -55,7 +55,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/**").hasAnyRole("OPERATOR","ADMIN")
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .requestMatchers("/jobs/**", "/scan/**").hasAnyRole("OPERATOR","ADMIN")
-                .requestMatchers(HttpMethod.POST, "/alerts/*/ack", "/alerts/ack-all").hasAnyRole("OPERATOR","ADMIN")
+                // Every alert mutation - acknowledging, and the file actions that move
+                // files on the machine - needs OPERATOR. Listing them one by one left
+                // any new POST under /alerts to the authenticated() fallback below,
+                // which a VIEWER passes.
+                .requestMatchers(HttpMethod.POST, "/alerts/**").hasAnyRole("OPERATOR","ADMIN")
                 .requestMatchers(HttpMethod.GET, "/alerts", "/alerts/**").hasAnyRole("VIEWER","OPERATOR","ADMIN")
                 .requestMatchers("/", "/dashboard", "/settings", "/main", "/ping", "/version", "/stats").hasAnyRole("VIEWER","OPERATOR","ADMIN")
                 .anyRequest().authenticated()

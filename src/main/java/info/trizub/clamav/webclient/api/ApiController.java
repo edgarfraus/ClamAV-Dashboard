@@ -264,6 +264,47 @@ public class ApiController {
         // only way it ever learns what really happened to the file.
         public String remediation;
         public String remediationPath; // where it ended up, only for "quarantined"
+        // Per file, which original went to which quarantine path. Needed to
+        // restore one file from the console; remediationPath alone is only a
+        // display string. Sent by agents with the "file-actions" capability.
+        public List<QuarantinedFile> quarantined;
+    }
+
+    public static class QuarantinedFile {
+        public String path;
+        public String quarantinePath;
+    }
+
+    /**
+     * Original -> quarantine path for this report. Taken from "quarantined"
+     * when the agent sends it. Otherwise derived only where it cannot be wrong:
+     * every finding quarantined, and exactly one "; "-separated remediation
+     * path per finding, which is the order the agents append them in. Anything
+     * else (a partial failure, Windows' old single-directory path) gets no map,
+     * and its files simply cannot be restored from the console.
+     */
+    private static Map<String, String> quarantineMap(ScanReportRequest req, Map<String, List<String>> found) {
+        Map<String, String> map = new LinkedHashMap<>();
+        if (req.quarantined != null) {
+            for (QuarantinedFile q : req.quarantined) {
+                if (q != null && q.path != null && !q.path.isBlank()
+                        && q.quarantinePath != null && !q.quarantinePath.isBlank()) {
+                    map.put(q.path, q.quarantinePath);
+                }
+            }
+            return map;
+        }
+        if (!"quarantined".equalsIgnoreCase(req.remediation == null ? "" : req.remediation.trim())
+                || req.remediationPath == null || req.remediationPath.isBlank()) {
+            return map;
+        }
+        String[] paths = req.remediationPath.split("; ");
+        if (paths.length != found.size()) return map;
+        int i = 0;
+        for (String original : found.keySet()) {
+            map.put(original, paths[i++].trim());
+        }
+        return map;
     }
 
     private static RemediationStatus parseRemediation(String raw) {
@@ -338,10 +379,17 @@ public class ApiController {
             if (cmd == null) {
                 return badRequest("unknown commandId for this agent: " + req.commandId);
             }
+            // A file action's jobId is the alert it acts on: a scan result sent
+            // with that id would overwrite the original detection.
+            if (cmd.getType().isFileAction()) {
+                return badRequest("commandId " + req.commandId + " is a file action, not a scan: "
+                        + "report it to /api/agent/commands/" + req.commandId + "/result");
+            }
             String jobId = cmd.getJobId();
             if (jobId != null) {
                 if (verdict == ScanVerdict.VIRUS_FOUND) {
-                    jobs.finishFound(jobId, found, parseRemediation(req.remediation), req.remediationPath);
+                    jobs.finishFound(jobId, found, parseRemediation(req.remediation), req.remediationPath,
+                            quarantineMap(req, found));
                 } else if (verdict == ScanVerdict.ERROR) {
                     jobs.finishError(jobId, req.errorMessage);
                 } else {
@@ -354,7 +402,8 @@ public class ApiController {
         }
 
         var job = jobs.createExternalReport(req.hostname, req.path, verdict, found, req.errorMessage,
-                type, reportingEndpoint, auth.getName(), parseRemediation(req.remediation), req.remediationPath);
+                type, reportingEndpoint, auth.getName(), parseRemediation(req.remediation), req.remediationPath,
+                quarantineMap(req, found));
         return ResponseEntity.ok(Map.of("jobId", job.getId()));
     }
 

@@ -368,9 +368,13 @@ scan_error_detail() {
 send_report() {
   local verdict="$1"
   local error_message="$2"
-  local remediation="${3:-}" remediation_path="${4:-}"
+  local remediation="${3:-}" remediation_path="${4:-}" quarantined_json="${5:-}"
   local payload
-  payload="{\"hostname\":\"$(json_escape "$HOSTNAME")\",\"path\":\"$(json_escape "${SCAN_PATHS[*]}")\",\"verdict\":\"${verdict}\",\"findings\":${FINDINGS_JSON},\"errorMessage\":\"$(json_escape "$error_message")\",\"remediation\":\"$(json_escape "$remediation")\",\"remediationPath\":\"$(json_escape "$remediation_path")\"}"
+  payload="{\"hostname\":\"$(json_escape "$HOSTNAME")\",\"path\":\"$(json_escape "${SCAN_PATHS[*]}")\",\"verdict\":\"${verdict}\",\"findings\":${FINDINGS_JSON},\"errorMessage\":\"$(json_escape "$error_message")\",\"remediation\":\"$(json_escape "$remediation")\",\"remediationPath\":\"$(json_escape "$remediation_path")\""
+  # Per file, original -> quarantine path: what the console needs to offer a
+  # restore. Omitted when nothing was moved.
+  [[ -n "$quarantined_json" ]] && payload+=",\"quarantined\":${quarantined_json}"
+  payload+="}"
 
   curl -s "${AUTH_ARGS[@]}" "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
     -H "X-Agent-Clamav: $(clamav_version)" \
@@ -395,7 +399,9 @@ elif [ -n "$INFECTED_LINES" ]; then
   MODE="$(desired_mode)"
   REMEDIATION="not_attempted"
   REMEDIATION_PATHS=""
+  QUARANTINED_JSON=""
   if [ "$MODE" = "prevent" ]; then
+    QUARANTINED_JSON="["
     ANY_FAILED=false; ANY_QUARANTINED=false; ANY_REMOVED=false
     while IFS= read -r line; do
       [ -z "$line" ] && continue
@@ -405,6 +411,8 @@ elif [ -n "$INFECTED_LINES" ]; then
           ANY_QUARANTINED=true
           [ -n "$REMEDIATION_PATHS" ] && REMEDIATION_PATHS+="; "
           REMEDIATION_PATHS+="${outcome#*$'\t'}"
+          [ "$QUARANTINED_JSON" != "[" ] && QUARANTINED_JSON+=","
+          QUARANTINED_JSON+="{\"path\":\"$(json_escape "$infected_path")\",\"quarantinePath\":\"$(json_escape "${outcome#*$'\t'}")\"}"
           echo "[$TIMESTAMP] quarantined ${infected_path} -> ${outcome#*$'\t'}" >> "$LOG_FILE"
         else
           ANY_REMOVED=true
@@ -419,8 +427,9 @@ elif [ -n "$INFECTED_LINES" ]; then
     elif [ "$ANY_QUARANTINED" = true ]; then REMEDIATION="quarantined"
     elif [ "$ANY_REMOVED" = true ]; then REMEDIATION="removed"
     fi
+    QUARANTINED_JSON+="]"
   fi
-  send_report "VIRUS_FOUND" "" "$REMEDIATION" "$REMEDIATION_PATHS"
+  send_report "VIRUS_FOUND" "" "$REMEDIATION" "$REMEDIATION_PATHS" "$QUARANTINED_JSON"
   echo "[$TIMESTAMP] report sent to the dashboard (${COUNT} infected files, mode ${MODE}, remediation ${REMEDIATION})" >> "$LOG_FILE"
 
 elif [ "$EXIT_CODE" -eq 2 ] && ! printf '%s\n' "$SCAN_OUTPUT" | grep -qE '^Infected files: 0$'; then

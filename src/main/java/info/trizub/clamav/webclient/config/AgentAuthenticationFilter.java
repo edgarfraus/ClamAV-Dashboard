@@ -73,7 +73,8 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
                     // connecting to the machine, and no extra HTTP round trip is
                     // needed just for the heartbeat.
                     endpoints.touchAgentSeen(ep.getId(), request.getHeader("X-Agent-Clamav"),
-                            request.getHeader("X-Agent-OnAccess-Mode"), request.getHeader("X-Agent-OS"));
+                            request.getHeader("X-Agent-OnAccess-Mode"), request.getHeader("X-Agent-OS"),
+                            request.getHeader("X-Agent-Capabilities"));
                 }
             }
         }

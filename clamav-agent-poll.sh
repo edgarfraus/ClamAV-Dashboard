@@ -67,6 +67,12 @@ CLAMSCAN_BIN="${CLAMSCAN_BIN:-clamscan}"
 POLL_SECONDS="${AGENT_POLL_SECONDS:-30}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-15}"
 
+# What this agent can do beyond scanning, sent on every request as
+# X-Agent-Capabilities. The console only hands out a command type the agent
+# has declared here: an agent without "file-actions" would read a quarantine
+# or restore command as a plain scan of that path.
+AGENT_CAPABILITIES="file-actions"
+
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 if [[ -z "$DASHBOARD_URL" || -z "$DASHBOARD_AGENT_KEY" ]]; then
@@ -247,8 +253,11 @@ in_quarantine() {
   return 1
 }
 
+# $2 = "keep": never fall back to deleting. A quarantine the user asked for
+# from the console must leave the file restorable or fail visibly; a scan in
+# Prevention mode, by contrast, prefers deletion to leaving malware in place.
 quarantine_file() {
-  local path="$1" mnt="" qdir dest
+  local path="$1" keep="${2:-}" mnt="" qdir dest
   [[ -e "$path" ]] || return 1
   # POSIX "df -P", not GNU "df --output=target": macOS's df has no --output,
   # so the mount point came back empty there and every quarantine on a Mac
@@ -260,12 +269,15 @@ quarantine_file() {
   if [[ -n "${mnt:-}" ]]; then
     qdir="${mnt%/}/.claimav-quarantine"
     mkdir -p "$qdir" 2>/dev/null && chmod 700 "$qdir" 2>/dev/null
-    dest="${qdir}/$(date +%s%N)-$(basename -- "$path")"
+    # Seconds + PID + $RANDOM, not "date +%s%N": macOS's date has no %N and
+    # prints a literal N, so two files quarantined in the same second collided.
+    dest="${qdir}/$(date +%s)-$$-$RANDOM-$(basename -- "$path")"
     if mv -f -- "$path" "$dest" 2>/dev/null; then
       printf 'quarantined\t%s' "$dest"
       return 0
     fi
   fi
+  [[ "$keep" == "keep" ]] && return 1
   if rm -f -- "$path" 2>/dev/null; then
     printf 'removed\t'
     return 0
@@ -333,7 +345,7 @@ scan_error_detail() {
 
 report_result() {
   local command_id="$1" verdict="$2" target="$3" findings_json="$4" error_message="$5"
-  local remediation="${6:-}" remediation_path="${7:-}"
+  local remediation="${6:-}" remediation_path="${7:-}" quarantined_json="${8:-}"
   local payload
   payload="{\"hostname\":\"$(json_escape "$(hostname)")\""
   payload+=",\"path\":\"$(json_escape "$target")\""
@@ -342,13 +354,18 @@ report_result() {
   payload+=",\"findings\":${findings_json}"
   payload+=",\"errorMessage\":\"$(json_escape "$error_message")\""
   payload+=",\"remediation\":\"$(json_escape "$remediation")\""
-  payload+=",\"remediationPath\":\"$(json_escape "$remediation_path")\"}"
+  payload+=",\"remediationPath\":\"$(json_escape "$remediation_path")\""
+  # Which original went to which quarantine path, so the console can restore
+  # a single file later. Omitted when nothing was moved.
+  [[ -n "$quarantined_json" ]] && payload+=",\"quarantined\":${quarantined_json}"
+  payload+="}"
 
   if curl -sS -f --max-time "$CURL_TIMEOUT" \
        -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
        -H "X-Agent-Clamav: $(clamav_version)" \
        -H "X-Agent-OnAccess-Mode: $(current_onaccess_mode)" \
        -H "X-Agent-OS: $(agent_os)" \
+       -H "X-Agent-Capabilities: ${AGENT_CAPABILITIES}" \
        "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
        -X POST "${DASHBOARD_URL%/}/api/scan/report" \
        -H 'Content-Type: application/json' \
@@ -460,7 +477,9 @@ run_command() {
     # (or a group that never set a mode - desired_mode empty) reports only, as
     # documented: nothing here is touched.
     local remediation="not_attempted" remediation_paths="" any_failed=false any_quarantined=false any_removed=false
+    local quarantined_json=""
     if [[ "$desired_mode" == "prevent" ]]; then
+      quarantined_json="["
       while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         local infected_path="${line%%: *}"
@@ -472,6 +491,8 @@ run_command() {
             any_quarantined=true
             [[ -n "$remediation_paths" ]] && remediation_paths+="; "
             remediation_paths+="$moved_path"
+            [[ "$quarantined_json" != "[" ]] && quarantined_json+=","
+            quarantined_json+="{\"path\":\"$(json_escape "$infected_path")\",\"quarantinePath\":\"$(json_escape "$moved_path")\"}"
           else
             any_removed=true
           fi
@@ -487,8 +508,9 @@ run_command() {
       elif [[ "$any_removed" == true ]]; then
         remediation="removed"
       fi
+      quarantined_json+="]"
     fi
-    report_result "$command_id" "VIRUS_FOUND" "${existing[*]}" "$findings_json" "" "$remediation" "$remediation_paths"
+    report_result "$command_id" "VIRUS_FOUND" "${existing[*]}" "$findings_json" "" "$remediation" "$remediation_paths" "$quarantined_json"
   elif [[ "$quarantine_only" == true ]]; then
     # Everything this scan found was already in quarantine. The scanner still
     # exited 1 ("infected files found") and its summary still counts those files,
@@ -519,6 +541,163 @@ run_command() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# File actions: quarantine or restore ONE file of an alert, on request from
+# the console (Alerts > alert > the buttons next to each file). The console
+# is trusted to ask, not to decide: every action re-checks on this machine
+# that it makes sense, so a compromised or buggy console cannot use it to move
+# arbitrary files around.
+#   QUARANTINE    <path>            only if ClamAV still detects the file now
+#   RESTORE       <qpath>\n<orig>   only out of a quarantine directory, never
+#                                   over an existing file
+#   RESTORE_ALLOW <qpath>\n<orig>   as RESTORE, after adding the file's SHA-256
+#                                   to ClamAV's local allow list
+# ---------------------------------------------------------------------------
+
+report_action() {
+  local command_id="$1" ok="$2" message="$3" qpath="${4:-}"
+  local payload="{\"ok\":${ok},\"message\":\"$(json_escape "$message")\",\"quarantinePath\":\"$(json_escape "$qpath")\"}"
+  if curl -sS -f --max-time "$CURL_TIMEOUT" \
+       -H "X-Agent-Key: ${DASHBOARD_AGENT_KEY}" \
+       -H "X-Agent-Clamav: $(clamav_version)" \
+       -H "X-Agent-OS: $(agent_os)" \
+       -H "X-Agent-Capabilities: ${AGENT_CAPABILITIES}" \
+       "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
+       -X POST "${DASHBOARD_URL%/}/api/agent/commands/${command_id}/result" \
+       -H 'Content-Type: application/json' \
+       -d "$payload" > /dev/null; then
+    log "command ${command_id}: ${message}"
+  else
+    log "command ${command_id}: FAILED to report the outcome (${message})"
+  fi
+}
+
+file_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -- "$1" 2>/dev/null | awk '{print $1}'
+  else
+    shasum -a 256 -- "$1" 2>/dev/null | awk '{print $1}'   # macOS
+  fi
+}
+
+# Where ClamAV loads its databases from: the allow list has to sit next to the
+# signatures to be read at all. clamd.conf's DatabaseDirectory when this
+# machine's clamd.conf is known, else the usual places, the first that
+# actually holds a signature database.
+clamav_db_dir() {
+  local d=""
+  if [[ -n "${CLAMAV_DB_DIR:-}" ]]; then printf '%s' "$CLAMAV_DB_DIR"; return 0; fi
+  if [[ -n "$CLAMD_CONF_PATH" && -r "$CLAMD_CONF_PATH" ]]; then
+    d="$(grep -E '^[[:space:]]*DatabaseDirectory[[:space:]]+' "$CLAMD_CONF_PATH" | awk '{print $2}' | tail -1 || true)"
+    [[ -n "$d" && -d "$d" ]] && { printf '%s' "$d"; return 0; }
+  fi
+  for d in /var/lib/clamav /opt/homebrew/var/lib/clamav /usr/local/var/lib/clamav; do
+    if ls "$d"/main.c[vl]d "$d"/daily.c[vl]d "$d"/main.inc "$d"/daily.inc >/dev/null 2>&1 \
+       || [[ -n "$(ls "$d"/*.c[vl]d 2>/dev/null)" ]]; then
+      printf '%s' "$d"; return 0
+    fi
+  done
+  return 1
+}
+
+# Adds a file to ClamAV's own allow list: a ".sfp" database holds
+# "<sha256>:<size>:<name>" lines, and a file matching one is never reported as
+# infected. Exactly that file - change one byte and it is scanned again. Then
+# clamd is asked to reload, since it only reads its databases at start and on
+# RELOAD (clamscan reads them on every run anyway).
+ALLOW_LIST_NAME="claimav-allow.sfp"
+allow_file() {
+  local path="$1" label="$2" db sum size list
+  db="$(clamav_db_dir)" || { ALLOW_ERROR="ClamAV database directory not found (set CLAMAV_DB_DIR in the config file)"; return 1; }
+  sum="$(file_sha256 "$path")"
+  size="$(wc -c < "$path" 2>/dev/null | tr -d '[:space:]')"
+  if ! [[ "$sum" =~ ^[0-9a-f]{64}$ && "$size" =~ ^[0-9]+$ ]]; then
+    ALLOW_ERROR="could not compute the file's SHA-256"; return 1
+  fi
+  list="${db%/}/${ALLOW_LIST_NAME}"
+  if ! grep -qs "^${sum}:${size}:" "$list"; then
+    printf '%s:%s:ClaimAV.Allowed.%s\n' "$sum" "$size" "$label" >> "$list" 2>/dev/null \
+      || { ALLOW_ERROR="cannot write ${list}"; return 1; }
+    chmod 644 "$list" 2>/dev/null || true
+  fi
+  ALLOWED_SHA256="$sum"
+  "$CLAMDSCAN_BIN" --reload >/dev/null 2>&1 || true
+  return 0
+}
+
+action_quarantine() {
+  local command_id="$1" path="$2" out outcome
+  if [[ -L "$path" || ! -f "$path" ]]; then
+    report_action "$command_id" false "Not quarantined: ${path} is not a regular file on this machine any more (moved or deleted?)."
+    return
+  fi
+  if in_quarantine "$path"; then
+    report_action "$command_id" false "Not quarantined: ${path} is already inside a quarantine directory."
+    return
+  fi
+  if ! pick_scanner; then
+    report_action "$command_id" false "Not quarantined: cannot re-check the file first. ${SCANNER_ERROR}"
+    return
+  fi
+  out="$("${SCANNER[@]}" "$path" 2>&1)"
+  if ! printf '%s\n' "$out" | grep -q 'FOUND$'; then
+    report_action "$command_id" false "Not quarantined: ClamAV no longer detects ${path}, so it was left where it is."
+    return
+  fi
+  if outcome="$(quarantine_file "$path" keep)"; then
+    report_action "$command_id" true "Moved into quarantine: ${outcome#*$'\t'}" "${outcome#*$'\t'}"
+  else
+    report_action "$command_id" false "Could not move ${path} into quarantine (no quarantine directory on its filesystem, or not permitted). Nothing was changed."
+  fi
+}
+
+action_restore() {
+  local command_id="$1" allow="$2" qpath="$3" orig="$4" parent note=""
+  if ! in_quarantine "$qpath"; then
+    report_action "$command_id" false "Not restored: ${qpath} is not inside a quarantine directory."
+    return
+  fi
+  if [[ -L "$qpath" || ! -f "$qpath" ]]; then
+    report_action "$command_id" false "Not restored: ${qpath} is no longer in quarantine (already restored or removed?)."
+    return
+  fi
+  if [[ "$orig" != /* ]] || in_quarantine "$orig"; then
+    report_action "$command_id" false "Not restored: invalid destination ${orig}."
+    return
+  fi
+  if [[ -e "$orig" || -L "$orig" ]]; then
+    report_action "$command_id" false "Not restored: a file already exists at ${orig}, and it is never overwritten."
+    return
+  fi
+  parent="$(dirname -- "$orig")"
+  if [[ ! -d "$parent" ]]; then
+    report_action "$command_id" false "Not restored: the folder ${parent} no longer exists."
+    return
+  fi
+  if [[ "$allow" == true ]]; then
+    ALLOW_ERROR=""; ALLOWED_SHA256=""
+    if ! allow_file "$qpath" "$command_id"; then
+      report_action "$command_id" false "Not restored: could not add the file to the allow list (${ALLOW_ERROR}). Nothing was changed."
+      return
+    fi
+    note=" and allow-listed (SHA-256 ${ALLOWED_SHA256})"
+  fi
+  if mv -- "$qpath" "$orig" 2>/dev/null; then
+    report_action "$command_id" true "Restored to ${orig}${note}."
+  else
+    report_action "$command_id" false "Could not move the file back to ${orig}${note:+ (it was allow-listed nonetheless)}."
+  fi
+}
+
+run_file_action() {
+  local command_id="$1" type="$2" target="$3"
+  case "$type" in
+    QUARANTINE)    action_quarantine "$command_id" "$target" ;;
+    RESTORE)       action_restore "$command_id" false "${target%%$'\n'*}" "${target#*$'\n'}" ;;
+    RESTORE_ALLOW) action_restore "$command_id" true  "${target%%$'\n'*}" "${target#*$'\n'}" ;;
+  esac
+}
+
 poll_once() {
   local background="${1:-false}"
   local response
@@ -527,6 +706,7 @@ poll_once() {
       -H "X-Agent-Clamav: $(clamav_version)" \
       -H "X-Agent-OnAccess-Mode: $(current_onaccess_mode)" \
       -H "X-Agent-OS: $(agent_os)" \
+      -H "X-Agent-Capabilities: ${AGENT_CAPABILITIES}" \
       "${TLS_ARGS[@]+"${TLS_ARGS[@]}"}" \
       "${DASHBOARD_URL%/}/api/agent/commands?format=text" 2>/dev/null)" || {
     log "console unreachable, retrying on the next pass"
@@ -541,8 +721,10 @@ poll_once() {
   # command id (those are numeric), so the two never collide. The mode also
   # governs remediation for scans run from here on: Prevention quarantines
   # what it finds, Detection only ever reports.
+  # A third field marks a file action ("<id> <base64> QUARANTINE"); scans
+  # have none.
   local desired_mode=""
-  while IFS=' ' read -r command_id encoded; do
+  while IFS=' ' read -r command_id encoded command_type; do
     [[ -z "$command_id" || -z "$encoded" ]] && continue
     if [[ "$command_id" == "MODE" ]]; then
       desired_mode="$encoded"
@@ -554,6 +736,25 @@ poll_once() {
       log "command ${command_id}: undecodable targets, skipping"
       continue
     }
+    case "${command_type:-SCAN}" in
+      SCAN) ;;
+      QUARANTINE|RESTORE|RESTORE_ALLOW)
+        # Quick (a single file), but a quarantine re-scans the file first,
+        # which with clamscan as the fallback means loading every signature:
+        # backgrounded in the loop for the same reason as a scan.
+        log "command ${command_id}: ${command_type}"
+        if [[ "$background" == true ]]; then
+          run_file_action "$command_id" "$command_type" "$targets_raw" &
+        else
+          run_file_action "$command_id" "$command_type" "$targets_raw"
+        fi
+        continue
+        ;;
+      *)
+        log "command ${command_id}: unknown command type '${command_type}', skipping"
+        continue
+        ;;
+    esac
     if [[ "$background" == true ]]; then
       # Backgrounded so this loop goes straight back to sleep and polls again
       # on schedule instead of blocking on the scan. It's the GET above that

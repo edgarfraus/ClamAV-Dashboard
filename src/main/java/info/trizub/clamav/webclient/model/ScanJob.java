@@ -70,6 +70,15 @@ public class ScanJob {
     @Column(length = 16)
     private RemediationStatus remediationStatus;
 
+    // Which detected file went where: {"<original path>": "<path in quarantine>"},
+    // as reported by the agent that moved it. quarantinePath above is a single
+    // display string; restoring a file needs the exact pair, per file. Kept up
+    // to date by file actions (a restore removes its entry). Null for jobs
+    // reported by agents too old to send it, which therefore cannot be restored
+    // from the console.
+    @Column(columnDefinition = "TEXT")
+    private String quarantineMapJson;
+
     @Column(columnDefinition = "boolean default false")
     private boolean acknowledged = false;
 
@@ -127,6 +136,30 @@ public class ScanJob {
         } catch (Exception e) {
             // Malformed JSON: surface it rather than hiding the detection.
             return java.util.Collections.singletonMap(foundVirusesJson, java.util.Collections.emptyList());
+        }
+    }
+
+    public String getQuarantineMapJson() { return quarantineMapJson; }
+    public void setQuarantineMapJson(String quarantineMapJson) { this.quarantineMapJson = quarantineMapJson; }
+
+    /** Original path -> path in quarantine, for the files of this job that are in quarantine now. */
+    @Transient
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public java.util.Map<String, String> getQuarantineMap() {
+        if (quarantineMapJson == null || quarantineMapJson.isBlank()) return new java.util.LinkedHashMap<>();
+        try {
+            return FOUND_MAPPER.readValue(quarantineMapJson,
+                new com.fasterxml.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, String>>() {});
+        } catch (Exception e) {
+            return new java.util.LinkedHashMap<>();
+        }
+    }
+
+    public void setQuarantineMap(java.util.Map<String, String> map) {
+        try {
+            this.quarantineMapJson = map == null || map.isEmpty() ? null : FOUND_MAPPER.writeValueAsString(map);
+        } catch (Exception e) {
+            this.quarantineMapJson = null;
         }
     }
 

@@ -82,6 +82,13 @@ public class ClamdEndpoint {
     @Column(length = 16)
     private String agentOs;
 
+    // What the installed agent says it can do, from X-Agent-Capabilities on
+    // every request (comma-separated, e.g. "file-actions"). An agent too old to
+    // send the header has none, and the console must not hand it a command it
+    // would misread: an old agent treats every command as a scan.
+    @Column(length = 255)
+    private String agentCapabilities;
+
     public ClamdEndpoint() {}
 
     public ClamdEndpoint(String name, String host, int port, Platform platform) {
@@ -118,5 +125,16 @@ public class ClamdEndpoint {
     public void setAgentOnAccessAppliedAt(Instant agentOnAccessAppliedAt) { this.agentOnAccessAppliedAt = agentOnAccessAppliedAt; }
     public String getAgentOs() { return agentOs; }
     public void setAgentOs(String agentOs) { this.agentOs = agentOs; }
+    public String getAgentCapabilities() { return agentCapabilities; }
+    public void setAgentCapabilities(String agentCapabilities) { this.agentCapabilities = agentCapabilities; }
     public boolean isAgentEnrolled() { return agentKey != null && !agentKey.isBlank(); }
+
+    /** True when the installed agent can quarantine and restore single files on request. */
+    public boolean isFileActionsSupported() {
+        if (!isAgentEnrolled() || agentCapabilities == null) return false;
+        for (String c : agentCapabilities.split(",")) {
+            if ("file-actions".equals(c.trim())) return true;
+        }
+        return false;
+    }
 }

@@ -116,6 +116,55 @@ is a pure rename, which is never intercepted by on-access prevention. That in tu
 > has to be reported `OK` explicitly — otherwise it falls through to "scan failed" and notifies
 > anyway.
 
+### Detection or Prevention, per group
+
+On agent machines, quarantine is decided per **group** (Admin › Groups): **Detection** reports
+and leaves the file where it is, **Prevention** moves it into quarantine on the machine. An
+endpoint in no group is Detection. Every kind of scan honours it — launched from the console,
+scheduled, and realtime on Linux. The agent asks for the mode on each run; if the console is
+unreachable it falls back to the mode last applied on the machine, and with neither it only
+reports: it does not move files on a guess.
+
+| OS | Quarantine directory |
+|---|---|
+| Linux / macOS | `.claimav-quarantine` at the root of the file's own filesystem (mode 700) |
+| Windows | `C:\ProgramData\ClaimAV\quarantine` (SYSTEM and Administrators only) |
+
+### Quarantining or restoring one file from an alert
+
+Each detected file on an alert page has its own buttons, for any `OPERATOR`:
+
+| The file is | Buttons |
+|---|---|
+| Still in place (Detection) | **Quarantine** |
+| In quarantine (Prevention, or quarantined by hand) | **Restore**, **Restore as false positive** |
+
+The agent carries the action out at its next check-in (within 5 minutes), and the alert shows it
+as *Waiting for the agent*, then *Done* or *Failed* with the reason, in a **File actions** history.
+Every request is in the audit log.
+
+**Restore** puts the file back where it was found. On a Prevention machine the next scan will
+quarantine it again, because it is still detected. **Restore as false positive** also adds the
+file's SHA-256 to ClamAV's own allow list on that machine (`claimav-allow.sfp` in the signature
+directory), so that exact file is never reported there again — change one byte and it is scanned
+as usual. To undo it, delete the line from that file.
+
+The console asks; the agent decides whether it is safe:
+
+- a file is quarantined only if ClamAV **still detects it** when the agent re-checks it, so the
+  button cannot be used to move an arbitrary file;
+- a restore only takes a file from the quarantine directory, and **never overwrites** a file that
+  now exists at the original path;
+- a quarantine the user asked for never falls back to deleting the file: if it cannot be moved,
+  nothing is changed and the action fails with the reason.
+
+> [!NOTE]
+> The buttons appear only for agents that declare they support file actions, which means an agent
+> installed from this version on. An older agent would read the command as a scan of that path,
+> so the console does not send it one: reinstall the agent to enable the buttons. Restoring also
+> needs to know where each file went, which older agents did not report — files quarantined by
+> them can be restored by hand from the quarantine directory.
+
 ## Alerts
 
 Every `VIRUS_FOUND` job becomes an alert, grouped per endpoint and open until someone

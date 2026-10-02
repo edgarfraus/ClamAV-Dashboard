@@ -70,14 +70,16 @@ irm 'https://console.example/agent/install.ps1?key=KEY' | iex    # PowerShell as
 - A `freshclam` check every hour and at every boot, **regardless of which components you chose**, because every one of them
   is worthless against a frozen signature database.
 
-On **Windows** everything lives in `C:\ProgramData\ClaimAV\`, readable only by Administrators and
-SYSTEM:
+On **Windows** everything lives in `C:\ProgramData\ClaimAV\`. The configuration (which holds the
+key) and the quarantine are readable only by Administrators and SYSTEM:
 
 | File | Run by the scheduled task | When |
 |---|---|---|
-| `agent.conf.json` | — | Console URL, key, `clamscan.exe` path, default scan paths. |
-| `poll-agent.ps1` | `ClaimAV Agent Poll` | Every 5 minutes. The heartbeat, and the console-dispatched scans. |
+| `agent.conf.json` | — | Console URL, key, `clamscan.exe` path, default scan paths. Optional `DatabaseDir` when the signatures are not in `database\` next to `clamscan.exe` or in `freshclam.conf`'s `DatabaseDirectory`. |
+| `poll-agent.ps1` | `ClaimAV Agent Poll` | Every 5 minutes. The heartbeat, the console-dispatched scans and the file actions. |
 | `run-command.ps1` | started by the poll | One per dispatched scan, detached so the poll keeps its heartbeat. |
+| `file-action.ps1` | started by the poll | Quarantine or restore of one file, requested from an alert. |
+| `quarantine-lib.ps1` | — | Functions the scripts above share: moving to quarantine, the allow list. |
 | `scan-report.ps1` | `ClaimAV Agent Scan` | Nightly, at the time chosen during install. |
 | — | `ClaimAV Signature Update` | `freshclam.exe` every hour and at startup. |
 | `update-clamav.ps1` | `ClaimAV Binary Update` | Weekly, Sunday 04:30: upgrades ClamAV itself. Log: `update-clamav.log`. |

@@ -180,7 +180,8 @@ public class EndpointService {
      * Best-effort: it must never make the agent's request fail.
      */
     @Transactional
-    public void touchAgentSeen(Long id, String clamdVersion, String onAccessMode, String agentOs) {
+    public void touchAgentSeen(Long id, String clamdVersion, String onAccessMode, String agentOs,
+                               String capabilities) {
         try {
             repo.findById(id).ifPresent(ep -> {
                 ep.setAgentLastSeenAt(Instant.now());
@@ -198,6 +199,13 @@ public class EndpointService {
                 }
                 if ("linux".equals(agentOs) || "macos".equals(agentOs) || "windows".equals(agentOs)) {
                     ep.setAgentOs(agentOs);
+                }
+                // Only the poll agent sends it, and it is what receives commands:
+                // the other scripts (scheduled scan, realtime reporter) leave the
+                // last value alone instead of wiping it.
+                if (capabilities != null) {
+                    String c = capabilities.trim();
+                    ep.setAgentCapabilities(c.isEmpty() ? null : (c.length() > 255 ? c.substring(0, 255) : c));
                 }
                 repo.save(ep);
             });

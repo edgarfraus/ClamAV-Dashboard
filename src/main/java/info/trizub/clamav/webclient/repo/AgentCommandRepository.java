@@ -7,12 +7,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 public interface AgentCommandRepository extends JpaRepository<AgentCommand, Long> {
     List<AgentCommand> findByEndpointAndStatusOrderByCreatedAtAsc(ClamdEndpoint endpoint, AgentCommandStatus status);
     List<AgentCommand> findByStatusAndDispatchedAtBefore(AgentCommandStatus status, Instant before);
     List<AgentCommand> findByStatusAndCreatedAtBefore(AgentCommandStatus status, Instant before);
-    Optional<AgentCommand> findByJobId(String jobId);
+    // A list, not an Optional: an alert can carry several file actions.
+    List<AgentCommand> findByJobIdOrderByCreatedAtDesc(String jobId);
     List<AgentCommand> findByEndpoint(ClamdEndpoint endpoint);
 }

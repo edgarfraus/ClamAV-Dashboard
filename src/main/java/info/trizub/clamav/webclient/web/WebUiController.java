@@ -510,7 +510,90 @@ public class WebUiController {
         model.addAttribute("parentService", deriveParentService(job));
         model.addAttribute("parentPath", deriveParentPath(job));
         model.addAttribute("virusEntries", parseVirusEntries(job.getFoundVirusesJson()));
+        model.addAttribute("quarantineMap", job.getQuarantineMap());
+        List<AgentCommand> fileActions = agentCommands.fileActionsForJob(job.getId());
+        model.addAttribute("fileActions", fileActions);
+        Set<String> pendingPaths = new HashSet<>();
+        for (AgentCommand c : fileActions) {
+            if (c.getStatus() != AgentCommandStatus.DONE) pendingPaths.add(c.getFilePath());
+        }
+        model.addAttribute("pendingPaths", pendingPaths);
+        model.addAttribute("fileActionsAvailable", job.getVerdict() == ScanVerdict.VIRUS_FOUND
+                && job.getEndpoint() != null && job.getEndpoint().isFileActionsSupported());
         return PAGE_ALERT_DETAIL;
+    }
+
+    /**
+     * Asks the agent to move one detected file into quarantine. The agent
+     * re-scans the file first and refuses if it is no longer detected, so this
+     * cannot be used to move an arbitrary file.
+     */
+    @PostMapping("/alerts/{id}/files/quarantine")
+    public String alertFileQuarantine(@PathVariable("id") String id, @RequestParam String path,
+                                      Authentication auth, HttpServletRequest req, RedirectAttributes redirect) {
+        ScanJob job = jobs.getOrNull(id);
+        String problem = fileActionProblem(job, path);
+        if (problem == null && job.getQuarantineMap().containsKey(path)) problem = "This file is already in quarantine.";
+        if (problem == null && !job.getFoundVirusesMap().containsKey(path)) problem = "This file is not part of the alert.";
+        if (problem != null) {
+            audit.record(auth, req, "ALERT_FILE_QUARANTINE", "jobId=" + id + " path=" + path + ": " + problem, "FAILURE", id);
+            redirect.addFlashAttribute("errorMsg", problem);
+            return "redirect:/alerts/" + id;
+        }
+        agentCommands.enqueueFileAction(job.getEndpoint(), id, AgentCommandType.QUARANTINE, path, auth.getName());
+        audit.record(auth, req, "ALERT_FILE_QUARANTINE", "jobId=" + id + " path=" + path, "SUCCESS", id);
+        redirect.addFlashAttribute("actionMsg", "Quarantine requested for " + path
+                + ". The agent carries it out at its next check-in (within 5 minutes).");
+        return "redirect:/alerts/" + id;
+    }
+
+    /**
+     * Asks the agent to put a quarantined file back where it was found. With
+     * allow=true it is also marked as a false positive: its SHA-256 goes into
+     * ClamAV's local allow list on that machine, or a Prevention group would
+     * quarantine it again at the very next scan.
+     */
+    @PostMapping("/alerts/{id}/files/restore")
+    public String alertFileRestore(@PathVariable("id") String id, @RequestParam String path,
+                                   @RequestParam(defaultValue = "false") boolean allow,
+                                   Authentication auth, HttpServletRequest req, RedirectAttributes redirect) {
+        ScanJob job = jobs.getOrNull(id);
+        String action = allow ? "ALERT_FILE_RESTORE_ALLOW" : "ALERT_FILE_RESTORE";
+        String problem = fileActionProblem(job, path);
+        String quarantinePath = problem == null ? job.getQuarantineMap().get(path) : null;
+        if (problem == null && quarantinePath == null) {
+            problem = "The console does not know where this file is in quarantine, so it cannot restore it.";
+        }
+        if (problem != null) {
+            audit.record(auth, req, action, "jobId=" + id + " path=" + path + ": " + problem, "FAILURE", id);
+            redirect.addFlashAttribute("errorMsg", problem);
+            return "redirect:/alerts/" + id;
+        }
+        agentCommands.enqueueFileAction(job.getEndpoint(), id,
+                allow ? AgentCommandType.RESTORE_ALLOW : AgentCommandType.RESTORE,
+                quarantinePath + "\n" + path, auth.getName());
+        audit.record(auth, req, action, "jobId=" + id + " path=" + path + " from=" + quarantinePath, "SUCCESS", id);
+        redirect.addFlashAttribute("actionMsg", (allow ? "Restore and allow-list" : "Restore")
+                + " requested for " + path + ". The agent carries it out at its next check-in (within 5 minutes).");
+        return "redirect:/alerts/" + id;
+    }
+
+    /** What stops a file action on this alert, or null when it can go ahead. */
+    private String fileActionProblem(ScanJob job, String path) {
+        if (job == null) return "Alert not found.";
+        if (job.getVerdict() != ScanVerdict.VIRUS_FOUND) return "This alert has no detected files.";
+        if (job.getEndpoint() == null) return "The endpoint of this alert no longer exists.";
+        if (!job.getEndpoint().isFileActionsSupported()) {
+            return "The agent on " + job.getEndpoint().getName()
+                    + " does not support file actions yet: reinstall it from Admin > Endpoints.";
+        }
+        if (path == null || path.isBlank()) return "No file given.";
+        for (AgentCommand c : agentCommands.fileActionsForJob(job.getId())) {
+            if (c.getStatus() != AgentCommandStatus.DONE && path.equals(c.getFilePath())) {
+                return "An action on this file is already waiting for the agent.";
+            }
+        }
+        return null;
     }
 
     @PostMapping("/alerts/{id}/ack")

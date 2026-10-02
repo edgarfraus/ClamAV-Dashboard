@@ -254,7 +254,8 @@ public class ScanJobService {
     public ScanJob createExternalReport(String hostname, String path, ScanVerdict verdict,
                                         Map<String, List<String>> foundViruses, String errorMessage,
                                         ScanJobType type, ClamdEndpoint endpoint, String username,
-                                        RemediationStatus remediation, String remediationPath) {
+                                        RemediationStatus remediation, String remediationPath,
+                                        Map<String, String> quarantineMap) {
         String id = UUID.randomUUID().toString().replace("-", "");
         ScanJob job = new ScanJob();
         job.setId(id);
@@ -282,6 +283,7 @@ public class ScanJobService {
             }
             job.setRemediationStatus(remediation != null ? remediation : RemediationStatus.NOT_ATTEMPTED);
             if (remediationPath != null && !remediationPath.isBlank()) job.setQuarantinePath(remediationPath);
+            job.setQuarantineMap(quarantineMap);
         } else if (verdict == ScanVerdict.ERROR) {
             job.setErrorMessage(errorMessage);
         }
@@ -333,7 +335,8 @@ private void enqueueAfterCommit(String jobId) {
      * other way to know, since there is no direct channel to the host.
      */
     @Transactional
-    public void finishFound(String id, Object foundViruses, RemediationStatus remediation, String remediationPath) {
+    public void finishFound(String id, Object foundViruses, RemediationStatus remediation, String remediationPath,
+                            Map<String, String> quarantineMap) {
         ScanJob job = repo.findById(id).orElseThrow();
         job.setStatus(ScanJobStatus.FINISHED);
         job.setVerdict(ScanVerdict.VIRUS_FOUND);
@@ -344,7 +347,33 @@ private void enqueueAfterCommit(String jobId) {
         }
         job.setRemediationStatus(remediation != null ? remediation : RemediationStatus.NOT_ATTEMPTED);
         if (remediationPath != null && !remediationPath.isBlank()) job.setQuarantinePath(remediationPath);
+        job.setQuarantineMap(quarantineMap);
         job.setFinishedAt(Instant.now());
+        repo.save(job);
+    }
+
+    /**
+     * Records a file action an agent carried out on one file of this alert:
+     * a quarantine adds the file's original -> quarantine pair, a restore
+     * removes it. The remediation status and the display path follow, so the
+     * alert says what is true on the machine now, not what the scan did.
+     */
+    @Transactional
+    public void applyFileAction(String jobId, AgentCommandType type, String originalPath, String quarantinePath) {
+        ScanJob job = repo.findById(jobId).orElse(null);
+        if (job == null || originalPath == null) return;
+        Map<String, String> map = job.getQuarantineMap();
+        if (type == AgentCommandType.QUARANTINE) {
+            if (quarantinePath == null || quarantinePath.isBlank()) return;
+            map.put(originalPath, quarantinePath);
+        } else if (type == AgentCommandType.RESTORE || type == AgentCommandType.RESTORE_ALLOW) {
+            map.remove(originalPath);
+        } else {
+            return;
+        }
+        job.setQuarantineMap(map);
+        job.setQuarantinePath(map.isEmpty() ? null : String.join("; ", map.values()));
+        job.setRemediationStatus(map.isEmpty() ? RemediationStatus.NOT_ATTEMPTED : RemediationStatus.QUARANTINED);
         repo.save(job);
     }
 
