@@ -1,7 +1,10 @@
 package info.trizub.clamav.webclient.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import info.trizub.clamav.webclient.model.ScanJob;
+import info.trizub.clamav.webclient.model.TelegramAction;
+import info.trizub.clamav.webclient.repo.TelegramActionRepository;
 import info.trizub.clamav.webclient.model.ScanJobType;
 import info.trizub.clamav.webclient.model.ScanVerdict;
 import org.slf4j.Logger;
@@ -21,10 +24,15 @@ public class NotificationService {
 
     private final SettingsService settings;
     private final ObjectMapper mapper;
+    private final TelegramApi telegram;
+    private final TelegramActionRepository telegramActions;
 
-    public NotificationService(SettingsService settings, ObjectMapper mapper) {
+    public NotificationService(SettingsService settings, ObjectMapper mapper, TelegramApi telegram,
+                               TelegramActionRepository telegramActions) {
         this.settings = settings;
         this.mapper = mapper;
+        this.telegram = telegram;
+        this.telegramActions = telegramActions;
     }
 
     public void notifyIfNeeded(ScanJob job) {
@@ -162,20 +170,46 @@ public class NotificationService {
                     "Scan error: " + escapeMarkdown(job.getErrorMessage());
         }
 
+        // Buttons: Quarantine for a file still in place, Restore for one in
+        // quarantine (see TelegramBotService), plus a link to the alert when
+        // the console's public address is known.
+        List<TelegramAction> offers = job.getVerdict() == ScanVerdict.VIRUS_FOUND && settings.telegramActionsEnabled()
+                ? TelegramBotService.offersFor(job, fresh.keySet(), chatId)
+                : List.of();
+        String alertUrl = settings.publicUrl().isEmpty() || job.getVerdict() != ScanVerdict.VIRUS_FOUND
+                ? null : settings.publicUrl() + "/alerts/" + job.getId();
+        Map<String, Object> keyboard = TelegramKeyboard.build(offers, null, alertUrl);
+        if (!offers.isEmpty()) text += "\n_Tap a button, then confirm._";
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("chat_id", chatId);
+        payload.put("parse_mode", "Markdown");
+        payload.put("text", text);
+        if (!TelegramKeyboard.isEmpty(keyboard)) payload.put("reply_markup", keyboard);
+        JsonNode sent;
         try {
-            Map<String, Object> payload = Map.of(
-                    "chat_id", chatId,
-                    "parse_mode", "Markdown",
-                    "text", text
-            );
-            RestClient.create().post()
-                    .uri("https://api.telegram.org/bot" + token + "/sendMessage")
-                    .header("Content-Type", "application/json")
-                    .body(mapper.writeValueAsString(payload))
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (Exception e) {
-            log.warn("Telegram notification failed: {}", e.getMessage());
+            sent = telegram.call("sendMessage", payload);
+        } catch (TelegramApi.TelegramException e) {
+            if (!payload.containsKey("reply_markup")) {
+                log.warn("Telegram notification failed: {}", e.getMessage());
+                return;
+            }
+            // A bad button (Telegram rejects some URLs, e.g. "localhost") must
+            // not cost the alert itself: send it again without buttons.
+            log.warn("Telegram refused the alert's buttons ({}); sending it without them.", e.getMessage());
+            payload.remove("reply_markup");
+            offers = List.of();
+            try {
+                sent = telegram.call("sendMessage", payload);
+            } catch (TelegramApi.TelegramException e2) {
+                log.warn("Telegram notification failed: {}", e2.getMessage());
+                return;
+            }
+        }
+        if (!offers.isEmpty()) {
+            long messageId = sent.path("message_id").asLong();
+            offers.forEach(o -> o.setMessageId(messageId));
+            telegramActions.saveAll(offers);
         }
     }
 

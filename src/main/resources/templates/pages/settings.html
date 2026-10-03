@@ -13,12 +13,10 @@
         <div class="text-body-secondary small">Application-wide scan, storage, and automation configuration</div>
       </div>
 
-      <div class="alert alert-warning" style="font-size:13px;">
-        Note: unchecked checkboxes are not submitted by browsers — unticking and saving will not persist
-        unless the form is re-submitted with the checkbox explicitly unticked.
-      </div>
-
       <form th:action="@{/admin/settings}" method="post">
+        <!-- Marks a save from this complete form: a switch missing from it is
+             one that was turned off (browsers send nothing for an unticked box). -->
+        <input type="hidden" name="_fullForm" value="1"/>
         <div class="card mb-4">
           <div class="card-body">
             <div class="d-flex align-items-center gap-3 mb-4">
@@ -120,6 +118,39 @@
                      th:value="${settings['app.telegram.chatId']}"/>
             </div>
             <div class="text-body-secondary" style="font-size:12px;">Sent for VIRUS_FOUND and ERROR jobs only (including external reports via /api/scan/report).</div>
+
+            <hr class="my-4"/>
+            <div class="mb-3 d-flex align-items-center" style="gap:10px;">
+              <label class="switch">
+                <input type="checkbox" name="app.telegram.actions.enabled" value="true"
+                       th:checked="${settings['app.telegram.actions.enabled'] == 'true'}"/>
+                <span class="slider"></span>
+              </label>
+              <span>Buttons under alerts: <strong>Quarantine</strong> a file left in place,
+                <strong>Restore</strong> one from quarantine</span>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Who may press them</label>
+              <textarea class="form-control font-monospace" rows="3" name="app.telegram.actionUsers"
+                        placeholder="123456789=alice"
+                        th:text="${settings['app.telegram.actionUsers']}"></textarea>
+            </div>
+            <div class="text-body-secondary mb-3" style="font-size:12px;">
+              One per line: <code>&lt;Telegram user ID&gt;=&lt;console username&gt;</code>. The console user must
+              be an OPERATOR or ADMIN; actions are audited as that user, "via Telegram". In a group anyone can
+              press a button: a press from anyone not listed here does nothing, and the bot tells them their
+              Telegram ID so it can be added. Restoring as a false positive (allow-listing) is only possible
+              from the console. The bot must not be read by another program or have a webhook set: Telegram
+              hands its button presses to one reader only.
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Console address for links (optional)</label>
+              <input type="text" class="form-control" name="app.publicUrl" placeholder="https://av.example.org"
+                     th:value="${settings['app.publicUrl']}"/>
+            </div>
+            <div class="text-body-secondary" style="font-size:12px;">
+              Adds an "Open in console" button to each alert. Must be the address people reach the console at.
+            </div>
           </div>
         </div>
 

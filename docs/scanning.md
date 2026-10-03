@@ -158,6 +158,28 @@ The console asks; the agent decides whether it is safe:
 - a quarantine the user asked for never falls back to deleting the file: if it cannot be moved,
   nothing is changed and the action fails with the reason.
 
+### From Telegram
+
+With **Settings › Telegram › Buttons under alerts** on, each Telegram alert carries a button per
+file (up to 8): **🗄 Quarantine** for a file left in place, **↩️ Restore** for one in quarantine,
+plus **🔎 Open in console** when the console's address is set. The first tap asks for confirmation;
+the bot then replies in the chat as the agent reports back, and after a quarantine the reply offers
+the way back.
+
+- **Only a plain restore.** Restoring as a false positive (allow-listing) is deliberately left to
+  the console, where the whole alert is in view.
+- **Only the people you list.** In a group anyone can press a button, so a press counts only from a
+  Telegram user mapped, in *Who may press them*, to a console user who is an `OPERATOR` or `ADMIN`.
+  Anyone else gets a private notice with their Telegram ID, ready to add. Actions are audited as
+  that console user, "via Telegram".
+- **Single use, 24 hours.** A button carries only a random id; the file and the action stay on the
+  console, so a modified Telegram client cannot point a button at another file. After 24 hours, or
+  once used, a button only says so.
+- **The same checks as the console**, then the same re-checks by the agent on the machine.
+- **No public address needed.** The console fetches the presses from Telegram (long polling,
+  outbound only, like the agents). One consequence: a bot can have only **one** reader, so this
+  bot must not also be polled by another program or have a webhook set.
+
 > [!NOTE]
 > The buttons appear only for agents that declare they support file actions, which means an agent
 > installed from this version on. An older agent would read the command as a scan of that path,

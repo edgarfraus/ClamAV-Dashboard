@@ -222,7 +222,20 @@ Two common causes:
 
 **Concurrent scans** needs a restart: the thread pool is built once at startup.
 
-**Unticked checkboxes** are not submitted by browsers at all. The Settings page warns about this.
+**A switch that would not turn off** (Telegram, webhook, watching…) was a bug in versions before
+October 2026: browsers send nothing for an unticked checkbox, so the console never saw it change.
+Fixed — the Settings page now saves an unticked switch as off.
+
+### Telegram buttons do nothing
+
+- **"You are not allowed…"** — the Telegram user is not in *Who may press them*, or is mapped to a
+  console user that is disabled, only a VIEWER, or still on its initial password. The message
+  carries their Telegram ID, ready to add.
+- **No answer at all, and the log says "another program is reading this bot's updates"** — Telegram
+  hands a bot's button presses to a single reader. Another program polling the same bot, or a
+  webhook set on it (`deleteWebhook` clears that), takes them all. Use a dedicated bot.
+- **"This button has expired or was already used"** — buttons are single use and valid for
+  24 hours; use the alert page in the console.
 
 ### A path exists but the scan says it does not
 

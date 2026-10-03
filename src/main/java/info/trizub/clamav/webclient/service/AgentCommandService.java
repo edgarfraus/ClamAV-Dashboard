@@ -8,6 +8,7 @@ import info.trizub.clamav.webclient.model.ScanJob;
 import info.trizub.clamav.webclient.repo.AgentCommandRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,10 +38,12 @@ public class AgentCommandService {
 
     private final AgentCommandRepository repo;
     private final ScanJobService jobs;
+    private final ApplicationEventPublisher events;
 
-    public AgentCommandService(AgentCommandRepository repo, ScanJobService jobs) {
+    public AgentCommandService(AgentCommandRepository repo, ScanJobService jobs, ApplicationEventPublisher events) {
         this.repo = repo;
         this.jobs = jobs;
+        this.events = events;
     }
 
     /** Queues a scan for the agent and creates the matching job. */
@@ -125,6 +128,7 @@ public class AgentCommandService {
         }
         log.info("File action {} {} on {} ({}): {}", cmd.getId(), cmd.getType(), cmd.getFilePath(),
                 ok ? "done" : "FAILED", message);
+        events.publishEvent(new FileActionCompletedEvent(cmd, ok, message, quarantinePath));
     }
 
     /** File actions on one alert, newest first. */
@@ -193,6 +197,7 @@ public class AgentCommandService {
         if (cmd.getType().isFileAction()) {
             cmd.setSucceeded(false);
             cmd.setResultMessage(reason);
+            events.publishEvent(new FileActionCompletedEvent(cmd, false, reason, null));
         } else if (cmd.getJobId() != null) {
             try {
                 jobs.finishError(cmd.getJobId(), reason);

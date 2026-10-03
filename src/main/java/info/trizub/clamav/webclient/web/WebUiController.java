@@ -87,6 +87,7 @@ public class WebUiController {
     private final ObjectMapper objectMapper;
     private final ScanExclusionRepository exclusionRepo;
     private final AgentCommandService agentCommands;
+    private final FileActionService fileActions;
 
     public WebUiController(SettingsService settings,
                            EndpointService endpoints,
@@ -103,7 +104,8 @@ public class WebUiController {
                            SignatureReloadService signatureReloadService,
                            ObjectMapper objectMapper,
                            ScanExclusionRepository exclusionRepo,
-                           AgentCommandService agentCommands) {
+                           AgentCommandService agentCommands,
+                           FileActionService fileActions) {
         this.settings = settings;
         this.endpoints = endpoints;
         this.jobs = jobs;
@@ -120,6 +122,7 @@ public class WebUiController {
         this.objectMapper = objectMapper;
         this.exclusionRepo = exclusionRepo;
         this.agentCommands = agentCommands;
+        this.fileActions = fileActions;
     }
 
     // ---- Auth ----
@@ -531,20 +534,7 @@ public class WebUiController {
     @PostMapping("/alerts/{id}/files/quarantine")
     public String alertFileQuarantine(@PathVariable("id") String id, @RequestParam String path,
                                       Authentication auth, HttpServletRequest req, RedirectAttributes redirect) {
-        ScanJob job = jobs.getOrNull(id);
-        String problem = fileActionProblem(job, path);
-        if (problem == null && job.getQuarantineMap().containsKey(path)) problem = "This file is already in quarantine.";
-        if (problem == null && !job.getFoundVirusesMap().containsKey(path)) problem = "This file is not part of the alert.";
-        if (problem != null) {
-            audit.record(auth, req, "ALERT_FILE_QUARANTINE", "jobId=" + id + " path=" + path + ": " + problem, "FAILURE", id);
-            redirect.addFlashAttribute("errorMsg", problem);
-            return "redirect:/alerts/" + id;
-        }
-        agentCommands.enqueueFileAction(job.getEndpoint(), id, AgentCommandType.QUARANTINE, path, auth.getName());
-        audit.record(auth, req, "ALERT_FILE_QUARANTINE", "jobId=" + id + " path=" + path, "SUCCESS", id);
-        redirect.addFlashAttribute("actionMsg", "Quarantine requested for " + path
-                + ". The agent carries it out at its next check-in (within 5 minutes).");
-        return "redirect:/alerts/" + id;
+        return requestFileAction(id, path, AgentCommandType.QUARANTINE, "Quarantine", auth, req, redirect);
     }
 
     /**
@@ -557,43 +547,27 @@ public class WebUiController {
     public String alertFileRestore(@PathVariable("id") String id, @RequestParam String path,
                                    @RequestParam(defaultValue = "false") boolean allow,
                                    Authentication auth, HttpServletRequest req, RedirectAttributes redirect) {
-        ScanJob job = jobs.getOrNull(id);
-        String action = allow ? "ALERT_FILE_RESTORE_ALLOW" : "ALERT_FILE_RESTORE";
-        String problem = fileActionProblem(job, path);
-        String quarantinePath = problem == null ? job.getQuarantineMap().get(path) : null;
-        if (problem == null && quarantinePath == null) {
-            problem = "The console does not know where this file is in quarantine, so it cannot restore it.";
-        }
-        if (problem != null) {
-            audit.record(auth, req, action, "jobId=" + id + " path=" + path + ": " + problem, "FAILURE", id);
-            redirect.addFlashAttribute("errorMsg", problem);
-            return "redirect:/alerts/" + id;
-        }
-        agentCommands.enqueueFileAction(job.getEndpoint(), id,
-                allow ? AgentCommandType.RESTORE_ALLOW : AgentCommandType.RESTORE,
-                quarantinePath + "\n" + path, auth.getName());
-        audit.record(auth, req, action, "jobId=" + id + " path=" + path + " from=" + quarantinePath, "SUCCESS", id);
-        redirect.addFlashAttribute("actionMsg", (allow ? "Restore and allow-list" : "Restore")
-                + " requested for " + path + ". The agent carries it out at its next check-in (within 5 minutes).");
-        return "redirect:/alerts/" + id;
+        return allow
+                ? requestFileAction(id, path, AgentCommandType.RESTORE_ALLOW, "Restore and allow-list", auth, req, redirect)
+                : requestFileAction(id, path, AgentCommandType.RESTORE, "Restore", auth, req, redirect);
     }
 
-    /** What stops a file action on this alert, or null when it can go ahead. */
-    private String fileActionProblem(ScanJob job, String path) {
-        if (job == null) return "Alert not found.";
-        if (job.getVerdict() != ScanVerdict.VIRUS_FOUND) return "This alert has no detected files.";
-        if (job.getEndpoint() == null) return "The endpoint of this alert no longer exists.";
-        if (!job.getEndpoint().isFileActionsSupported()) {
-            return "The agent on " + job.getEndpoint().getName()
-                    + " does not support file actions yet: reinstall it from Admin > Endpoints.";
+    /** The checks live in FileActionService, shared with the Telegram buttons. */
+    private String requestFileAction(String id, String path, AgentCommandType type, String label,
+                                     Authentication auth, HttpServletRequest req, RedirectAttributes redirect) {
+        String auditAction = "ALERT_FILE_" + type.name();
+        ScanJob job = jobs.getOrNull(id);
+        try {
+            fileActions.request(job, path, type, auth.getName());
+        } catch (IllegalStateException e) {
+            audit.record(auth, req, auditAction, "jobId=" + id + " path=" + path + ": " + e.getMessage(), "FAILURE", id);
+            redirect.addFlashAttribute("errorMsg", e.getMessage());
+            return "redirect:/alerts/" + id;
         }
-        if (path == null || path.isBlank()) return "No file given.";
-        for (AgentCommand c : agentCommands.fileActionsForJob(job.getId())) {
-            if (c.getStatus() != AgentCommandStatus.DONE && path.equals(c.getFilePath())) {
-                return "An action on this file is already waiting for the agent.";
-            }
-        }
-        return null;
+        audit.record(auth, req, auditAction, "jobId=" + id + " path=" + path, "SUCCESS", id);
+        redirect.addFlashAttribute("actionMsg", label + " requested for " + path
+                + ". The agent carries it out at its next check-in (within 5 minutes).");
+        return "redirect:/alerts/" + id;
     }
 
     @PostMapping("/alerts/{id}/ack")
@@ -679,12 +653,24 @@ public class WebUiController {
                 "app.telegram.enabled",
                 "app.telegram.botToken",
                 "app.telegram.chatId",
+                "app.telegram.actions.enabled",
+                "app.telegram.actionUsers",
+                "app.publicUrl",
                 "app.watch.enabled",
                 "app.watch.pollSeconds",
                 "app.signatureReload.enabled",
                 "app.signatureReload.cron"
         )) {
             if (params.containsKey(key)) allowed.put(key, params.get(key));
+        }
+        // Browsers send nothing for an unticked checkbox, so once a switch was on
+        // it could never be turned off again from the page. From the full form, a
+        // missing switch is an unticked one.
+        if (params.containsKey("_fullForm")) {
+            for (String sw : List.of("app.quarantine.enabled", "app.webhook.enabled", "app.telegram.enabled",
+                    "app.telegram.actions.enabled", "app.watch.enabled", "app.signatureReload.enabled")) {
+                allowed.putIfAbsent(sw, "false");
+            }
         }
         settings.updateFromMap(allowed);
         signatureReloadService.reschedule();

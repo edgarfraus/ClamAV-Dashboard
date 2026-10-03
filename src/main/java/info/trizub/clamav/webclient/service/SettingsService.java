@@ -31,6 +31,9 @@ public class SettingsService {
     private static final String TELEGRAM_ENABLED = "app.telegram.enabled";
     private static final String TELEGRAM_BOT_TOKEN = "app.telegram.botToken";
     private static final String TELEGRAM_CHAT_ID = "app.telegram.chatId";
+    private static final String TELEGRAM_ACTIONS_ENABLED = "app.telegram.actions.enabled";
+    private static final String TELEGRAM_ACTION_USERS = "app.telegram.actionUsers";
+    private static final String PUBLIC_URL = "app.publicUrl";
     private static final String WATCH_ENABLED = "app.watch.enabled";
     private static final String WATCH_POLL_SECONDS = "app.watch.pollSeconds";
     private static final String SIGNATURE_RELOAD_ENABLED = "app.signatureReload.enabled";
@@ -59,6 +62,9 @@ public class SettingsService {
             props.putIfAbsent(TELEGRAM_ENABLED, "false");
             props.putIfAbsent(TELEGRAM_BOT_TOKEN, "");
             props.putIfAbsent(TELEGRAM_CHAT_ID, "");
+            props.putIfAbsent(TELEGRAM_ACTIONS_ENABLED, "false");
+            props.putIfAbsent(TELEGRAM_ACTION_USERS, "");
+            props.putIfAbsent(PUBLIC_URL, "");
             props.putIfAbsent(WATCH_ENABLED, "false");
             props.putIfAbsent(WATCH_POLL_SECONDS, "30");
             props.putIfAbsent(SIGNATURE_RELOAD_ENABLED, "false");
@@ -147,6 +153,35 @@ public class SettingsService {
 
     public String telegramChatId() {
         return props.getProperty(TELEGRAM_CHAT_ID, "");
+    }
+
+    /** Quarantine / restore buttons under Telegram alerts. Needs Telegram alerts on as well. */
+    public boolean telegramActionsEnabled() {
+        return telegramEnabled() && Boolean.parseBoolean(props.getProperty(TELEGRAM_ACTIONS_ENABLED, "false"));
+    }
+
+    /**
+     * Who may press those buttons: Telegram user id -> console username, from
+     * "12345=alice" pairs separated by commas or new lines. In a group anyone
+     * can press a button, so nobody outside this list is ever acted for.
+     */
+    public Map<Long, String> telegramActionUsers() {
+        Map<Long, String> out = new LinkedHashMap<>();
+        for (String pair : props.getProperty(TELEGRAM_ACTION_USERS, "").split("[,\\n\\r]+")) {
+            int eq = pair.indexOf('=');
+            if (eq <= 0) continue;
+            try {
+                out.put(Long.parseLong(pair.substring(0, eq).trim()), pair.substring(eq + 1).trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return out;
+    }
+
+    /** The console's address as people reach it, for links in notifications; empty when unknown. */
+    public String publicUrl() {
+        String u = props.getProperty(PUBLIC_URL, "").trim();
+        return u.endsWith("/") ? u.substring(0, u.length() - 1) : u;
     }
 
     public boolean watchEnabled() {

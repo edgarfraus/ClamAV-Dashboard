@@ -15,6 +15,7 @@ Out of the box, and on purpose, this is a *development* configuration:
 | CSRF on `/api/**` | **Disabled**, so scripts and agents can post | Leave it; it is why `/api` is HTTP Basic and the browser forms are not. |
 | Agent keys | Stored **in plaintext** in the database | Understand why, below. Protect `./data`. |
 | Telegram bot token | Stored **in plaintext** in `conf/` | `chmod 600 conf/` and keep it out of shared backups. |
+| Telegram buttons | **Off.** When on, only the listed Telegram users can act | List only people who should move files on the fleet; see [scanning.md](scanning.md#from-telegram). |
 
 ### The H2 console
 

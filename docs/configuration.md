@@ -58,6 +58,9 @@ one quarantined, forever. See [scanning.md](scanning.md#quarantine).
 | `app.telegram.enabled` | `false` | Send a Telegram message on a detection. |
 | `app.telegram.botToken` | *(empty)* | Bot token from [@BotFather](https://t.me/botfather). |
 | `app.telegram.chatId` | *(empty)* | Chat or channel id to send to. |
+| `app.telegram.actions.enabled` | `false` | Quarantine / Restore buttons under alerts. See [scanning.md](scanning.md#from-telegram). |
+| `app.telegram.actionUsers` | *(empty)* | Who may press them: `<Telegram user id>=<console username>`, one per line. |
+| `app.publicUrl` | *(empty)* | The console's address as people reach it; adds an *Open in console* button to alerts. |
 
 Notifications fire for **`VIRUS_FOUND` and `ERROR` only**, including results reported by agents.
 A clean scan is silent by design — a scheduled scan whose job is to stay quiet should stay quiet.
