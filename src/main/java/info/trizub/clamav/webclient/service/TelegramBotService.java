@@ -77,6 +77,7 @@ public class TelegramBotService {
     private long offset = 0;
     private String offsetToken = "";
     private Instant lastConflictLog = Instant.EPOCH;
+    private String lastState = "";
 
     public TelegramBotService(SettingsService settings, TelegramApi api, TelegramActionRepository actions,
                               ScanJobService jobs, FileActionService fileActions, AppUserRepository users,
@@ -151,12 +152,37 @@ public class TelegramBotService {
         if (poller != null) poller.interrupt();
     }
 
+    /** Logs the buttons' state once each time it changes, so the log says whether they can work. */
+    private void reportState(String state) {
+        if (!state.equals(lastState)) {
+            lastState = state;
+            log.info("Telegram buttons: {}", state);
+        }
+    }
+
     private void pollLoop() {
         while (running) {
             try {
-                if (!settings.telegramActionsEnabled() || !api.configured()) {
+                if (!settings.telegramEnabled()) {
+                    reportState("off (Telegram alerts are disabled in Settings)");
                     sleep(15_000);
                     continue;
+                }
+                if (!settings.telegramActionsEnabled()) {
+                    reportState("off (enable 'Buttons under alerts' in Settings > Telegram)");
+                    sleep(15_000);
+                    continue;
+                }
+                if (!api.configured()) {
+                    reportState("off (bot token or chat id missing in Settings > Telegram)");
+                    sleep(15_000);
+                    continue;
+                }
+                if (settings.telegramActionUsers().isEmpty()) {
+                    reportState("on, but nobody may press them yet: fill 'Who may press them' in Settings > Telegram");
+                } else {
+                    reportState("on, listening for presses from " + settings.telegramActionUsers().size()
+                            + " authorised Telegram user(s)");
                 }
                 // A different bot means different updates: start from scratch.
                 if (!settings.telegramBotToken().equals(offsetToken)) {
