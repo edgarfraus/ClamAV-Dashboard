@@ -7,6 +7,7 @@ import info.trizub.clamav.webclient.model.AppUser;
 import info.trizub.clamav.webclient.model.Role;
 import info.trizub.clamav.webclient.model.ScanJob;
 import info.trizub.clamav.webclient.model.TelegramAction;
+import info.trizub.clamav.webclient.model.TelegramActionType;
 import info.trizub.clamav.webclient.repo.AppUserRepository;
 import info.trizub.clamav.webclient.repo.TelegramActionRepository;
 import jakarta.annotation.PostConstruct;
@@ -109,16 +110,21 @@ public class TelegramBotService {
                 || job.getRemediationStatus() == info.trizub.clamav.webclient.model.RemediationStatus.FAILED;
         for (String path : paths) {
             if (out.size() >= MAX_OFFERS) break;
-            AgentCommandType type;
-            if (quarantined.containsKey(path)) type = AgentCommandType.RESTORE;
-            else if (leftInPlace) type = AgentCommandType.QUARANTINE;
+            TelegramActionType type;
+            if (quarantined.containsKey(path)) type = TelegramActionType.RESTORE;
+            else if (leftInPlace) type = TelegramActionType.QUARANTINE;
             else continue; // removed, or quarantined by an agent that did not say where
             out.add(newOffer(job.getId(), path, type, chatId));
         }
         return out;
     }
 
-    private static TelegramAction newOffer(String jobId, String path, AgentCommandType type, String chatId) {
+    /** The "Acknowledge alert" button: no agent involved, so offered for any endpoint. */
+    public static TelegramAction ackOffer(ScanJob job, String chatId) {
+        return newOffer(job.getId(), "", TelegramActionType.ACK, chatId);
+    }
+
+    private static TelegramAction newOffer(String jobId, String path, TelegramActionType type, String chatId) {
         byte[] b = new byte[16];
         RANDOM.nextBytes(b);
         TelegramAction a = new TelegramAction();
@@ -268,10 +274,14 @@ public class TelegramBotService {
 
         List<TelegramAction> onMessage = actions.findByChatIdAndMessageIdOrderByCreatedAtAsc(chatId, messageId);
         String url = alertUrl(action.getJobId());
+        if (action.getType() == TelegramActionType.ACK) {
+            acknowledge(callbackId, action, consoleUser, fromId, fromName, url);
+            return;
+        }
         switch (verb) {
             case 'a' -> {
                 editKeyboard(chatId, messageId, TelegramKeyboard.build(onMessage, action.getId(), url));
-                answer(callbackId, action.getType() == AgentCommandType.QUARANTINE
+                answer(callbackId, action.getType() == TelegramActionType.QUARANTINE
                         ? "Confirm to move this file into quarantine on the machine."
                         : "Confirm to put this file back. On a Prevention machine the next scan quarantines it again.",
                         false);
@@ -295,7 +305,7 @@ public class TelegramBotService {
         var auth = new UsernamePasswordAuthenticationToken(consoleUser, null, List.of());
         AgentCommand cmd;
         try {
-            cmd = fileActions.request(job, action.getFilePath(), action.getType(), consoleUser);
+            cmd = fileActions.request(job, action.getFilePath(), action.getType().agentCommandType(), consoleUser);
         } catch (IllegalStateException e) {
             audit.record(auth, null, auditAction, details + ": " + e.getMessage(), "FAILURE", action.getJobId());
             action.setStatus(TelegramAction.Status.EXPIRED);
@@ -313,10 +323,38 @@ public class TelegramBotService {
         answer(callbackId, "Requested. The agent carries it out within 5 minutes.", false);
         String endpoint = job != null && job.getEndpoint() != null ? job.getEndpoint().getName() : "?";
         send(action.getChatId(), action.getMessageId(),
-                "⏳ " + (action.getType() == AgentCommandType.QUARANTINE ? "Quarantine" : "Restore")
+                "⏳ " + (action.getType() == TelegramActionType.QUARANTINE ? "Quarantine" : "Restore")
                         + " of " + code(TelegramKeyboard.shortName(action.getFilePath()))
                         + " on " + code(endpoint) + " requested by " + code(fromName)
                         + ". Waiting for the agent.", null);
+    }
+
+    /**
+     * Acknowledges the alert, exactly like the button on the alert page. One
+     * tap, no confirmation: it moves nothing on any machine. An alert already
+     * acknowledged (from the console, or by someone quicker) says by whom.
+     */
+    private void acknowledge(String callbackId, TelegramAction action,
+                             String consoleUser, long fromId, String fromName, String url)
+            throws TelegramApi.TelegramException {
+        ScanJob job = jobs.getOrNull(action.getJobId());
+        if (job == null || job.isAcknowledged()) {
+            action.setStatus(TelegramAction.Status.EXPIRED);
+            actions.save(action);
+            refreshKeyboard(action, url);
+            answer(callbackId, job == null ? "This alert no longer exists."
+                    : "Already acknowledged by " + job.getAcknowledgedBy() + ".", true);
+            return;
+        }
+        jobs.acknowledge(job.getId(), consoleUser);
+        audit.record(new UsernamePasswordAuthenticationToken(consoleUser, null, List.of()), null, "ALERT_ACK",
+                "jobId=" + job.getId() + " via Telegram (" + fromName + ", id " + fromId + ")", "SUCCESS", job.getId());
+        action.setStatus(TelegramAction.Status.USED);
+        action.setUsedBy(consoleUser + " via Telegram (" + fromName + ")");
+        actions.save(action);
+        refreshKeyboard(action, url);
+        answer(callbackId, "Alert acknowledged.", false);
+        send(action.getChatId(), action.getMessageId(), "✔️ Alert acknowledged by " + code(fromName) + ".", null);
     }
 
     /** The console user a Telegram user acts as, or null if they may not act. */
@@ -355,7 +393,7 @@ public class TelegramBotService {
                     + (e.message() != null && !e.message().isBlank() ? "\n" + code(e.message()) : "");
             List<TelegramAction> offers = new ArrayList<>();
             if (e.ok() && quarantine && settings.telegramActionsEnabled()) {
-                offers.add(newOffer(origin.getJobId(), origin.getFilePath(), AgentCommandType.RESTORE, origin.getChatId()));
+                offers.add(newOffer(origin.getJobId(), origin.getFilePath(), TelegramActionType.RESTORE, origin.getChatId()));
             }
             Long sent = send(origin.getChatId(), origin.getMessageId(), text,
                     offers.isEmpty() ? null : TelegramKeyboard.build(offers, null, alertUrl(origin.getJobId())));

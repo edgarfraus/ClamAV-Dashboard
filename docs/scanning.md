@@ -162,9 +162,10 @@ The console asks; the agent decides whether it is safe:
 
 With **Settings › Telegram › Buttons under alerts** on, each Telegram alert carries a button per
 file (up to 8): **🗄 Quarantine** for a file left in place, **↩️ Restore** for one in quarantine,
-plus **🔎 Open in console** when the console's address is set. The first tap asks for confirmation;
-the bot then replies in the chat as the agent reports back, and after a quarantine the reply offers
-the way back.
+then **✔️ Acknowledge alert**, plus **🔎 Open in console** when the console's address is set. A file
+button asks for confirmation on the first tap; the bot then replies in the chat as the agent reports
+back, and after a quarantine the reply offers the way back. Acknowledging takes one tap — it moves
+nothing on any machine — and an alert already acknowledged from the console says by whom.
 
 - **Only a plain restore.** Restoring as a false positive (allow-listing) is deliberately left to
   the console, where the whole alert is in view.

@@ -1,7 +1,7 @@
 package info.trizub.clamav.webclient.service;
 
-import info.trizub.clamav.webclient.model.AgentCommandType;
 import info.trizub.clamav.webclient.model.TelegramAction;
+import info.trizub.clamav.webclient.model.TelegramActionType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,10 +18,16 @@ public final class TelegramKeyboard {
 
     public static Map<String, Object> build(List<TelegramAction> offers, String confirmingId, String alertUrl) {
         List<List<Map<String, String>>> rows = new ArrayList<>();
+        List<List<Map<String, String>>> ackRow = new ArrayList<>();
         for (TelegramAction a : offers) {
             if (a.getStatus() != TelegramAction.Status.OFFERED) continue;
+            if (a.getType() == TelegramActionType.ACK) {
+                // One tap, no confirmation: acknowledging moves nothing on any machine.
+                ackRow.add(List.of(button("✔️ Acknowledge alert", "a:" + a.getId())));
+                continue;
+            }
             String name = shortName(a.getFilePath());
-            boolean quarantine = a.getType() == AgentCommandType.QUARANTINE;
+            boolean quarantine = a.getType() == TelegramActionType.QUARANTINE;
             if (a.getId().equals(confirmingId)) {
                 rows.add(List.of(
                         button((quarantine ? "✅ Confirm quarantine " : "✅ Confirm restore ") + name, "y:" + a.getId()),
@@ -30,6 +36,7 @@ public final class TelegramKeyboard {
                 rows.add(List.of(button((quarantine ? "🗄 Quarantine " : "↩️ Restore ") + name, "a:" + a.getId())));
             }
         }
+        rows.addAll(ackRow);
         if (alertUrl != null && !alertUrl.isBlank()) {
             rows.add(List.of(Map.of("text", "🔎 Open in console", "url", alertUrl)));
         }

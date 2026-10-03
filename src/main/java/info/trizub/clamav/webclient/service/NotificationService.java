@@ -173,27 +173,28 @@ public class NotificationService {
         // Buttons: Quarantine for a file still in place, Restore for one in
         // quarantine (see TelegramBotService), plus a link to the alert when
         // the console's public address is known.
-        List<TelegramAction> offers = job.getVerdict() == ScanVerdict.VIRUS_FOUND && settings.telegramActionsEnabled()
-                ? TelegramBotService.offersFor(job, fresh.keySet(), chatId)
-                : List.of();
+        boolean buttons = job.getVerdict() == ScanVerdict.VIRUS_FOUND && settings.telegramActionsEnabled();
+        List<TelegramAction> fileOffers = buttons ? TelegramBotService.offersFor(job, fresh.keySet(), chatId) : List.of();
+        List<TelegramAction> offers = new java.util.ArrayList<>(fileOffers);
+        if (buttons && !job.isAcknowledged()) offers.add(TelegramBotService.ackOffer(job, chatId));
         String alertUrl = settings.publicUrl().isEmpty() || job.getVerdict() != ScanVerdict.VIRUS_FOUND
                 ? null : settings.publicUrl() + "/alerts/" + job.getId();
         Map<String, Object> keyboard = TelegramKeyboard.build(offers, null, alertUrl);
-        if (!offers.isEmpty()) text += "\n_Tap a button, then confirm._";
-        // Say why an alert goes out without buttons: otherwise "the buttons do
-        // not show up" can only be answered by guessing.
-        if (job.getVerdict() == ScanVerdict.VIRUS_FOUND && settings.telegramActionsEnabled()) {
-            if (!offers.isEmpty()) {
-                log.info("Telegram alert for job {} sent with {} button(s)", job.getId(), offers.size());
+        if (!fileOffers.isEmpty()) text += "\n_Tap a file button, then confirm._";
+        // Say why an alert goes out without file buttons: otherwise "the buttons
+        // do not show up" can only be answered by guessing.
+        if (buttons) {
+            if (!fileOffers.isEmpty()) {
+                log.info("Telegram alert for job {} sent with {} file button(s)", job.getId(), fileOffers.size());
             } else if (job.getEndpoint() == null) {
-                log.info("Telegram alert for job {} has no buttons: it is bound to no endpoint "
+                log.info("Telegram alert for job {} has no file buttons: it is bound to no endpoint "
                         + "(reported with user credentials instead of an agent key?)", job.getId());
             } else if (!job.getEndpoint().isFileActionsSupported()) {
-                log.info("Telegram alert for job {} has no buttons: the agent on {} does not declare "
+                log.info("Telegram alert for job {} has no file buttons: the agent on {} does not declare "
                         + "file-actions (reinstall it, and check that its poll service is running)",
                         job.getId(), job.getEndpoint().getName());
             } else {
-                log.info("Telegram alert for job {} has no buttons: no file in a state to act on "
+                log.info("Telegram alert for job {} has no file buttons: no file in a state to act on "
                         + "(remediation {}, quarantine locations known for {} file(s))", job.getId(),
                         job.getRemediationStatus(), job.getQuarantineMap().size());
             }

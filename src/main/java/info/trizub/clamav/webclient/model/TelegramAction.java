@@ -23,12 +23,15 @@ public class TelegramAction {
     @Column(nullable = false, length = 64)
     private String jobId;
 
+    /** The file a QUARANTINE / RESTORE button is about; empty for ACK. */
     @Column(nullable = false, length = 4096)
     private String filePath;
 
+    // A value added here needs the CHECK constraint dropped on existing
+    // databases: see SchemaFixup.migrateTelegramActionType.
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
-    private AgentCommandType type;
+    private TelegramActionType type;
 
     @Column(length = 64)
     private String chatId;
@@ -60,8 +63,8 @@ public class TelegramAction {
     public void setJobId(String jobId) { this.jobId = jobId; }
     public String getFilePath() { return filePath; }
     public void setFilePath(String filePath) { this.filePath = filePath; }
-    public AgentCommandType getType() { return type; }
-    public void setType(AgentCommandType type) { this.type = type; }
+    public TelegramActionType getType() { return type; }
+    public void setType(TelegramActionType type) { this.type = type; }
     public String getChatId() { return chatId; }
     public void setChatId(String chatId) { this.chatId = chatId; }
     public Long getMessageId() { return messageId; }

@@ -26,6 +26,45 @@ public class SchemaFixup {
         } catch (Exception e) {
             log.debug("SchemaFixup: verdict column migration skipped: {}", e.getMessage());
         }
+        dropPostgresEnumChecks("scan_jobs", "verdict");
+    }
+
+    /**
+     * Lets telegram_actions.type take ACK on databases whose table was created
+     * when only QUARANTINE and RESTORE existed: Hibernate's CHECK constraint
+     * still lists the old values, and inserting an acknowledge button would
+     * fail. Same two steps as the scan_jobs columns: the type change drops the
+     * constraint on H2, the explicit drop does it on PostgreSQL.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void migrateTelegramActionType() {
+        try {
+            jdbcTemplate.execute("ALTER TABLE telegram_actions ALTER COLUMN type SET DATA TYPE VARCHAR(16)");
+            log.info("SchemaFixup: migrated telegram_actions.type column to VARCHAR(16)");
+        } catch (Exception e) {
+            log.debug("SchemaFixup: telegram_actions.type migration skipped: {}", e.getMessage());
+        }
+        dropPostgresEnumChecks("telegram_actions", "type");
+    }
+
+    /**
+     * On PostgreSQL, changing a column's type does NOT drop a CHECK constraint
+     * on it (it does on H2, which is what the ALTERs above rely on), so a
+     * constraint listing an enum's old values survives and rejects every new
+     * one. Drops the CHECK constraints that mention the column. Harmless
+     * no-op on H2, where pg_constraint does not exist.
+     */
+    private void dropPostgresEnumChecks(String table, String column) {
+        try {
+            for (String name : jdbcTemplate.queryForList(
+                    "SELECT conname FROM pg_constraint WHERE conrelid = ?::regclass AND contype = 'c' "
+                            + "AND pg_get_constraintdef(oid) LIKE ?", String.class, table, "%(" + column + ")::%")) {
+                jdbcTemplate.execute("ALTER TABLE " + table + " DROP CONSTRAINT \"" + name.replace("\"", "") + "\"");
+                log.info("SchemaFixup: dropped stale CHECK constraint {} on {}.{}", name, table, column);
+            }
+        } catch (Exception e) {
+            log.debug("SchemaFixup: no PostgreSQL CHECK constraints to drop on {}.{}: {}", table, column, e.getMessage());
+        }
     }
 
     /**
@@ -45,6 +84,7 @@ public class SchemaFixup {
         } catch (Exception e) {
             log.debug("SchemaFixup: type column migration skipped: {}", e.getMessage());
         }
+        dropPostgresEnumChecks("scan_jobs", "type");
     }
 
     /**
