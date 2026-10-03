@@ -184,11 +184,13 @@ public class TelegramBotService {
                     sleep(15_000);
                     continue;
                 }
-                if (settings.telegramActionUsers().isEmpty()) {
+                Map<Long, String> allowed = settings.telegramActionUsers();
+                if (allowed.isEmpty()) {
                     reportState("on, but nobody may press them yet: fill 'Who may press them' in Settings > Telegram");
                 } else {
-                    reportState("on, listening for presses from " + settings.telegramActionUsers().size()
-                            + " authorised Telegram user(s)");
+                    long groups = allowed.keySet().stream().filter(id -> id < 0).count();
+                    reportState("on, listening for presses from " + (allowed.size() - groups)
+                            + " authorised user(s) and " + groups + " authorised group(s)");
                 }
                 // A different bot means different updates: start from scratch.
                 if (!settings.telegramBotToken().equals(offsetToken)) {
@@ -264,18 +266,30 @@ public class TelegramBotService {
             return;
         }
 
-        String consoleUser = authorisedUser(fromId);
+        // A line for the person wins over a line for the group: it is the more
+        // specific one, and an admin who mapped someone to a VIEWER account
+        // meant to keep them out even of an authorised group.
+        Map<Long, String> allowed = settings.telegramActionUsers();
+        String consoleUser;
+        String via;
+        if (allowed.containsKey(fromId)) {
+            consoleUser = authorisedUser(fromId);
+            via = "Telegram";
+        } else {
+            consoleUser = parseLong(chatId) != null ? authorisedUser(parseLong(chatId)) : null;
+            via = "Telegram group " + chatId;
+        }
         if (consoleUser == null) {
             answer(callbackId, "You are not allowed to act on alerts. Your Telegram ID is " + fromId
-                    + ": an admin can add it in Settings > Telegram.", true);
-            log.info("Telegram button pressed by unauthorised user {} ({})", fromId, fromName);
+                    + " (this chat: " + chatId + "): an admin can allow either in Settings > Telegram.", true);
+            log.info("Telegram button pressed by unauthorised user {} ({}) in chat {}", fromId, fromName, chatId);
             return;
         }
 
         List<TelegramAction> onMessage = actions.findByChatIdAndMessageIdOrderByCreatedAtAsc(chatId, messageId);
         String url = alertUrl(action.getJobId());
         if (action.getType() == TelegramActionType.ACK) {
-            acknowledge(callbackId, action, consoleUser, fromId, fromName, url);
+            acknowledge(callbackId, action, consoleUser, fromId, fromName, via, url);
             return;
         }
         switch (verb) {
@@ -290,18 +304,18 @@ public class TelegramBotService {
                 editKeyboard(chatId, messageId, TelegramKeyboard.build(onMessage, null, url));
                 answer(callbackId, "Cancelled.", false);
             }
-            case 'y' -> confirm(callbackId, action, consoleUser, fromId, fromName, url);
+            case 'y' -> confirm(callbackId, action, consoleUser, fromId, fromName, via, url);
             default -> answer(callbackId, "Unknown button.", false);
         }
     }
 
     private void confirm(String callbackId, TelegramAction action,
-                         String consoleUser, long fromId, String fromName, String url)
+                         String consoleUser, long fromId, String fromName, String via, String url)
             throws TelegramApi.TelegramException {
         ScanJob job = jobs.getOrNull(action.getJobId());
         String auditAction = "ALERT_FILE_" + action.getType().name();
         String details = "jobId=" + action.getJobId() + " path=" + action.getFilePath()
-                + " via Telegram (" + fromName + ", id " + fromId + ")";
+                + " via " + via + " (" + fromName + ", id " + fromId + ")";
         var auth = new UsernamePasswordAuthenticationToken(consoleUser, null, List.of());
         AgentCommand cmd;
         try {
@@ -317,7 +331,7 @@ public class TelegramBotService {
         audit.record(auth, null, auditAction, details, "SUCCESS", action.getJobId());
         action.setStatus(TelegramAction.Status.USED);
         action.setCommandId(cmd.getId());
-        action.setUsedBy(consoleUser + " via Telegram (" + fromName + ")");
+        action.setUsedBy(consoleUser + " via " + via + " (" + fromName + ")");
         actions.save(action);
         refreshKeyboard(action, url);
         answer(callbackId, "Requested. The agent carries it out within 5 minutes.", false);
@@ -335,7 +349,7 @@ public class TelegramBotService {
      * acknowledged (from the console, or by someone quicker) says by whom.
      */
     private void acknowledge(String callbackId, TelegramAction action,
-                             String consoleUser, long fromId, String fromName, String url)
+                             String consoleUser, long fromId, String fromName, String via, String url)
             throws TelegramApi.TelegramException {
         ScanJob job = jobs.getOrNull(action.getJobId());
         if (job == null || job.isAcknowledged()) {
@@ -348,16 +362,28 @@ public class TelegramBotService {
         }
         jobs.acknowledge(job.getId(), consoleUser);
         audit.record(new UsernamePasswordAuthenticationToken(consoleUser, null, List.of()), null, "ALERT_ACK",
-                "jobId=" + job.getId() + " via Telegram (" + fromName + ", id " + fromId + ")", "SUCCESS", job.getId());
+                "jobId=" + job.getId() + " via " + via + " (" + fromName + ", id " + fromId + ")", "SUCCESS", job.getId());
         action.setStatus(TelegramAction.Status.USED);
-        action.setUsedBy(consoleUser + " via Telegram (" + fromName + ")");
+        action.setUsedBy(consoleUser + " via " + via + " (" + fromName + ")");
         actions.save(action);
         refreshKeyboard(action, url);
         answer(callbackId, "Alert acknowledged.", false);
         send(action.getChatId(), action.getMessageId(), "✔️ Alert acknowledged by " + code(fromName) + ".", null);
     }
 
-    /** The console user a Telegram user acts as, or null if they may not act. */
+    private static Long parseLong(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * The console user a Telegram id acts as, or null if it may not act. The id
+     * is a person's (positive) or a group's (negative): Telegram never gives a
+     * user and a group the same id, so one map holds both.
+     */
     private String authorisedUser(long telegramId) {
         String username = settings.telegramActionUsers().get(telegramId);
         if (username == null || username.isBlank()) return null;

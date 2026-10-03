@@ -228,9 +228,10 @@ Fixed — the Settings page now saves an unticked switch as off.
 
 ### Telegram buttons do nothing
 
-- **"You are not allowed…"** — the Telegram user is not in *Who may press them*, or is mapped to a
-  console user that is disabled, only a VIEWER, or still on its initial password. The message
-  carries their Telegram ID, ready to add.
+- **"You are not allowed…"** — neither the person nor the group they pressed in is in *Who may
+  press them*, or the matching line maps to a console user that is disabled, only a VIEWER, or still
+  on its initial password. A person's own line wins over the group's, so a person mapped to a VIEWER
+  stays out even of an authorised group. The message carries their ID and the chat's, ready to add.
 - **No answer at all, and the log says "another program is reading this bot's updates"** — Telegram
   hands a bot's button presses to a single reader. Another program polling the same bot, or a
   webhook set on it (`deleteWebhook` clears that), takes them all. Use a dedicated bot.

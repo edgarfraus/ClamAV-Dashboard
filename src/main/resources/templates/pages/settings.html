@@ -136,10 +136,13 @@
                         th:text="${settings['app.telegram.actionUsers']}"></textarea>
             </div>
             <div class="text-body-secondary mb-3" style="font-size:12px;">
-              One per line: <code>&lt;Telegram user ID&gt;=&lt;console username&gt;</code>. The console user must
-              be an OPERATOR or ADMIN; actions are audited as that user, "via Telegram". In a group anyone can
-              press a button: a press from anyone not listed here does nothing, and the bot tells them their
-              Telegram ID so it can be added. Restoring as a false positive (allow-listing) is only possible
+              One per line: <code>&lt;Telegram ID&gt;=&lt;console username&gt;</code>. A <strong>person's</strong> ID
+              (positive, e.g. <code>123456789=alice</code>) lets that person press; a <strong>group's</strong> ID
+              (negative, e.g. <code>-1001234567890=admin</code> — the same as the Chat ID above) lets
+              <em>every member</em> of that group press, now and in future. A person's own line wins over the
+              group's. The console user must be an OPERATOR or ADMIN; actions are audited as that user, with the
+              name and ID of whoever pressed. A press from anyone not covered does nothing, and the bot tells them
+              their ID and the chat's. Restoring as a false positive (allow-listing) is only possible
               from the console. The bot must not be read by another program or have a webhook set: Telegram
               hands its button presses to one reader only.
             </div>

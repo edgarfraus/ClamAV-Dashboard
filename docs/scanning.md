@@ -169,10 +169,13 @@ nothing on any machine — and an alert already acknowledged from the console sa
 
 - **Only a plain restore.** Restoring as a false positive (allow-listing) is deliberately left to
   the console, where the whole alert is in view.
-- **Only the people you list.** In a group anyone can press a button, so a press counts only from a
-  Telegram user mapped, in *Who may press them*, to a console user who is an `OPERATOR` or `ADMIN`.
-  Anyone else gets a private notice with their Telegram ID, ready to add. Actions are audited as
-  that console user, "via Telegram".
+- **Only the people, or the groups, you list.** In a group anyone can press a button, so a press
+  counts only if *Who may press them* maps, to a console user who is an `OPERATOR` or `ADMIN`,
+  either the person (`123456789=alice`, a positive id) or the group they press in
+  (`-1001234567890=admin`, a negative id — the alerts' Chat ID). A group line lets **every member**
+  act, including anyone who joins later; a person's own line wins over it. Anyone not covered gets a
+  private notice with their ID and the chat's. Actions are audited as that console user, with the
+  name and Telegram ID of whoever pressed ("via Telegram" or "via Telegram group …").
 - **Single use, 24 hours.** A button carries only a random id; the file and the action stay on the
   console, so a modified Telegram client cannot point a button at another file. After 24 hours, or
   once used, a button only says so.

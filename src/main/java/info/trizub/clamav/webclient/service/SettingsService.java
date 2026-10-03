@@ -161,9 +161,11 @@ public class SettingsService {
     }
 
     /**
-     * Who may press those buttons: Telegram user id -> console username, from
-     * "12345=alice" pairs separated by commas or new lines. In a group anyone
-     * can press a button, so nobody outside this list is ever acted for.
+     * Who may press those buttons: Telegram id -> console username, from
+     * "12345=alice" pairs separated by commas or new lines. A positive id is a
+     * person; a negative one is a group, whose every member may then press.
+     * In a group anyone can press a button, so a press counts only if the
+     * person or the group they press in is listed here.
      */
     public Map<Long, String> telegramActionUsers() {
         Map<Long, String> out = new LinkedHashMap<>();

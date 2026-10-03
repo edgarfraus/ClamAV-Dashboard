@@ -59,7 +59,7 @@ one quarantined, forever. See [scanning.md](scanning.md#quarantine).
 | `app.telegram.botToken` | *(empty)* | Bot token from [@BotFather](https://t.me/botfather). |
 | `app.telegram.chatId` | *(empty)* | Chat or channel id to send to. |
 | `app.telegram.actions.enabled` | `false` | Quarantine / Restore buttons under alerts. See [scanning.md](scanning.md#from-telegram). |
-| `app.telegram.actionUsers` | *(empty)* | Who may press them: `<Telegram user id>=<console username>`, one per line. |
+| `app.telegram.actionUsers` | *(empty)* | Who may press them: `<Telegram id>=<console username>`, one per line. A person's id (positive) or a group's (negative: every member may press). |
 | `app.publicUrl` | *(empty)* | The console's address as people reach it; adds an *Open in console* button to alerts. |
 
 Notifications fire for **`VIRUS_FOUND` and `ERROR` only**, including results reported by agents.
